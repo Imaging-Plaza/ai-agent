@@ -1,0 +1,9 @@
+faiss-cpu
+numpy
+pydantic>=2
+sentence-transformers
+openai>=1.30.0
+requests
+python-dotenv
+gradio==5.42.0
+json5
