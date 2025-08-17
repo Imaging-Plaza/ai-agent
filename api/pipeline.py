@@ -1,93 +1,169 @@
 # api/pipeline.py
 from __future__ import annotations
-import shutil, os
-from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
 
-from retriever.embedders import LocalBGEEmbedder, VectorIndex, IndexItem, CrossEncoderReranker, SoftwareDoc
-from generator.generator import PlanAndCodeGenerator
-from generator.schema import CandidateDoc, PerceptionCues
-from executor.space_runner import call_space_flow, call_space_with_file, SpaceRunError
+import os
+import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from retriever.embedders import (
+    LocalBGEEmbedder,
+    VectorIndex,
+    IndexItem,
+    CrossEncoderReranker,
+    SoftwareDoc,   # ensure SoftwareDoc has your fields; optional .runnables supported but not required
+)
+from generator.generator import VLMToolSelector
+from generator.schema import CandidateDoc
+from utils.image_meta import summarize_image_metadata, detect_ext_token
+
+log = logging.getLogger("pipeline")
 
 
 class RAGImagingPipeline:
-    def __init__(self, docs: list[SoftwareDoc], workdir: str = "runs", hf_token: Optional[str] = None):
-        self.workdir = Path(workdir); self.workdir.mkdir(parents=True, exist_ok=True)
+    """
+    Retrieval (text-only) + single-call VLM selection (image + text + candidates + metadata) + base runnable link.
+    No server-side execution and no file deep-linking.
+    """
+
+    def __init__(self, docs: List[SoftwareDoc], workdir: str = "runs", hf_token: Optional[str] = None):
+        self.workdir = Path(workdir)
+        self.workdir.mkdir(parents=True, exist_ok=True)
+
+        # Build index
         self.embedder = LocalBGEEmbedder()
         self.index = VectorIndex(self.embedder)
         self.index.upsert([IndexItem(id=d.name, doc=d) for d in docs])
+
         self.reranker = CrossEncoderReranker()
-        self.gen = PlanAndCodeGenerator()
-        self.hf_token = hf_token
+        self.selector_vlm = VLMToolSelector()
+        self.hf_token = hf_token  # unused in link-out mode; kept for future
 
-    def recommend(self, query: str, top_k: int = 5) -> list[dict]:
+        # Confidence gate (env)
+        self.force_vlm = str(os.getenv("FORCE_VLM", "0")).lower() in ("1", "true", "yes", "on")
+        self.conf_margin = float(os.getenv("RERANK_MARGIN", "0.15"))
+        self.conf_top = float(os.getenv("RERANK_TOP", "0.90"))
+        log.info(
+            "Selector gate: FORCE_VLM=%s  RERANK_MARGIN=%.3f  RERANK_TOP=%.3f",
+            self.force_vlm, self.conf_margin, self.conf_top
+        )
+
+    # -------- Retrieval (text-only, but add a light format token) --------
+    def recommend(
+        self, user_task: str, image_path: Optional[str], top_k: int = 5
+    ) -> Tuple[List[dict], Dict[str, float]]:
+        """
+        Returns (hits, scores_summary).
+        Retrieval uses only text, plus a deterministic 'format:EXT' token if an image path is provided.
+        """
+        ext_tok = detect_ext_token(image_path)  # e.g., "TIF", "NII.GZ"
+        query = (user_task or "").strip()
+        if ext_tok:
+            query = f"{query} format:{ext_tok}"
+
         hits = self.index.search(query, k=20, reranker=self.reranker, rerank_top_k=top_k)
-        return hits
 
-    def select_with_generator(self, query: str, hits: list[dict], cues: Optional[PerceptionCues], image_path: str) -> Tuple[dict, dict]:
-        # Prepare candidates for the generator
+        # Log summary scores
+        try:
+            top = float(hits[0].get("rerank_score") or hits[0].get("score", 0.0)) if hits else 0.0
+            second = float(hits[1].get("rerank_score") or hits[1].get("score", 0.0)) if len(hits) > 1 else 0.0
+            margin = top - second
+        except Exception:
+            top = second = margin = 0.0
+
+        log.info("Query: %s", query)
+        log.info("Retrieval: top=%.3f  second=%.3f  margin=%.3f  (FORCE_VLM=%s)", top, second, margin, self.force_vlm)
+
+        # Per-hit DEBUG
+        for i, h in enumerate(hits, 1):
+            sim = float(h.get("score", 0.0))
+            rrs = float(h.get("rerank_score") or 0.0)
+            name = getattr(h["doc"], "name", "?")
+            log.debug("Hit %02d | name=%s | sim=%.3f | rerank=%.3f", i, name, sim, rrs)
+
+        # Stash for downstream debugging/telemetry if needed
+        for h in hits:
+            h["__sim__"] = float(h.get("score", 0.0))
+            h["__rerank__"] = float(h.get("rerank_score") or 0.0)
+
+        return hits, {"top": top, "second": second, "margin": margin}
+
+    # -------- Confidence gate --------
+    def _is_confident(self, hits: List[dict]) -> bool:
+        if self.force_vlm or not hits:
+            return False
+        top = float(hits[0].get("rerank_score") or hits[0].get("score", 0.0))
+        second = float(hits[1].get("rerank_score") or hits[1].get("score", 0.0)) if len(hits) > 1 else 0.0
+        return (top - second) > self.conf_margin or top >= self.conf_top
+
+    # -------- Selection (0-call if confident, else 1-call VLM) --------
+    def _select(self, user_task: str, hits: List[dict], image_path: Optional[str]) -> Tuple[dict, Dict[str, Any]]:
         candidates = [CandidateDoc(**h["doc"].model_dump()) for h in hits[:5]]
-        result = self.gen.generate(
-            user_task=query,
-            candidates=candidates,
-            image_path=image_path,
-            out_mask_path=str(self.workdir / "mask.nii.gz"),
-            overlay_png_path=str(self.workdir / "overlay.png"),
-            cues=cues,
-        )
-        # Find the chosen doc
-        chosen = next((h for h in hits if h["doc"].name == result.choice), hits[0])
-        return chosen, result.model_dump()
 
-    def run_space_for_choice(self, chosen, image_path):
-        doc = chosen["doc"]
-        timeout = getattr(doc, "space_timeout", None) or 1200
-        if getattr(doc, "hf_calls", None):
-            return call_space_flow(
-                hf_space=doc.hf_space,
+        # 0 calls: confident retrieval
+        if self._is_confident(hits):
+            chosen = hits[0]
+            sel_json = {
+                "choice": chosen["doc"].name,
+                "alternates": [h["doc"].name for h in hits[1:4]],
+                "why": "High-confidence retrieval; top candidate clearly dominates.",
+            }
+            return chosen, sel_json
+
+        # 1 call: single-shot VLM (image + text + candidates + metadata)
+        log.info("Using VLM selector (FORCE_VLM=%s)", self.force_vlm)
+        try:
+            meta_text = summarize_image_metadata(image_path) if image_path else None
+            sel = self.selector_vlm.select(
+                user_task=user_task,
+                candidates=candidates,
                 image_path=image_path,
-                calls=doc.hf_calls,
-                timeout=timeout,
-                hf_token=self.hf_token,
+                image_meta=meta_text,
             )
-        # fallback single-call (only for Spaces that really have one endpoint)
-        return call_space_with_file(
-            hf_space=doc.hf_space,
-            image_path=image_path,
-            api_name=getattr(doc, "hf_api_name", None),
-            timeout=timeout,
-            hf_token=self.hf_token,
-        )
+            chosen = next((h for h in hits if h["doc"].name == sel.choice), hits[0])
+            return chosen, sel.model_dump()
+        except Exception as e:
+            log.warning("VLM selector failed (%s). Falling back to top-1.", e)
+            chosen = hits[0]
+            sel_json = {
+                "choice": chosen["doc"].name,
+                "alternates": [h["doc"].name for h in hits[1:4]],
+                "why": "VLM unavailable; falling back to retrieval top-1.",
+            }
+            return chosen, sel_json
 
+    # -------- Link-out (base URL only) --------
+    def _best_runnable_link(self, doc: SoftwareDoc) -> Optional[str]:
+        """
+        Prefer catalog 'runnables' (lowest priority wins), else hf_space base URL, else None.
+        """
+        runnables = getattr(doc, "runnables", None) or []
+        if runnables:
+            r = sorted(runnables, key=lambda x: getattr(x, "priority", 100))[0]
+            base = getattr(r, "url", None)
+            if base:
+                return base
+        hf_space = getattr(doc, "hf_space", None)
+        if hf_space:
+            return f"https://huggingface.co/spaces/{hf_space}"
+        return None
 
-    def recommend_and_run(
-        self,
-        image_path: str,
-        user_task: str,
-        cues: Optional[PerceptionCues] = None,
-    ) -> Dict[str, Any]:
-        hits = self.recommend(user_task, top_k=5)
+    # -------- Public API --------
+    def recommend_and_link(self, image_path: Optional[str], user_task: str) -> Dict[str, Any]:
+        hits, scores = self.recommend(user_task, image_path, top_k=5)
         if not hits:
             return {"error": "No candidates found."}
 
-        chosen, gen_json = self.select_with_generator(user_task, hits, cues, image_path)
+        chosen, selection = self._select(user_task, hits, image_path)
+        doc: SoftwareDoc = chosen["doc"]
+        link = self._best_runnable_link(doc)
 
-        # Try primary; if it fails, try alternates with hf_space
-        errors = []
-        alt_hits = [chosen] + [h for h in hits if h["doc"].name != chosen["doc"].name]
-        for cand in alt_hits:
-            try:
-                image_out, raw_outputs = self.run_space_for_choice(cand, image_path)
-                return {
-                    "choice": cand["doc"].name,
-                    "alternates": [h["doc"].name for h in hits if h["doc"].name != cand["doc"].name][:2],
-                    "why": gen_json.get("why", ""),
-                    "result_image": image_out,
-                    "raw_outputs": raw_outputs,
-                    "generator": gen_json,
-                }
-            except Exception as e:
-                errors.append(str(e))
-                continue
-
-        return {"error": "All Spaces failed.", "errors": errors, "generator": gen_json}
+        result: Dict[str, Any] = {
+            "choice": doc.name,
+            "why": selection.get("why", ""),
+            "alternates": [h["doc"].name for h in hits if h["doc"].name != doc.name][:3],
+            "scores": {k: round(v, 3) for k, v in scores.items()},
+        }
+        if link:
+            result["demo_link"] = link
+        return result
