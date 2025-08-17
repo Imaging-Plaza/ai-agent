@@ -37,7 +37,6 @@ class SoftwareDoc(BaseModel):
     space_input: Optional[str] = "file"     # "file" | "image" | "url"
     space_params: Dict[str, Any] = Field(default_factory=dict)
     space_timeout: Optional[int] = 600
-    hf_calls: List[Dict[str, Any]] = Field(default_factory=list)
 
     def to_retrieval_text(self) -> str:
         """Compact serialization for embedding/retrieval."""

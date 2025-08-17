@@ -39,7 +39,6 @@ class CandidateDoc(BaseModel):
     hf_space: Optional[str] = None
     hf_api_name: Optional[str] = None
     space_timeout: Optional[int] = None
-    hf_calls: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class PlanAndCode(BaseModel):
