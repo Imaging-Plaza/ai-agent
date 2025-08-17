@@ -7,3 +7,6 @@ requests
 python-dotenv
 gradio==5.42.0
 json5
+pillow
+nibabel
+tifffile
