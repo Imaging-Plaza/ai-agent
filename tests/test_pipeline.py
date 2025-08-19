@@ -1,6 +1,4 @@
 """
-examples/wireup.py
-
 End-to-end demo:
 1) build a small software index (FAISS over BGE-M3 embeddings),
 2) run a query + cross-encoder reranking,
@@ -35,7 +33,7 @@ log.info("Initializing embedder and vector index...")
 embedder = LocalBGEEmbedder()
 index = VectorIndex(embedder)
 
-# Define a tiny catalog of software entries (normally you'd load many from JSONL)
+# Define a tiny test catalog of software entries (normally you'd load many from JSONL)
 # This single entry claims: CT, 3D, segmentation, Python, CPU OK, TIFF/TIF inputs.
 docs = [
     SoftwareDoc(
