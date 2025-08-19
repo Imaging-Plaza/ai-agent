@@ -51,12 +51,12 @@ OPENAI_API_KEY=sk-xxxx
 OPENAI_VLM_MODEL=gpt-4o
 OPENAI_MODEL=gpt-4o-mini
 
-# Catalog + workdir
-SOFTWARE_CATALOG=data/sample.jsonl
-RAG_WORKDIR=runs
+# Software catalog
+SOFTWARE_CATALOG=path/to/your/catalog.jsonl
 
 # Logging
-DEBUG=1
+LOGLEVEL_CONSOLE=WARNING     # INFO or WARNING
+LOGLEVEL_FILE=INFO       # INFO or DEBUG
 FILE_LOG=1
 LOG_DIR=logs
 LOG_PROMPTS=1            # write selector prompt snapshots (text + the PNG preview the VLM saw)
