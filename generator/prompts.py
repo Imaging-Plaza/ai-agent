@@ -15,7 +15,7 @@ def _fmt_candidate(c: CandidateDoc) -> str:
         f"tasks=[{_csv(c.tasks)}] | "
         f"modality=[{_csv(c.modality)}] | "
         f"dims=[{_csv(c.dims)}] | "
-        f"anatomy=[{_csv(c.anatomy)}] | "
+        # f"anatomy=[{_csv(c.anatomy)}] | "
         f"inputs=[{_csv(c.input_formats)}] | "
         f"outputs=[{_csv(c.output_types)}] | "
         f"language={c.language or ''} | "
@@ -66,7 +66,7 @@ def build_user_prompt(
     if cues:
         if cues.modality: cue_lines.append(f"modality={cues.modality}")
         if cues.dims:     cue_lines.append(f"dims={cues.dims}")
-        if cues.anatomy:  cue_lines.append(f"anatomy={cues.anatomy}")
+        # if cues.anatomy:  cue_lines.append(f"anatomy={cues.anatomy}")
         if cues.task:     cue_lines.append(f"task={cues.task}")
         if cues.io_hint:  cue_lines.append(f"io_hint={cues.io_hint}")
 
@@ -117,7 +117,7 @@ def build_selector_prompt(
     if cues:
         if cues.modality: cue_lines.append(f"modality={cues.modality}")
         if cues.dims:     cue_lines.append(f"dims={cues.dims}")
-        if cues.anatomy:  cue_lines.append(f"anatomy={cues.anatomy}")
+        # if cues.anatomy:  cue_lines.append(f"anatomy={cues.anatomy}")
         if cues.task:     cue_lines.append(f"task={cues.task}")
         if cues.io_hint:  cue_lines.append(f"io_hint={cues.io_hint}")
 
