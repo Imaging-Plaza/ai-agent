@@ -26,9 +26,7 @@ class RAGImagingPipeline:
     No server-side execution and no file deep-linking.
     """
 
-    def __init__(self, docs: List[SoftwareDoc], workdir: str = "runs", hf_token: Optional[str] = None):
-        self.workdir = Path(workdir)
-        self.workdir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, docs: List[SoftwareDoc], hf_token: Optional[str] = None):
 
         # Build index
         self.embedder = LocalBGEEmbedder()

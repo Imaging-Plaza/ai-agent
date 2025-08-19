@@ -53,7 +53,7 @@ from typing import Optional, Any, List
 import gradio as gr
 
 from retriever.embedders import SoftwareDoc
-from api.pipeline import RAGImagingPipeline  # exposes recommend_and_link()
+from api.pipeline import RAGImagingPipeline
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
@@ -112,7 +112,7 @@ def get_pipeline() -> RAGImagingPipeline:
     if _pipe is None:
         docs = _load_catalog(CATALOG_PATH)
         log.info("Loaded %d tools from %s", len(docs), CATALOG_PATH)
-        _pipe = RAGImagingPipeline(docs, workdir=WORKDIR)
+        _pipe = RAGImagingPipeline(docs)
         log.info("Pipeline ready")
     return _pipe
 
