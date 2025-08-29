@@ -87,25 +87,42 @@ The catalog is JSON **or** JSONL. Each line/object is a **SoftwareDoc**. Minimal
 ```json
 {
   "name": "3d-lungs-segmentation",
-  "tasks": ["segmentation"],
-  "modality": ["CT"],
-  "dims": ["3D"],
-  "anatomy": ["lung"],
-  "input_formats": ["TIFF","TIF"],
-  "output_types": ["mask"],
-  "language": "Python",
-  "gpu_required": false,
-  "license": "Apache-2.0",
-
   "description": "3D lung segmentation from CT; returns a mask/overlay.",
 
-  // Runnable entry points (optional; first by priority is used for the "Open demo" link)
-  "runnables": [
-    { "type": "gradio", "url": "https://huggingface.co/spaces/qchapp/3d-lungs-segmentation", "priority": 10 }
+  "applicationCategory": [],
+  "featureList": ["segmentation"],
+  "imagingModality": ["CT"],
+  "dims": [3],
+  "anatomy": ["lung"],
+  "keywords": ["mask", "overlay", "lung segmentation", "CT"],
+
+  "programmingLanguage": "Python",
+  "requiresGPU": false,
+  "isAccessibleForFree": true,
+  "license": "Apache-2.0",
+
+  "supportingData": [
+    {
+      "datasetFormat": "TIFF",
+      "bodySite": "lung",
+      "imagingModality": "CT",
+      "hasDimensionality": 3
+    },
+    {
+      "datasetFormat": "TIF",
+      "bodySite": "lung",
+      "imagingModality": "CT",
+      "hasDimensionality": 3
+    }
   ],
 
-  // Back-compat: if you still use hf_space only
-  "hf_space": "qchapp/3d-lungs-segmentation"
+  "runnableExample": [
+    {
+      "hostType": "gradio",
+      "url": "https://huggingface.co/spaces/qchapp/3d-lungs-segmentation",
+      "name": "HF Space"
+    }
+  ]
 }
 ```
 
@@ -173,6 +190,8 @@ data/
   sample.jsonl        # example catalog
 logs/
   ...                 # rotating app logs + prompt snapshots
+scripts/
+  ...                 # some preprocessing scripts for the dataset curation
 ```
 
 ---
@@ -191,13 +210,13 @@ logs/
 ## Future improvements
 
 - [ ] **Deep links**: detect Space endpoints that accept `file_url` and assemble a *safe* one-click URL when explicitly allowed by the maintainer.
-- [ ] **Notebook/JVM runnable examples**: add known viewer/launcher patterns (e.g., nbviewer URLs, custom JVM launch pages) to `runnables`.
+- [x] **Notebook/JVM runnable examples**: add known viewer/launcher patterns (e.g., nbviewer URLs, custom JVM launch pages) to `runnables`.
 - [ ] **Multi-image/volume support**: accept stacks, 3D/4D previews, and summarize more DICOM/NIfTI metadata.
 - [ ] **Additional VLM providers**: add Anthropic/Google or local VLMs behind a simple provider interface.
-- [ ] **Index persistence**: save FAISS index to disk; incremental updates.
+- [x] **Index persistence**: save FAISS index to disk; incremental updates.
 - [ ] **Reranker finetuning**: train a domain reranker on curated (query, tool) pairs.
 - [ ] **Evaluation harness**: small benchmark set (queries + ground-truth tool) with metrics.
-- [ ] **Catalog ingestion**: adding all Imaging Plaza softwares to the catalog.
+- [x] **Catalog ingestion**: adding all Imaging Plaza softwares to the catalog.
 - [ ] **UI extras**: history, “copy link”, toolcards with tags, lightweight analytics (opt-in).
 - [ ] **Containerization**: Dockerfile + Compose for easy deploy.
 - [ ] **Testing/CI**: unit tests for metadata, prompt builders, and link selectors.
