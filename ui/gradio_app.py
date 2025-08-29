@@ -8,11 +8,9 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- env ----------------------------------------------------------------------
-try:
-    from dotenv import load_dotenv, find_dotenv
-    load_dotenv(find_dotenv(), override=False)
-except Exception:
-    pass
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=False)
+
 
 # --- logging (console + rotating file, DEBUG via DEBUG=1) ---------------------
 import logging, logging.handlers
@@ -49,7 +47,7 @@ log.info("Starting Gradio UI")
 
 # --- imports that rely on sys.path -------------------------------------------
 from pathlib import Path
-from typing import Optional, Any, List
+from typing import Optional, List
 import gradio as gr
 
 from retriever.embedders import SoftwareDoc
@@ -78,10 +76,7 @@ def _load_catalog(path: str) -> List[SoftwareDoc]:
         obj = json.loads(text)
         obj = [obj] if isinstance(obj, dict) else obj
         for o in obj:
-            try:
-                docs.append(SoftwareDoc.model_validate(o))  # pydantic v2
-            except Exception:
-                docs.append(SoftwareDoc.parse_obj(o))       # pydantic v1
+            docs.append(SoftwareDoc.model_validate(o))
         return docs
     except Exception:
         pass
@@ -93,10 +88,7 @@ def _load_catalog(path: str) -> List[SoftwareDoc]:
             continue
         try:
             o = json.loads(line)
-            try:
-                docs.append(SoftwareDoc.model_validate(o))
-            except Exception:
-                docs.append(SoftwareDoc.parse_obj(o))
+            docs.append(SoftwareDoc.model_validate(o))
         except Exception as e:
             snippet = (line[:160] + "…") if len(line) > 160 else line
             raise ValueError(f"Invalid catalog JSON on line {i}:\n{snippet}\n\nError: {e}")
@@ -112,7 +104,7 @@ def get_pipeline() -> RAGImagingPipeline:
     if _pipe is None:
         docs = _load_catalog(CATALOG_PATH)
         log.info("Loaded %d tools from %s", len(docs), CATALOG_PATH)
-        _pipe = RAGImagingPipeline(docs)
+        _pipe = RAGImagingPipeline(docs=docs, index_dir="artifacts/rag_index")
         log.info("Pipeline ready")
     return _pipe
 
@@ -163,11 +155,14 @@ def run_agent(task_text: str, image_file):
 
     why_md = result.get("why", "")
     scores = result.get("scores")
+    alternates = result.get("alternates", [])
     if scores:
         why_md += (
             f"\n\nConfidence: top={scores['top']:.3f}, "
             f"second={scores['second']:.3f}, margin={scores['margin']:.3f}"
         )
+    if alternates:
+        why_md += "\n\nOther candidates considered: " + ", ".join(f"`{a}`" for a in alternates)
 
     yield choice_md, link_md, (why_md or "")
 
