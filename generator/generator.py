@@ -61,23 +61,6 @@ class OpenAIProvider(LLMProvider):
             self.log.info("Saved prompt log → %s", self.last_logfile)
         return text
 
-# won't be useful for now, but kept for reference
-class GenericHTTPProvider(LLMProvider):
-    def __init__(self, endpoint: Optional[str] = None):
-        import requests
-        self.requests = requests
-        self.endpoint = endpoint or os.getenv("RAG_GEN_ENDPOINT", "http://localhost:8000/generate")
-    def generate_json(self, system: str, user: str, response_schema_name: str = "json") -> str:
-        r = self.requests.post(self.endpoint, json={"system": system, "user": user}, timeout=120)
-        r.raise_for_status()
-        return r.json().get("text", "")
-
-def extract_first_json(text: str) -> str:
-    m = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not m:
-        raise ValueError("No JSON object found in model output.")
-    return m.group(0)
-
 # -------- Single-call VLM selector --------
 class VLMToolSelector:
     """
@@ -99,19 +82,23 @@ class VLMToolSelector:
         self.last_usage: Optional[dict] = None
         self.last_logfile: Optional[str] = None
 
+
     @staticmethod
     def _save_prompt(kind: str, model: str, system: str, user_text: str,
-                     data_url: Optional[str]) -> Optional[str]:
-        """Save a small .txt with system+user and, if present, a .png of the exact image."""
+                    data_url: Optional[str], response_text: Optional[str] = None,
+                    usage: Optional[dict] = None) -> Optional[str]:
+        """Save a .txt with system+user (+ image note) and, if present, the response and usage."""
         if str(os.getenv("LOG_PROMPTS", "")).lower() not in ("1", "true", "yes", "on"):
             return None
         from datetime import datetime
         from pathlib import Path
         import base64
+
         Path("logs").mkdir(exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         txt_path = Path("logs") / f"{kind}_{ts}.txt"
         png_path = None
+
         if data_url and data_url.startswith("data:image/png;base64,"):
             try:
                 img_b64 = data_url.split(",", 1)[1]
@@ -120,16 +107,19 @@ class VLMToolSelector:
                 png_path.write_bytes(img_bytes)
             except Exception:
                 png_path = None
+
         with txt_path.open("w", encoding="utf-8") as f:
             f.write(f"MODEL: {model}\n\n")
-            f.write("--- SYSTEM ---\n")
-            f.write(system.strip() + "\n\n")
-            f.write("--- USER (text) ---\n")
-            f.write(user_text.strip() + "\n\n")
+            f.write("--- SYSTEM ---\n" + system.strip() + "\n\n")
+            f.write("--- USER (text) ---\n" + user_text.strip() + "\n\n")
             if png_path:
-                f.write(f"--- IMAGE ---\nSaved PNG: {png_path}\n")
+                f.write(f"--- IMAGE ---\nSaved PNG: {png_path}\n\n")
             elif data_url:
-                f.write(f"--- IMAGE ---\n(data-url length: {len(data_url)})\n")
+                f.write(f"--- IMAGE ---\n(data-url length: {len(data_url)})\n\n")
+            if response_text is not None:
+                f.write("--- RESPONSE ---\n" + response_text.strip() + "\n\n")
+            if usage:
+                f.write("--- USAGE ---\n" + str(usage) + "\n")
         return str(txt_path)
 
     def select(
@@ -141,26 +131,37 @@ class VLMToolSelector:
     ) -> "ToolSelection":
         """
         Build one chat.completions request with:
-          - system: selection rules
-          - user content: text block (task + candidates + metadata) + image (PNG data URL)
+        - system: selection rules
+        - user: text block (task + candidates + optional metadata) + optional image (PNG data URL)
         Returns ToolSelection(choice, alternates, why).
+        Robust to empty/non-JSON responses and always logs prompt (+ response if available).
         """
         from generator.prompts import SELECTOR_SYSTEM
         from generator.schema import ToolSelection, CandidateDoc
         from utils.image_analyzer import _to_supported_png_dataurl as to_data_url
 
-        # compact candidate lines
+        # ---- Build compact candidate list
+        def _csv(seq) -> str:
+            return ",".join(str(x) for x in (seq or []) if x not in (None, ""))
+
         def fmt(c: CandidateDoc) -> str:
+            dims_str = ",".join(f"{d}D" for d in (c.dims or []))
             return (
-                f"- {c.name} | tasks={','.join(c.tasks)} | modality={','.join(c.modality)} | "
-                f"dims={','.join(c.dims)} | inputs={','.join(c.input_formats)} | "
-                f"outputs={','.join(c.output_types)}"
+                f"- {c.name or ''} | "
+                f"tasks={_csv(c.tasks)} | "
+                f"modality={_csv(c.modality)} | "
+                f"dims={dims_str} | "
+                f"lang={c.programming_language or ''} | "
+                f"gpu={'' if c.gpu_required is None else c.gpu_required} | "
+                f"url={c.url or ''}"
             )
+
         cand_block = "\n".join(fmt(c) for c in candidates)
-
-        meta_note = "NOTE: Prefer candidates matching the original file extension indicated in 'Image metadata'.\n" if image_meta else ""
+        meta_note = (
+            "NOTE: Prefer candidates matching the original file extension indicated in 'Image metadata'.\n"
+            if image_meta else ""
+        )
         meta_block = f"\nImage metadata: {image_meta}" if image_meta else ""
-
         user_text = (
             f"User task: {user_task}\n"
             f"{meta_note}"
@@ -168,8 +169,8 @@ class VLMToolSelector:
             f"Return STRICT JSON with keys: choice, alternates, why.{meta_block}"
         )
 
-        # add image preview (converted to PNG data URL)
-        data_url = None
+        # ---- Build message parts (include image if available)
+        data_url: Optional[str] = None
         parts: List[Dict[str, Any]] = [{"type": "text", "text": user_text}]
         if image_path:
             url = to_data_url(image_path)
@@ -179,34 +180,61 @@ class VLMToolSelector:
             else:
                 self.log.warning("VLM selector: could not convert image; proceeding text-only.")
 
-        # log prompt files if enabled
-        self.last_logfile = self._save_prompt(
-            kind="vlm_selector",
-            model=self.model,
-            system=SELECTOR_SYSTEM,
-            user_text=user_text,
-            data_url=data_url,
-        )
-        if self.last_logfile:
-            self.log.info("Saved VLM selector prompt → %s", self.last_logfile)
-
-        # call VLM
+        # ---- Call model safely
         self.log.info("VLM selector model=%s", self.model)
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": SELECTOR_SYSTEM},
-                {"role": "user", "content": parts},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.0,
-        )
-        text = resp.choices[0].message.content
-        try:
-            usage = resp.usage.model_dump()
-        except Exception:
-            usage = getattr(resp, "usage", None)
-        self.last_usage = usage if isinstance(usage, dict) else None
 
-        data = json.loads(text)
-        return ToolSelection(**data)
+        text: Optional[str] = None
+        usage: Optional[dict] = None
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SELECTOR_SYSTEM},
+                    {"role": "user", "content": parts},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+            )
+
+            # Extract response content and usage
+            text = (resp.choices[0].message.content or "")
+            try:
+                usage = resp.usage.model_dump()
+            except Exception:
+                usage = getattr(resp, "usage", None)
+            self.last_usage = usage if isinstance(usage, dict) else None
+
+            # Guard against empty/whitespace responses
+            if not text.strip():
+                raise RuntimeError("Model returned empty content for JSON response.")
+
+            # Parse JSON and validate required keys
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as e:
+                preview = text[:200].replace("\n", " ")
+                raise RuntimeError(f"Model returned non-JSON content: {preview!r}") from e
+
+            for k in ("choice", "alternates", "why"):
+                if k not in data:
+                    raise RuntimeError(f"JSON missing required key: {k}")
+
+            return ToolSelection(**data)
+
+        finally:
+            # Always attempt to log prompt (+ response/usage if present); never let logging crash the flow
+            try:
+                self.last_logfile = self._save_prompt(
+                    kind="vlm_selector",
+                    model=self.model,
+                    system=SELECTOR_SYSTEM,
+                    user_text=user_text,
+                    data_url=data_url,
+                    response_text=text,  # may be None/empty on failure
+                    usage=self.last_usage if hasattr(self, "last_usage") else usage,
+                )
+                if self.last_logfile:
+                    self.log.info("Saved VLM selector prompt → %s", self.last_logfile)
+            except Exception:
+                self.log.exception("Failed to save VLM selector prompt log")
+
