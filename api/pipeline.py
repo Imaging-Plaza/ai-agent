@@ -3,27 +3,35 @@ from __future__ import annotations
 
 import os
 import logging
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 
 from retriever.embedders import (
     LocalBGEEmbedder,
     VectorIndex,
     IndexItem,
     CrossEncoderReranker,
-    SoftwareDoc,   # ensure SoftwareDoc maps your catalog; optional .runnables supported
+    SoftwareDoc,  # ensure SoftwareDoc maps your catalog; optional .runnables supported
 )
 from generator.generator import VLMToolSelector
 from generator.schema import CandidateDoc
+
+# NOTE: these now handle LISTS of paths and richer metadata
 from utils.image_meta import summarize_image_metadata, detect_ext_token
+# New helpers for loading and previews
+from utils.image_io import load_any
+from utils.previews import mip_montage, slice_gif, stack_sweep_gif, contact_sheet_slices
 
 log = logging.getLogger("pipeline")
 
 
 class RAGImagingPipeline:
     """
-    Retrieval (text-only) + single-call VLM selection (image + text + candidates + metadata) + base runnable link.
-    Persists FAISS to disk and keeps it in sync with catalog changes.
+    Retrieval (text-only) + single-call VLM selection (multi-image aware: image(s)/volume(s) + text + candidates + metadata)
+    + base runnable link. Persists FAISS to disk and keeps it in sync with catalog changes.
     """
 
     def __init__(
@@ -127,11 +135,14 @@ class RAGImagingPipeline:
                     break
         return out
 
-    # -------- Retrieval (text-only, optional format token) --------
+    # -------- Retrieval (text-only, optional format token from MULTIPLE paths) --------
     def recommend(
-        self, user_task: str, image_path: Optional[str], top_k: int = 5
+        self, user_task: str, image_paths: Optional[List[str]], top_k: int = 5
     ) -> Tuple[List[dict], Dict[str, float]]:
-        ext_tok = detect_ext_token(image_path)  # e.g., "TIF", "NII.GZ"
+        """
+        image_paths: list of file/folder/zip paths. We don't load data here; we only derive a format token.
+        """
+        ext_tok = detect_ext_token(image_paths)  # e.g., "DICOM NIfTI TIFF"
         query = (user_task or "").strip()
         if ext_tok:
             query = f"{query} format:{ext_tok}"
@@ -139,6 +150,7 @@ class RAGImagingPipeline:
         raw_hits = self.index.search(query, k=50, reranker=None)
         hits = self._apply_reranker(query, raw_hits, top_k=top_k)
 
+        # score summary
         try:
             top = float(hits[0].get("rerank_score") or hits[0].get("score", 0.0)) if hits else 0.0
             second = float(hits[1].get("rerank_score") or hits[1].get("score", 0.0)) if len(hits) > 1 else 0.0
@@ -161,18 +173,95 @@ class RAGImagingPipeline:
 
         return hits, {"top": top, "second": second, "margin": margin}
 
-    # -------- Confidence gate --------
-    def _is_confident(self, hits: List[dict]) -> bool:
-        if self.force_vlm or not hits:
-            return False
-        top = float(hits[0].get("rerank_score") or hits[0].get("score", 0.0))
-        second = float(hits[1].get("rerank_score") or hits[1].get("score", 0.0)) if len(hits) > 1 else 0.0
-        return (top - second) > self.conf_margin or top >= self.conf_top
+    # -------- Build a single preview (PNG/GIF) + metadata text for VLM --------
+    def _build_preview_for_vlm(self, image_paths: Optional[List[str]]) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Returns (preview_path, meta_text). preview_path is a PNG (MIP montage) or GIF (slice sweep),
+        stored in a temp dir. meta_text is a concise summary of all inputs.
+        """
+        if not image_paths:
+            return None, None
 
-    # -------- Selection (0-call if confident, else 1-call VLM) --------
+        meta_text = None
+        try:
+            meta_text = summarize_image_metadata(image_paths)
+        except Exception:
+            log.exception("Image metadata summarization failed; continuing without metadata.")
+
+        # choose the first readable item and create a compact visual summary
+        for p in image_paths:
+            try:
+                data, meta = load_any(p)
+                shp = getattr(meta, "shape", None) or meta.get("shape")
+                if shp is None:
+                    shp = getattr(data, "shape", None)
+                if shp is None:
+                    continue
+
+                tmpdir = Path(tempfile.mkdtemp(prefix="preview_"))
+
+                # 3D volume -> MIP montage
+                if len(shp) == 3:
+                    # 3D: create BOTH a contact-sheet PNG (for the VLM) and a GIF (for humans)
+                    png_path = tmpdir / "slices_grid.png"
+                    gif_path = tmpdir / "sweep.gif"
+
+                    # 1) Contact-sheet PNG (preferred for VLM)
+                    try:
+                        contact_sheet_slices(data, png_path, max_slices=36, grid_cols=6)
+                    except Exception:
+                        # fallback to MIP if grid fails
+                        try:
+                            mip_montage(data, png_path)
+                        except Exception:
+                            log.warning("Failed to create MIP/ContactSheet PNG; will try GIF only.")
+
+                    # 2) Optional GIF for debugging (not passed to VLM)
+                    try:
+                        stack_sweep_gif(data, gif_path, fps=12, max_frames=64)
+                        log.info("Wrote 3D GIF preview: %s (%d bytes)", gif_path, os.path.getsize(gif_path))
+                    except Exception:
+                        pass
+
+                    if png_path.exists():
+                        log.info("Using PNG preview for VLM: %s (%d bytes)", png_path, os.path.getsize(png_path))
+                        return str(png_path), meta_text
+
+                    # As an absolute fallback, if PNG failed but GIF exists (selector may convert it)
+                    if gif_path.exists():
+                        log.info("Falling back to GIF for VLM: %s", gif_path)
+                        return str(gif_path), meta_text
+
+                # 4D -> mean over time, slice sweep GIF
+                if len(shp) == 4:
+                    vol = np.asarray(data).mean(axis=-1)
+                    out = tmpdir / "sweep.gif"
+                    step = max(1, vol.shape[2] // 64)
+                    slice_gif(vol, out, axis=2, step=step, fps=12)
+                    return str(out), meta_text
+
+                # 2D image -> save as PNG
+                if len(shp) == 2:
+                    out = tmpdir / "image.png"
+                    try:
+                        import imageio.v3 as iio
+                        arr = data
+                        if arr.dtype != np.uint8:
+                            arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
+                        iio.imwrite(str(out), arr)
+                        return str(out), meta_text
+                    except Exception:
+                        # if writing fails, skip to next path
+                        pass
+            except Exception:
+                continue
+
+        return None, meta_text
+
+    # -------- Selection (0-call if confident, else 1-call VLM with preview) --------
     def _select(
-        self, user_task: str, hits: List[dict], image_path: Optional[str]
-    ) -> Tuple[Optional[dict], Dict[str, Any]]:  # <-- return Optional[dict]
+        self, user_task: str, hits: List[dict], image_paths: Optional[List[str]]
+    ) -> Tuple[Optional[dict], Dict[str, Any]]:
         # Build candidates safely (limit to first 5 hits)
         candidates = []
         for h in hits[:5]:
@@ -193,17 +282,14 @@ class RAGImagingPipeline:
 
         log.info("Using VLM selector (FORCE_VLM=%s)", getattr(self, "force_vlm", None))
 
-        meta_text = None
-        try:
-            meta_text = summarize_image_metadata(image_path) if image_path else None
-        except Exception:
-            log.exception("Image metadata summarization failed; continuing without metadata.")
+        preview_path, meta_text = self._build_preview_for_vlm(image_paths)
+        log.info("Selector preview → %s", preview_path or "<none>")
 
         try:
             sel = self.selector_vlm.select(
                 user_task=user_task,
                 candidates=candidates,
-                image_path=image_path,
+                image_path=preview_path,   # single preview given to the VLM
                 image_meta=meta_text,
             )
             sel_json = sel.model_dump()
@@ -213,11 +299,16 @@ class RAGImagingPipeline:
                 return None, sel_json
 
             # Otherwise map to a hit; if not found, fallback to top-1
-            chosen = next((h for h in hits if h["doc"].name == sel.choice), hits[0])
+            chosen = next((h for h in hits if h["doc"].name == sel.choice), None)
+            if chosen is None and hits:
+                chosen = hits[0]
             return chosen, sel_json
 
         except Exception as e:
             log.exception("VLM selector failed. Falling back to top-1.")
+            if not hits:
+                return None, {"choice": "none", "alternates": [], "why": "VLM failed and no retrieval hits."}
+
             chosen = hits[0]
             alternates = [h["doc"].name for h in hits[1:4]]
             log_path_note = ""
@@ -232,10 +323,17 @@ class RAGImagingPipeline:
                 "choice": chosen["doc"].name,
                 "alternates": alternates,
                 "why": f"VLM unavailable or errored ('{e.__class__.__name__}: {e}'); "
-                    f"falling back to retrieval top-1{log_path_note}.",
+                       f"falling back to retrieval top-1{log_path_note}.",
             }
             return chosen, sel_json
 
+    # -------- Confidence gate --------
+    def _is_confident(self, hits: List[dict]) -> bool:
+        if self.force_vlm or not hits:
+            return False
+        top = float(hits[0].get("rerank_score") or hits[0].get("score", 0.0))
+        second = float(hits[1].get("rerank_score") or hits[1].get("score", 0.0)) if len(hits) > 1 else 0.0
+        return (top - second) > self.conf_margin or top >= self.conf_top
 
     # -------- Link-out (base URL only) --------
     def _best_runnable_link(self, doc: SoftwareDoc) -> Optional[str]:
@@ -266,7 +364,7 @@ class RAGImagingPipeline:
             return None
 
         # Preference order: runnable example first, then executable notebook
-        for items in (doc.runnable_example or [], doc.has_executable_notebook or []):
+        for items in (getattr(doc, "runnable_example", None) or [], getattr(doc, "has_executable_notebook", None) or []):
             try:
                 items_sorted = sorted(items, key=priority)
             except Exception:
@@ -279,13 +377,17 @@ class RAGImagingPipeline:
         return None
 
     # -------- Public API --------
-    def recommend_and_link(self, image_path: Optional[str], user_task: str) -> Dict[str, Any]:
-        hits, scores = self.recommend(user_task, image_path, top_k=5)
+    def recommend_and_link(self, image_paths: Optional[List[str]], user_task: str) -> Dict[str, Any]:
+        """
+        image_paths: list of file/folder/zip paths; can include DICOM series (dirs/zips), NIfTI, TIFF stacks, etc.
+        """
+        hits, scores = self.recommend(user_task, image_paths, top_k=5)
         if not hits:
             return {"error": "No candidates found."}
 
-        chosen, selection = self._select(user_task, hits, image_path)
+        chosen, selection = self._select(user_task, hits, image_paths)
 
+        # Propagate 'none' from the selector
         if chosen is None or (selection.get("choice", "").strip().lower() == "none"):
             return {
                 "choice": "none",
@@ -306,4 +408,3 @@ class RAGImagingPipeline:
         if link:
             result["demo_link"] = link
         return result
-

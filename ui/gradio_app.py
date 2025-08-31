@@ -11,7 +11,6 @@ if ROOT not in sys.path:
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(), override=False)
 
-
 # --- logging (console + rotating file, DEBUG via DEBUG=1) ---------------------
 import logging, logging.handlers
 from datetime import datetime
@@ -109,44 +108,58 @@ def get_pipeline() -> RAGImagingPipeline:
     return _pipe
 
 # --- helpers ------------------------------------------------------------------
-def _coerce_gradio_file_to_path(fobj) -> Optional[str]:
+def _coerce_gradio_files_to_paths(fobjs) -> List[str]:
     """
-    Gradio File can be a str (path) or dict with 'name'/'path' depending on version.
+    Gradio 'Files' returns a list where each item can be a str (path) or dict with 'name'/'path'.
     """
-    if not fobj:
-        return None
-    if isinstance(fobj, str):
-        return fobj
-    if isinstance(fobj, dict):
-        return fobj.get("name") or fobj.get("path")
-    return None
+    out: List[str] = []
+    if not fobjs:
+        return out
+    for f in fobjs:
+        if isinstance(f, str):
+            out.append(f)
+        elif isinstance(f, dict):
+            p = f.get("name") or f.get("path")
+            if p:
+                out.append(p)
+    # de-dup while preserving order
+    seen = set()
+    deduped = []
+    for p in out:
+        if p not in seen:
+            seen.add(p)
+            deduped.append(p)
+    return deduped
 
 # --- main action (streaming with progress messages) ---------------------------
-def run_agent(task_text: str, image_file):
+def run_agent(task_text: str, uploaded_files):
     if not task_text:
         yield "", "", "Please describe your task."
         return
 
-    img_path = _coerce_gradio_file_to_path(image_file)
-    if img_path and not os.path.exists(img_path):
-        yield "", "", "Could not read the uploaded file path."
-        return
+    image_paths = _coerce_gradio_files_to_paths(uploaded_files)
+    for p in image_paths:
+        if not os.path.exists(p) and not os.path.isdir(p):
+            yield "", "", f"Could not read uploaded path: {p}"
+            return
 
     # Step 1: announce start
     yield "⏳ Analyzing request…", "_Preparing…_", ""
     pipe = get_pipeline()
 
-    # Step 2: retrieval stage (text-only + optional format token)
+    # Step 2: retrieval stage (text-only + optional format tokens from inputs)
     yield "⏳ Retrieving candidates…", "_Searching & reranking…_", ""
 
-    # Step 3: selection (single VLM call happens inside the pipeline)
-    result = pipe.recommend_and_link(image_path=img_path, user_task=task_text)
+    # Step 3: selection (single VLM call happens inside the pipeline; it will build a preview)
+    result = pipe.recommend_and_link(image_paths=image_paths, user_task=task_text)
     if "error" in result:
         yield "", "", f"❌ {result['error']}"
         return
 
     # Final: present results (no data return, only link out)
-    choice_md = f"**Selected software:** `{result['choice']}`"
+    choice = result.get("choice", "")
+    choice_md = f"**Selected software:** `{choice}`" if choice else "**Selected software:** _none_"
+
     link_md = (
         f"[Open runnable demo]({result['demo_link']})"
         if result.get("demo_link")
@@ -154,12 +167,16 @@ def run_agent(task_text: str, image_file):
     )
 
     why_md = result.get("why", "")
-    scores = result.get("scores")
+    scores = result.get("scores") or {}
     alternates = result.get("alternates", [])
+
     if scores:
+        top = scores.get("top", 0.0)
+        second = scores.get("second", 0.0)
+        margin = scores.get("margin", 0.0)
         why_md += (
-            f"\n\nConfidence: top={scores['top']:.3f}, "
-            f"second={scores['second']:.3f}, margin={scores['margin']:.3f}"
+            f"\n\nConfidence: top={top:.3f}, "
+            f"second={second:.3f}, margin={margin:.3f}"
         )
     if alternates:
         why_md += "\n\nOther candidates considered: " + ", ".join(f"`{a}`" for a in alternates)
@@ -173,7 +190,7 @@ def reset_all():
 with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
     gr.Markdown(
         "## 🔎 AI-assisted software picker\n"
-        "Describe your task and (optionally) drop an image. "
+        "Describe your task and (optionally) drop one or more images/volumes. "
         "We’ll select the best software and send you to its public runnable demo (when available)."
     )
 
@@ -183,12 +200,16 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
             placeholder='e.g., "Segment the lungs" or "Deblur this photo"',
             lines=2,
         )
-    image_in = gr.File(
-        label="Image (drag & drop)",
-        file_count="single",
+
+    images_in = gr.Files(
+        label="Images / volumes (drag & drop multiple; DICOM zip/folder, NIfTI, TIFF, PNG/JPEG, etc.)",
+        file_count="multiple",
+        type="filepath",  # ensures we receive local paths
         file_types=[
-            ".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp", ".webp",
-            ".nii", ".nii.gz"
+            ".zip", ".dcm",  # DICOM (zip of a series, or individual files)
+            ".nii", ".nii.gz",  # NIfTI
+            ".tif", ".tiff",  # TIFF (stacks supported)
+            ".png", ".jpg", ".jpeg", ".bmp", ".webp",
         ],
     )
 
@@ -203,7 +224,7 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
     # Streamed outputs give a visible “loader” feeling in the UI
     run_btn.click(
         fn=run_agent,
-        inputs=[task_box, image_in],
+        inputs=[task_box, images_in],
         outputs=[out_choice, out_link, out_why],
         show_progress="full",
         api_name="recommend_and_link",
@@ -211,7 +232,7 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
     reset_btn.click(
         fn=reset_all,
         inputs=None,
-        outputs=[task_box, image_in, out_choice, out_link, out_why],
+        outputs=[task_box, images_in, out_choice, out_link, out_why],
         show_progress="hidden",
     )
 
