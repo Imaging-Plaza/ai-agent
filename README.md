@@ -209,17 +209,19 @@ scripts/
 
 ## Future improvements
 
-- [ ] **Deep links**: detect Space endpoints that accept `file_url` and assemble a *safe* one-click URL when explicitly allowed by the maintainer.
-- [x] **Notebook/JVM runnable examples**: add known viewer/launcher patterns (e.g., nbviewer URLs, custom JVM launch pages) to `runnables`.
-- [ ] **Multi-image/volume support**: accept stacks, 3D/4D previews, and summarize more DICOM/NIfTI metadata.
-- [ ] **Additional VLM providers**: add Anthropic/Google or local VLMs behind a simple provider interface.
-- [x] **Index persistence**: save FAISS index to disk; incremental updates.
-- [ ] **Reranker finetuning**: train a domain reranker on curated (query, tool) pairs.
-- [ ] **Evaluation harness**: small benchmark set (queries + ground-truth tool) with metrics.
-- [x] **Catalog ingestion**: adding all Imaging Plaza softwares to the catalog.
-- [ ] **UI extras**: history, “copy link”, toolcards with tags, lightweight analytics (opt-in).
-- [ ] **Containerization**: Dockerfile + Compose for easy deploy.
-- [ ] **Testing/CI**: unit tests for metadata, prompt builders, and link selectors.
+- [x] **Notebook / JVM runnable examples** — support known viewer/launcher patterns (e.g., nbviewer URLs, custom JVM launch pages) in `runnables`.
+- [x] **Multi-image / volume support** — accept stacks, generate 3D/4D previews, and summarize richer DICOM / NIfTI metadata.
+- [x] **Index persistence** — save the FAISS index to disk with support for incremental updates.
+- [x] **Catalog ingestion** — integrate all Imaging Plaza software entries into the catalog.
+
+- [ ] **Deep links** — detect Space endpoints that accept `file_url` and safely assemble one-click URLs when explicitly allowed by the maintainer.
+- [ ] **Additional VLM providers** — add Anthropic / Google APIs or local open-source VLMs behind a simple provider interface.
+- [ ] **Reranker fine-tuning** — train a domain-specific CrossEncoder on curated (query, tool) pairs and optionally distill to a lighter model for speed.
+- [ ] **Evaluation harness** — provide a small benchmark set (queries + expected tools) with metrics such as top-1 accuracy, MRR, and score margins.
+- [ ] **UI enhancements** — add result history, “copy demo link” buttons, compact toolcards with tags/modality/license, and lightweight opt-in analytics.
+- [ ] **Containerization** — supply Dockerfile and docker-compose for reproducible deployment, with GPU acceleration support if available.
+- [ ] **Testing / CI** — expand unit tests (metadata parsing, preview builders, link selectors) and configure GitHub Actions for linting, tests, and catalog validation.
+
 
 ---
 
