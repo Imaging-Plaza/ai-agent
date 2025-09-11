@@ -18,6 +18,7 @@ from retriever.embedders import (
 )
 from generator.generator import VLMToolSelector
 from generator.schema import CandidateDoc, NoToolReason  # Add NoToolReason to the import
+from utils.file_validator import FileValidator
 
 # NOTE: these now handle LISTS of paths and richer metadata
 from utils.image_meta import summarize_image_metadata, detect_ext_token
@@ -378,10 +379,19 @@ class RAGImagingPipeline:
 
     # -------- Public API --------
     def recommend_and_link(self, image_paths: Optional[List[str]], user_task: str) -> Dict[str, Any]:
-        """
-        image_paths: list of file/folder/zip paths; can include DICOM series (dirs/zips), NIfTI, TIFF stacks, etc.
-        Returns multiple ranked choices with explanations.
-        """
+        """Process query and return recommendations"""
+        
+        # Validate files first
+        if image_paths:
+            valid_paths, errors = FileValidator.validate_files(image_paths)
+            if errors:
+                return {
+                    "error": "File validation failed:\n" + "\n".join(errors),
+                    "choices": [],
+                    "reason": NoToolReason.INVALID_FILES
+                }
+            image_paths = valid_paths
+
         top_k = int(os.getenv("TOP_K", "8"))
         num_choices = int(os.getenv("NUM_CHOICES", "3"))
         hits, scores = self.recommend(user_task, image_paths, top_k=top_k)

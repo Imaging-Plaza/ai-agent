@@ -228,7 +228,7 @@ class PlanAndCode(BaseModel):
 class NoToolReason(str, Enum):
     NO_SUITABLE_TOOL = "no_suitable_tool"
     FALLBACK_TO_RETRIEVAL = "fallback_to_retrieval"
-    NO_MATCHES = "no_matches"
+    INVALID_FILES = "invalid_files"
 
 class ToolChoice(BaseModel):
     name: str

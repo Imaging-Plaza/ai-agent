@@ -52,6 +52,7 @@ from pandas import DataFrame
 
 from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
+from utils.file_validator import FileValidator  # <-- Add to imports section
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
@@ -165,23 +166,31 @@ def _fmt_toolcard(name: str) -> str:
 
 # --- main action (streaming with progress messages) ---------------------------
 def run_agent(task_text: str, uploaded_files, history_rows):
-    """
-    Streamed return (6-tuple):
-    (choice_md, link_md, why_md, toolcards_md, history_df, demo_link_text)
-    """
-    # Update _blank helper to return 6 values
-    def _blank():
-        return "", "", "", "", history_rows, ""
-
+    """Process query and return recommendations"""
     if not task_text:
         yield _blank()
         return
 
+    # Validate uploaded files
     image_paths = _coerce_gradio_files_to_paths(uploaded_files)
-    for p in image_paths:
-        if not os.path.exists(p) and not os.path.isdir(p):
-            yield "", "", f"❌ Could not read uploaded path: {p}", "", history_rows, ""
+    if image_paths:
+        valid_paths, errors = FileValidator.validate_files(image_paths)
+        # File validation error yield
+        if errors:
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            row = [ts, task_text[:80], "none", "no"]  # Add to history
+            new_history = (history_rows or []) + [row]
+            
+            yield (
+                "❌ **File validation failed:**\n\n" + "\n".join(f"- {err}" for err in errors),
+                "",  # link_md
+                "",  # why_md 
+                "",  # toolcards_md
+                new_history,  # history
+                ""   # demo_link
+            )
             return
+        image_paths = valid_paths
 
     # Step 1: announce start
     yield "⏳ Analyzing request…", "_Preparing…_", "", "", history_rows, ""
@@ -297,6 +306,10 @@ def reset_all(history_rows):
 def clear_history():
     return []
 
+def _blank():
+    """Default empty return values"""
+    return "", "", "", "", [], ""  # 6 values matching the output components
+
 # --- UI -----------------------------------------------------------------------
 with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
     gr.Markdown(
@@ -363,7 +376,14 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
     run_btn.click(
         fn=run_agent,
         inputs=[task_box, images_in, history_state],
-        outputs=[out_choice, out_link, out_why, out_cards, history_df, copy_link_tb],
+        outputs=[
+            out_choice,    # choice_md
+            out_link,      # link_md
+            out_why,       # why_md
+            out_cards,     # toolcards_md
+            history_df,    # history
+            copy_link_tb   # demo_link
+        ],
         show_progress="full",
         api_name="recommend_and_link",
     ).then(
