@@ -54,8 +54,6 @@ from api.pipeline import RAGImagingPipeline
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
-WORKDIR = os.getenv("RAG_WORKDIR", "runs")
-Path(WORKDIR).mkdir(parents=True, exist_ok=True)
 
 # --- catalog loader (supports JSON or JSONL) ----------------------------------
 def _load_catalog(path: str) -> List[SoftwareDoc]:
@@ -343,10 +341,23 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
         show_progress="hidden",
     )
 
-if __name__ == "__main__":
+# RUN THE APP
+def _bind_host() -> str:
+    if os.getenv("BIND_HOST"):
+        return os.getenv("BIND_HOST")
+
+    in_docker = os.path.exists("/.dockerenv")
+    return "0.0.0.0" if in_docker else "127.0.0.1"
+
+def launch():
+    host = _bind_host()
+    port = int(os.getenv("PORT", "7860"))
     demo.queue(api_open=False).launch(
-        server_name="127.0.0.1",                 # local only (no public URL)
-        server_port=int(os.getenv("PORT", "7860")),
-        inbrowser=True,
+        server_name=host,
+        server_port=port,
+        inbrowser=False,
         show_error=True,
     )
+
+if __name__ == "__main__":
+    launch()

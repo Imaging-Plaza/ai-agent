@@ -1,0 +1,49 @@
+[project]
+name = "ai_agent"
+version = "0.1.0"
+description = "AI imaging agent with Gradio UI and RAG pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+  "faiss-cpu",
+  "numpy",
+  "pydantic>=2",
+  "sentence-transformers",
+  "openai>=1.30.0",
+  "requests",
+  "python-dotenv",
+  "gradio==5.42.0",
+  "json5",
+  "pillow",
+  "nibabel",
+  "tifffile",
+  "pydicom",
+  "imageio"
+]
+
+[project.scripts]
+ai-agent = "ai_agent.cli:main"
+ai_agent = "ai_agent.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"ai_agent" = ["**/*.json", "**/*.yaml", "**/*.yml", "**/*.txt"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+  "black",
+  "mypy",
+  "types-requests",
+]
