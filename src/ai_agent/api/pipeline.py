@@ -17,7 +17,7 @@ from retriever.embedders import (
     SoftwareDoc,  # ensure SoftwareDoc maps your catalog; optional .runnables supported
 )
 from generator.generator import VLMToolSelector
-from generator.schema import CandidateDoc
+from generator.schema import CandidateDoc, NoToolReason  # Add NoToolReason to the import
 
 # NOTE: these now handle LISTS of paths and richer metadata
 from utils.image_meta import summarize_image_metadata, detect_ext_token
@@ -262,9 +262,10 @@ class RAGImagingPipeline:
     def _select(
         self, user_task: str, hits: List[dict], image_paths: Optional[List[str]]
     ) -> Tuple[Optional[dict], Dict[str, Any]]:
-        # Build candidates safely (limit to first 5 hits)
+        # Build candidates using TOP_K from environment
+        top_k = int(os.getenv("TOP_K", "8"))
         candidates = []
-        for h in hits[:5]:
+        for h in hits[:top_k]:  # Use TOP_K instead of hardcoded 5
             try:
                 candidates.append(CandidateDoc(**h["doc"].model_dump()))
             except Exception:
@@ -274,9 +275,12 @@ class RAGImagingPipeline:
         if self._is_confident(hits):
             chosen = hits[0]
             sel_json = {
-                "choice": chosen["doc"].name,
-                "alternates": [h["doc"].name for h in hits[1:4]],
-                "why": "High-confidence retrieval; top candidate clearly dominates.",
+                "choices": [{
+                    "name": chosen["doc"].name,
+                    "rank": 1,
+                    "accuracy": 100.0,  # High confidence
+                    "why": "High-confidence retrieval; top candidate clearly dominates."
+                }],
             }
             return chosen, sel_json
 
@@ -289,17 +293,17 @@ class RAGImagingPipeline:
             sel = self.selector_vlm.select(
                 user_task=user_task,
                 candidates=candidates,
-                image_path=preview_path,   # single preview given to the VLM
+                image_path=preview_path,
                 image_meta=meta_text,
             )
             sel_json = sel.model_dump()
 
-            # If VLM explicitly said "none", propagate that
-            if (sel.choice or "").strip().lower() == "none":
+            # Handle no suitable tools case
+            if not sel.choices:
                 return None, sel_json
 
-            # Otherwise map to a hit; if not found, fallback to top-1
-            chosen = next((h for h in hits if h["doc"].name == sel.choice), None)
+            # Map to hit or fallback
+            chosen = next((h for h in hits if h["doc"].name == sel.choices[0].name), None)
             if chosen is None and hits:
                 chosen = hits[0]
             return chosen, sel_json
@@ -307,25 +311,21 @@ class RAGImagingPipeline:
         except Exception as e:
             log.exception("VLM selector failed. Falling back to top-1.")
             if not hits:
-                return None, {"choice": "none", "alternates": [], "why": "VLM failed and no retrieval hits."}
+                return None, {
+                    "choices": [],
+                    "reason": NoToolReason.NO_MATCHES
+                }
 
             chosen = hits[0]
-            alternates = [h["doc"].name for h in hits[1:4]]
-            log_path_note = ""
-            try:
-                lf = getattr(self.selector_vlm, "last_logfile", None)
-                if lf:
-                    log_path_note = f" (prompt log: {lf})"
-            except Exception:
-                pass
-
-            sel_json = {
-                "choice": chosen["doc"].name,
-                "alternates": alternates,
-                "why": f"VLM unavailable or errored ('{e.__class__.__name__}: {e}'); "
-                       f"falling back to retrieval top-1{log_path_note}.",
+            return chosen, {
+                "choices": [{
+                    "name": chosen["doc"].name,
+                    "rank": 1,
+                    "accuracy": 50.0,
+                    "why": f"Fallback to retrieval due to error: {str(e)}"
+                }],
+                "reason": NoToolReason.FALLBACK_TO_RETRIEVAL
             }
-            return chosen, sel_json
 
     # -------- Confidence gate --------
     def _is_confident(self, hits: List[dict]) -> bool:
@@ -380,31 +380,51 @@ class RAGImagingPipeline:
     def recommend_and_link(self, image_paths: Optional[List[str]], user_task: str) -> Dict[str, Any]:
         """
         image_paths: list of file/folder/zip paths; can include DICOM series (dirs/zips), NIfTI, TIFF stacks, etc.
+        Returns multiple ranked choices with explanations.
         """
-        hits, scores = self.recommend(user_task, image_paths, top_k=5)
+        top_k = int(os.getenv("TOP_K", "8"))
+        num_choices = int(os.getenv("NUM_CHOICES", "3"))
+        hits, scores = self.recommend(user_task, image_paths, top_k=top_k)
         if not hits:
             return {"error": "No candidates found."}
 
         chosen, selection = self._select(user_task, hits, image_paths)
-
-        # Propagate 'none' from the selector
-        if chosen is None or (selection.get("choice", "").strip().lower() == "none"):
-            return {
-                "choice": "none",
-                "why": selection.get("why", "No suitable tool among candidates."),
-                "alternates": [],
+        
+        # Convert selection to new format with multiple ranked choices
+        if isinstance(selection.get("choices"), list):
+            # Already in new format
+            result = {
+                "choices": selection["choices"],
+                "scores": {k: round(v, 3) for k, v in scores.items()},
+            }
+        else:
+            # Convert old format to new
+            choices = []
+            if chosen:
+                choices.append({
+                    "name": chosen["doc"].name,
+                    "rank": 1,
+                    "why": selection.get("why", "")
+                })
+                # Add alternates as lower-ranked choices
+                for i, alt in enumerate(selection.get("alternates", [])[:num_choices-1], 2):
+                    choices.append({
+                        "name": alt,
+                        "rank": i,
+                        "why": f"Alternative choice #{i}"
+                    })
+            
+            result = {
+                "choices": choices,
                 "scores": {k: round(v, 3) for k, v in scores.items()},
             }
 
-        doc: SoftwareDoc = chosen["doc"]
-        link = self._best_runnable_link(doc)
+        # Add demo links for each choice
+        for choice in result["choices"]:
+            doc = next((h["doc"] for h in hits if h["doc"].name == choice["name"]), None)
+            if doc:
+                link = self._best_runnable_link(doc)
+                if link:
+                    choice["demo_link"] = link
 
-        result: Dict[str, Any] = {
-            "choice": doc.name,
-            "why": selection.get("why", ""),
-            "alternates": [h["doc"].name for h in hits if h["doc"].name != doc.name][:3],
-            "scores": {k: round(v, 3) for k, v in scores.items()},
-        }
-        if link:
-            result["demo_link"] = link
         return result

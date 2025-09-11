@@ -165,8 +165,10 @@ class VLMToolSelector:
         user_text = (
             f"User task: {user_task}\n"
             f"{meta_note}"
-            f"Candidates (choose exactly one by name):\n{cand_block}\n"
-            f"Return STRICT JSON with keys: choice, alternates, why.{meta_block}"
+            f"Candidates:\n{cand_block}\n"
+            f"Return STRICT JSON with a 'choices' list containing "
+            f"{os.getenv('NUM_CHOICES', 3)} ranked tools. "
+            f"Each choice must have: name, rank (1=best), why.{meta_block}"
         )
 
         # ---- Build message parts (include image if available)
@@ -215,9 +217,18 @@ class VLMToolSelector:
                 preview = text[:200].replace("\n", " ")
                 raise RuntimeError(f"Model returned non-JSON content: {preview!r}") from e
 
-            for k in ("choice", "alternates", "why"):
-                if k not in data:
-                    raise RuntimeError(f"JSON missing required key: {k}")
+            # Handle empty or missing choices
+            if "choices" not in data:
+                data["choices"] = []
+            if not data["choices"] and "reason" not in data:
+                data["reason"] = "no_suitable_tool"
+
+            # Validate non-empty choices
+            if data["choices"]:
+                for choice in data["choices"]:
+                    for k in ("name", "rank", "accuracy", "why"):
+                        if k not in choice:
+                            raise RuntimeError(f"Choice missing required key: {k}")
 
             return ToolSelection(**data)
 

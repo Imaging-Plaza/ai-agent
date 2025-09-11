@@ -1,8 +1,9 @@
 # generator/schema.py
 from __future__ import annotations
 
+from enum import Enum
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 
 class PerceptionCues(BaseModel):
@@ -224,13 +225,26 @@ class PlanAndCode(BaseModel):
     code: str = ""
 
 
-class ToolSelection(BaseModel):
-    """
-    New, minimal schema used by the selection-only generator.
-    """
-    choice: str
-    alternates: List[str] = Field(default_factory=list)
+class NoToolReason(str, Enum):
+    NO_SUITABLE_TOOL = "no_suitable_tool"
+    FALLBACK_TO_RETRIEVAL = "fallback_to_retrieval"
+    NO_MATCHES = "no_matches"
+
+class ToolChoice(BaseModel):
+    name: str
+    rank: int
+    accuracy: float = Field(ge=0, le=100)  # accuracy score between 0-100
     why: str
+
+class ToolSelection(BaseModel):
+    choices: List[ToolChoice] = Field(default_factory=list)
+    reason: Optional[NoToolReason] = None
+
+    @model_validator(mode='after')
+    def validate_choices_and_reason(self) -> 'ToolSelection':
+        if not self.choices and not self.reason:
+            raise ValueError("Empty choices must specify a reason")
+        return self
 
 
 __all__ = [

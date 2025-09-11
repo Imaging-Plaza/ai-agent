@@ -48,6 +48,7 @@ log.info("Starting Gradio UI")
 from pathlib import Path
 from typing import Optional, List, Dict
 import gradio as gr
+from pandas import DataFrame
 
 from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
@@ -165,12 +166,12 @@ def _fmt_toolcard(name: str) -> str:
 # --- main action (streaming with progress messages) ---------------------------
 def run_agent(task_text: str, uploaded_files, history_rows):
     """
-    Streamed return (7-tuple):
-    (choice_md, link_md, why_md, toolcards_md, history_df, demo_link_text, status_msg)
+    Streamed return (6-tuple):
+    (choice_md, link_md, why_md, toolcards_md, history_df, demo_link_text)
     """
-    # default outputs helper
+    # Update _blank helper to return 6 values
     def _blank():
-        return "", "", "", "", history_rows, "", ""
+        return "", "", "", "", history_rows, ""
 
     if not task_text:
         yield _blank()
@@ -179,58 +180,85 @@ def run_agent(task_text: str, uploaded_files, history_rows):
     image_paths = _coerce_gradio_files_to_paths(uploaded_files)
     for p in image_paths:
         if not os.path.exists(p) and not os.path.isdir(p):
-            yield "", "", f"❌ Could not read uploaded path: {p}", "", history_rows, "", "Invalid path"
+            yield "", "", f"❌ Could not read uploaded path: {p}", "", history_rows, ""
             return
 
     # Step 1: announce start
-    yield "⏳ Analyzing request…", "_Preparing…_", "", "", history_rows, "", "Starting…"
+    yield "⏳ Analyzing request…", "_Preparing…_", "", "", history_rows, ""
+
     pipe = get_pipeline()
 
-    # Step 2: retrieval stage (text-only + optional format tokens from inputs)
-    yield "⏳ Retrieving candidates…", "_Searching & reranking…_", "", "", history_rows, "", "Retrieving…"
-
-    # Step 3: selection (single VLM call; pipeline builds preview)
+    # Step 2: run pipeline
     result = pipe.recommend_and_link(image_paths=image_paths, user_task=task_text)
+    # Update error yield
     if "error" in result:
-        yield "", "", f"❌ {result['error']}", "", history_rows, "", "Done."
+        yield "", "", f"❌ {result['error']}", "", history_rows, ""
         return
 
-    # Final: present results
-    choice = result.get("choice", "")
-    choice_md = f"**Selected software:** `{choice}`" if choice else "**Selected software:** _none_"
-
-    demo_link = result.get("demo_link") or ""
-    link_md = (
-        f"[Open runnable demo]({demo_link})" if demo_link else "_No runnable demo available for this tool._"
-    )
-
-    why_md = result.get("why", "") or ""
-    scores = result.get("scores") or {}
-    alternates = result.get("alternates", [])
-
-    # Confidence readout
-    if scores:
-        top = float(scores.get("top", 0.0))
-        second = float(scores.get("second", 0.0))
-        margin = float(scores.get("margin", 0.0))
-        why_md += (
-            f"\n\nConfidence: top={top:.3f}, second={second:.3f}, margin={margin:.3f}"
+    # Update no tools yield
+    if not result.get("choices"):
+        reason = result.get("reason", "Unknown reason")
+        # Add to history with "none" as tool name
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        row = [ts, task_text[:80], "none", "no"]  # no tool, no demo
+        
+        if isinstance(history_rows, DataFrame):
+            history_rows = history_rows.values.tolist()
+        elif history_rows is None:
+            history_rows = []
+            
+        new_history = history_rows + [row]
+        
+        yield (
+            "❌ **No Suitable Tools Found**\n\n"
+            f"Reason: {reason}\n\n"
+            "_Consider refining your request or checking if your image format is supported._",
+            "", "", "", new_history, ""
         )
+        return
 
-    # Toolcards for chosen + alternates
-    cards: List[str] = []
-    if choice:
-        cards.append(_fmt_toolcard(choice))
-    for a in alternates[:3]:
-        cards.append(_fmt_toolcard(a))
+    # Create results table with accuracy threshold warning
+    choices_table = ""
+    low_accuracy_warning = False
+    
+    for choice in result.get("choices", []):
+        if choice.get("accuracy", 0) < 50:
+            low_accuracy_warning = True
+            break
+    
+    if low_accuracy_warning:
+        choices_table = "⚠️ **Warning**: Some suggested tools have low accuracy scores (<50%). Consider reviewing alternatives.\n\n"
+    
+    choices_table += "| Rank | Tool | Accuracy | Explanation | Demo |\n"
+    choices_table += "|------|------|----------|-------------|------|\n"
+    
+    demo_link = ""  # Store first demo link for the copy button
+    
+    for choice in result.get("choices", []):
+        name = choice["name"]
+        rank = choice["rank"]
+        accuracy = f"{choice.get('accuracy', 0):.1f}%"
+        why = choice["why"]
+        demo = f"[Open demo]({choice.get('demo_link', '')})" if choice.get('demo_link') else "_No demo_"
+        
+        # Store first demo link
+        if rank == 1 and choice.get('demo_link'):
+            demo_link = choice['demo_link']
+            
+        choices_table += f"| {rank} | `{name}` | {accuracy} | {why} | {demo} |\n"
+
+    # Format tool cards
+    cards = []
+    for choice in result.get("choices", []):
+        cards.append(_fmt_toolcard(choice["name"]))
     toolcards_md = "\n\n---\n\n".join(cards) if cards else ""
 
-    # Update history (session-local)
-    from pandas import DataFrame
+    # Update history
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    row = [ts, task_text[:80], choice, "yes" if demo_link else "no"]
+    top_choice = result.get("choices", [{}])[0].get("name", "none")
+    has_demo = "yes" if demo_link else "no"
+    row = [ts, task_text[:80], top_choice, has_demo]
 
-    # Gradio may pass a DataFrame back; normalize to list-of-lists
     if isinstance(history_rows, DataFrame):
         history_rows = history_rows.values.tolist()
     elif history_rows is None:
@@ -238,13 +266,32 @@ def run_agent(task_text: str, uploaded_files, history_rows):
 
     new_history = history_rows + [row]
 
-    # status
-    status = "Done."
-    yield choice_md, link_md, why_md, toolcards_md, new_history, demo_link, status
+    # Show confidence scores if available
+    scores = result.get("scores", {})
+    if scores:
+        confidence = (
+            f"\n\n**Confidence metrics:**  \n"
+            f"Top score: {scores.get('top', 0):.3f}  \n"
+            f"Second score: {scores.get('second', 0):.3f}  \n"
+            f"Margin: {scores.get('margin', 0):.3f}"
+        )
+    else:
+        confidence = ""
+
+    # Return results
+    # Final yield - remove status from tuple
+    yield (
+        choices_table,     # choice_md now contains the table
+        "",               # link_md (empty since links are in table)
+        confidence,       # why_md shows confidence metrics
+        toolcards_md,     # detailed tool cards
+        new_history,
+        demo_link         # for copy button
+    )
 
 def reset_all(history_rows):
-    # task_box, images_in, out_choice, out_link, out_why, out_cards, history_df, copy_link_tb, copy_tip
-    return "", None, "", "", "", "", history_rows, "", ""
+    # task_box, images_in, out_choice, out_link, out_why, out_cards, history_df, copy_link_tb
+    return "", None, "", "", "", "", history_rows, ""
 
 
 def clear_history():
@@ -283,9 +330,9 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
 
     # Outputs
     out_choice = gr.Markdown()
-    out_link = gr.Markdown()
-    out_why = gr.Markdown()
-    out_cards = gr.Markdown()
+    out_link   = gr.Markdown()
+    out_why    = gr.Markdown(visible=False)    # HIDDEN: confidence metrics
+    out_cards  = gr.Markdown(visible=False)    # HIDDEN: alternatives/tool cards
 
     # History
     history_state = gr.State(value=[])
@@ -316,7 +363,7 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
     run_btn.click(
         fn=run_agent,
         inputs=[task_box, images_in, history_state],
-        outputs=[out_choice, out_link, out_why, out_cards, history_df, copy_link_tb, copy_tip],
+        outputs=[out_choice, out_link, out_why, out_cards, history_df, copy_link_tb],
         show_progress="full",
         api_name="recommend_and_link",
     ).then(
@@ -334,10 +381,11 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
         show_progress=False,
     )
 
+    # Reset button
     reset_btn.click(
         fn=reset_all,
-        inputs=[history_state],   # pass current history in
-        outputs=[task_box, images_in, out_choice, out_link, out_why, out_cards, history_df, copy_link_tb, copy_tip],
+        inputs=[history_state],
+        outputs=[task_box, images_in, out_choice, out_link, out_why, out_cards, history_df, copy_link_tb],
         show_progress="hidden",
     )
 
