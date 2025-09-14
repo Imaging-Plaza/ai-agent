@@ -38,7 +38,12 @@ env\Scripts\activate
 # macOS/Linux
 source env/bin/activate
 
-pip install -r requirements.txt
+# Install with pip using pyproject.toml
+pip install --upgrade pip
+pip install .
+
+# For development (includes test dependencies)
+pip install -e ".[dev]"
 ```
 
 ### 2) Configure `.env`
@@ -54,17 +59,19 @@ OPENAI_MODEL=gpt-4o-mini
 # Software catalog
 SOFTWARE_CATALOG=path/to/your/catalog.jsonl
 
-# Logging
-LOGLEVEL_CONSOLE=WARNING     # INFO or WARNING
-LOGLEVEL_FILE=INFO       # INFO or DEBUG
+# Pipeline configuration
+TOP_K=8                # Number of candidates to retrieve
+NUM_CHOICES=3          # Number of tools to recommend
+FORCE_VLM=0           # 1 = always call VLM; 0 = use reranker confidence gate
+RERANK_MARGIN=0.15    # if (top - second) > margin OR top >= RERANK_TOP, skip VLM
+RERANK_TOP=0.90
+
+# Logging configuration
+LOGLEVEL_CONSOLE=WARNING
+LOGLEVEL_FILE=INFO
 FILE_LOG=1
 LOG_DIR=logs
-LOG_PROMPTS=1            # write selector prompt snapshots (text + the PNG preview the VLM saw)
-
-# VLM usage policy / confidence gate
-FORCE_VLM=0              # 1 = always call VLM; 0 = use reranker confidence gate
-RERANK_MARGIN=0.15       # if (top - second) > margin OR top >= RERANK_TOP, skip VLM
-RERANK_TOP=0.90
+LOG_PROMPTS=1         # write selector prompt snapshots
 ```
 
 ### 3) Run the app
@@ -133,21 +140,38 @@ The catalog is JSON **or** JSONL. Each line/object is a **SoftwareDoc**. Minimal
 ## How the pipeline works
 
 ### Retrieval (fast, no LLM)
-- Build a text query from the user prompt.
-- If the user uploaded a file, add a **format token** (e.g., `format:TIF` or `format:NII.GZ`) to bias toward IO-compatible tools.
-- Embed with **BGE-M3**, rerank with a Cross-Encoder, take top-K.
+- Build a text query from the user prompt
+- If user uploaded a file, add a **format token** (e.g., `format:TIF` or `format:NII.GZ`)
+- Embed with **BGE-M3**, rerank with Cross-Encoder
+- Return top-K candidates (configurable via `TOP_K`)
 
 ### Selection (one VLM call)
-- If retrieval is **very confident** (top score >> second), pick top-1.
+- If retrieval is **very confident** (top score >> second), pick top-1
 - Otherwise, call the **VLM** with:
-  - **Text**: user request + compact table of top-K candidates.
-  - **Image**: a **PNG preview** (safe for the API).
-  - **Metadata**: the **original** file name, extension, frames/shape/dtype/zooms (for NIfTI), etc.
+  - **Text**: user request + compact table of top-K candidates
+  - **Image**: a **PNG preview** (safe for the API)
+  - **Metadata**: original file info (name, extension, shape, etc.)
 - VLM responds with **strict JSON**:
   ```json
-  {"choice":"<name>","alternates":["..."],"why":"..."}
+  {
+    "choices": [
+      {
+        "name": "tool-name",
+        "rank": 1,
+        "accuracy": 95.5,
+        "why": "Best match because..."
+      },
+      {
+        "name": "alternative-tool",
+        "rank": 2,
+        "accuracy": 82.3,
+        "why": "Good alternative..."
+      }
+    ]
+  }
   ```
-- UI displays the choice and a **public runnable link** (no data upload, no server-side execution).
+- Returns up to `NUM_CHOICES` ranked tools with accuracy scores
+- UI displays choices with explanation and demo links
 
 ---
 
@@ -173,25 +197,24 @@ The catalog is JSON **or** JSONL. Each line/object is a **SoftwareDoc**. Minimal
 ## Project layout
 
 ```
-api/
-  pipeline.py         # retrieval + selection + link-out
-generator/
-  generator.py        # VLMToolSelector (single-call selection)
-  prompts.py          # SELECTOR_SYSTEM (strict JSON)
-  schema.py           # schema of the prompts
-retriever/
-  embedders.py        # BGE-M3 + FAISS + CrossEncoder
-ui/
-  gradio_app.py       # minimal UI
-utils/
-  image_meta.py       # summarize_image_metadata(), detect_ext_token()
-  image_analyzer.py   # convert image to png to send it through gpt
-data/
-  sample.jsonl        # example catalog
-logs/
-  ...                 # rotating app logs + prompt snapshots
-scripts/
-  ...                 # some preprocessing scripts for the dataset curation
+ai_agent/
+  api/
+    pipeline.py       # RAG pipeline implementation
+  generator/
+    generator.py      # VLMToolSelector implementation
+    prompts.py       # System prompts and templates
+    schema.py        # Pydantic models for validation
+  retriever/
+    embedders.py     # Vector search components
+  ui/
+    app.py           # Gradio interface
+  utils/
+    file_validator.py  # File format validation
+    image_meta.py     # Metadata extraction
+    image_io.py       # Image loading/conversion
+    image_analyzer.py # VLM image analysis
+tests/               # Unit tests
+pyproject.toml       # Project configuration and dependencies
 ```
 
 ---
