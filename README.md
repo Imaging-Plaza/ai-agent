@@ -77,9 +77,7 @@ LOG_PROMPTS=1         # write selector prompt snapshots
 ### 3) Run the app
 
 ```bash
-python -m ui.gradio_app
-# or
-python ui/gradio_app.py
+ai_agent ui
 ```
 
 Open http://127.0.0.1:7860 and try:  
