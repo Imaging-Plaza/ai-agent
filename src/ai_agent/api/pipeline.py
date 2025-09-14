@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import imageio.v3 as iio
 
 from retriever.embedders import (
     LocalBGEEmbedder,
@@ -245,7 +246,6 @@ class RAGImagingPipeline:
                 if len(shp) == 2:
                     out = tmpdir / "image.png"
                     try:
-                        import imageio.v3 as iio
                         arr = data
                         if arr.dtype != np.uint8:
                             arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
@@ -407,6 +407,11 @@ class RAGImagingPipeline:
                 "choices": selection["choices"],
                 "scores": {k: round(v, 3) for k, v in scores.items()},
             }
+            # Preserve reason and explanation if present
+            if "reason" in selection:
+                result["reason"] = selection["reason"]
+            if "explanation" in selection:
+                result["explanation"] = selection["explanation"]
         else:
             # Convert old format to new
             choices = []

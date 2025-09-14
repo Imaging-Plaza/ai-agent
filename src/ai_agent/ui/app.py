@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 import gradio as gr
 from pandas import DataFrame
+import json
 
 from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
@@ -59,7 +60,6 @@ CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
 
 # --- catalog loader (supports JSON or JSONL) ----------------------------------
 def _load_catalog(path: str) -> List[SoftwareDoc]:
-    import json
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(
@@ -204,12 +204,14 @@ def run_agent(task_text: str, uploaded_files, history_rows):
         yield "", "", f"❌ {result['error']}", "", history_rows, ""
         return
 
-    # Update no tools yield
+    # Handle no tools case with explanation
     if not result.get("choices"):
         reason = result.get("reason", "Unknown reason")
-        # Add to history with "none" as tool name
+        explanation = result.get("explanation")
+        
+        # Add to history with reason
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        row = [ts, task_text[:80], "none", "no"]  # no tool, no demo
+        row = [ts, task_text[:80], f"No tool ({reason})", "no"]
         
         if isinstance(history_rows, DataFrame):
             history_rows = history_rows.values.tolist()
@@ -218,11 +220,24 @@ def run_agent(task_text: str, uploaded_files, history_rows):
             
         new_history = history_rows + [row]
         
-        yield (
+        # Format message with reason and explanation
+        message = (
             "❌ **No Suitable Tools Found**\n\n"
-            f"Reason: {reason}\n\n"
-            "_Consider refining your request or checking if your image format is supported._",
-            "", "", "", new_history, ""
+            f"**Reason**: {reason}\n\n"
+        )
+        
+        if explanation:  # Only add explanation if it exists
+            message += f"**Details**: {explanation}\n\n"
+            
+        message += "_Consider refining your request or checking if your image format is supported._"
+        
+        yield (
+            message,     # choice_md
+            "",         # link_md
+            "",         # why_md
+            "",         # toolcards_md
+            new_history,
+            ""          # demo_link
         )
         return
 
@@ -329,12 +344,7 @@ with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
         label="Images / volumes (drag & drop multiple; DICOM zip/folder, NIfTI, TIFF, PNG/JPEG, etc.)",
         file_count="multiple",
         type="filepath",
-        file_types=[
-            ".zip", ".dcm",
-            ".nii", ".nii.gz",
-            ".tif", ".tiff",
-            ".png", ".jpg", ".jpeg", ".bmp", ".webp",
-        ],
+        file_types=None
     )
 
     with gr.Row():

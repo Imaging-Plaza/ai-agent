@@ -13,7 +13,9 @@ SELECTOR_SYSTEM = (
     "4) Practicality (language, GPU requirement) if relevant\n"
     "\n"
     "Important:\n"
-    "- If no tool matches the task requirements, return choices=[] with reason='no_suitable_tool'\n"
+    "- If no tool matches, return choices=[] with:\n"
+    "  * reason: one of ['no_suitable_tool', 'no_modality_match', 'no_task_match', 'no_dimension_match']\n"
+    "  * explanation: detailed string why no tools match\n"
     "- If tools partially match but are inadequate, set accuracy < 50%\n"
     "- Never recommend tools that don't match the core task\n"
     "\n"
@@ -22,7 +24,7 @@ SELECTOR_SYSTEM = (
     "- Input compatibility: Can it handle the provided image type/format (30%)\n"
     "- Features: Additional capabilities that benefit the task (30%)\n"
     "\n"
-    "Output must be a valid JSON object with EXACTLY these keys:\n"
+    "Output must be a valid JSON object with these keys:\n"
     "{\n"
     '  "choices": [\n'
     '    {"name": "string (one of the candidate names)",\n'
@@ -30,7 +32,8 @@ SELECTOR_SYSTEM = (
     '     "accuracy": number (0-100),\n'
     '     "why": "string explanation"}\n'
     '  ],\n'
-    '  "reason": "string (no_suitable_tool if no matches, or omit)"\n'
+    '  "reason": "string (required if choices is empty)",\n'
+    '  "explanation": "string (required if choices is empty)"\n'
     "}\n"
     "No extra keys. No markdown. Output only the JSON object."
 )

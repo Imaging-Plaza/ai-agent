@@ -227,8 +227,10 @@ class PlanAndCode(BaseModel):
 
 class NoToolReason(str, Enum):
     NO_SUITABLE_TOOL = "no_suitable_tool"
+    NO_MODALITY_MATCH = "no_modality_match"
+    NO_TASK_MATCH = "no_task_match"
+    NO_DIMENSION_MATCH = "no_dimension_match"
     FALLBACK_TO_RETRIEVAL = "fallback_to_retrieval"
-    INVALID_FILES = "invalid_files"
 
 class ToolChoice(BaseModel):
     name: str
@@ -237,13 +239,16 @@ class ToolChoice(BaseModel):
     why: str
 
 class ToolSelection(BaseModel):
-    choices: List[ToolChoice] = Field(default_factory=list)
+    choices: List[ToolChoice]
     reason: Optional[NoToolReason] = None
+    explanation: Optional[str] = None  # Added field for detailed explanation
 
     @model_validator(mode='after')
     def validate_choices_and_reason(self) -> 'ToolSelection':
         if not self.choices and not self.reason:
             raise ValueError("Empty choices must specify a reason")
+        if not self.choices and not self.explanation:
+            raise ValueError("Empty choices must include an explanation")
         return self
 
 
