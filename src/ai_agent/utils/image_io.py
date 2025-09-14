@@ -1,34 +1,50 @@
 # utils/image_io.py
 from __future__ import annotations
-import os, zipfile, tempfile
 from pathlib import Path
-from typing import Tuple, Dict, Any
-
+import tempfile
+import zipfile
 import numpy as np
 import imageio.v3 as iio
-import nibabel as nib
 import pydicom
+import nibabel as nib
+from typing import Tuple, Dict, Any
+from pydicom.pixels import apply_modality_lut, apply_voi_lut
 
 def is_dicom_path(path: str | Path) -> bool:
+    """Improved DICOM detection"""
     p = Path(path)
     if p.is_dir():
-        return True
-    # quick magic check
+        # Check if directory contains any .dcm files
+        return any(f.suffix.lower() == '.dcm' for f in p.rglob('*'))
+    
+    # For single files, do proper DICOM validation
     try:
-        with open(p, "rb") as f:
-            f.seek(128)
-            return f.read(4) == b"DICM"
+        pydicom.dcmread(str(p), stop_before_pixels=True)
+        return True
     except Exception:
         return False
 
 def maybe_unzip(path: str | Path) -> Path:
+    """Safely extract zip file to temp directory, with better error handling"""
     p = Path(path)
     if p.is_dir() or p.suffix.lower() != ".zip":
         return p
-    tmp = Path(tempfile.mkdtemp(prefix="dicom_zip_"))
-    with zipfile.ZipFile(p) as z:
-        z.extractall(tmp)
-    return tmp
+    
+    try:
+        tmp = Path(tempfile.mkdtemp(prefix="dicom_zip_"))
+        with zipfile.ZipFile(p) as z:
+            # Check if zip contains DICOM files
+            has_dicom = any(name.lower().endswith('.dcm') for name in z.namelist())
+            if not has_dicom:
+                raise ValueError("ZIP file contains no DICOM files")
+            
+            # Extract with path sanitization
+            for item in z.namelist():
+                if ".." not in item:  # Basic path traversal protection
+                    z.extract(item, tmp)
+        return tmp
+    except Exception as e:
+        raise ValueError(f"Failed to process ZIP file: {str(e)}")
 
 def load_nifti(path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
     img = nib.load(str(path))
@@ -45,8 +61,10 @@ def load_nifti(path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
 def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
     root = Path(dir_or_file)
     if root.is_file():
-        root = root.parent
-    files = sorted([p for p in root.rglob("*") if p.is_file()])
+        # Could be a single multi-frame file; keep it as-is
+        files = [root]
+    else:
+        files = sorted([p for p in root.rglob("*") if p.is_file()])
 
     dsets = []
     for p in files:
@@ -59,41 +77,87 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
     if not dsets:
         raise ValueError("No DICOM slices with pixel data found.")
 
-    # sort by InstanceNumber then by ImagePositionPatient z
-    def sort_key(ds):
-        inst = getattr(ds, "InstanceNumber", 0)
-        ipp = getattr(ds, "ImagePositionPatient", None)
-        z = float(ipp[2]) if (isinstance(ipp, (list, tuple)) and len(ipp) == 3) else 0.0
+    # If the first file is multi-frame, load frames from it
+    first = dsets[0]
+    def _prep_pixels(ds):
+        arr = ds.pixel_array  # may be (frames, rows, cols) or (rows, cols)
+        # Apply LUTs/windowing for proper display range
         try:
-            inst = int(inst)
+            arr = apply_modality_lut(arr, ds)
         except Exception:
-            inst = 0
-        return (inst, z)
-
-    dsets.sort(key=sort_key)
-    vol = np.stack([ds.pixel_array for ds in dsets], axis=-1).astype(np.float32)  # (H,W,Z)
-
-    # spacing
-    pxsp = getattr(dsets[0], "PixelSpacing", [1.0, 1.0])
-    sy, sx = [float(x) for x in pxsp] if isinstance(pxsp, (list, tuple)) and len(pxsp) == 2 else (1.0, 1.0)
-    # slice spacing
-    if hasattr(dsets[0], "SpacingBetweenSlices"):
-        sz = float(dsets[0].SpacingBetweenSlices)
-    else:
+            pass
         try:
-            if len(dsets) > 1 and hasattr(dsets[0], "ImagePositionPatient") and hasattr(dsets[1], "ImagePositionPatient"):
-                z0 = float(dsets[0].ImagePositionPatient[2])
-                z1 = float(dsets[1].ImagePositionPatient[2])
-                sz = abs(z1 - z0)
-            else:
-                sz = float(getattr(dsets[0], "SliceThickness", 1.0))
+            arr = apply_voi_lut(arr, ds)
+        except Exception:
+            pass
+        arr = arr.astype(np.float32)
+
+        # Handle MONOCHROME1 (invert)
+        if getattr(ds, "PhotometricInterpretation", "").upper() == "MONOCHROME1":
+            # invert per frame
+            arr = (arr.max() - arr)
+
+        return arr
+
+    if getattr(first, "NumberOfFrames", None):
+        arr = _prep_pixels(first)
+        # ensure (H, W, Z)
+        if arr.ndim == 3:             # (frames, rows, cols)
+            arr = np.transpose(arr, (1, 2, 0))
+        elif arr.ndim == 2:           # (rows, cols)
+            arr = arr[..., None]
+        vol = arr
+        dsets = [first]  # meta from first
+    else:
+        # classic per-slice series
+        def sort_key(ds):
+            inst = getattr(ds, "InstanceNumber", 0)
+            try:
+                inst = int(inst)
+            except Exception:
+                inst = 0
+            ipp = getattr(ds, "ImagePositionPatient", None)
+            z = float(ipp[2]) if (isinstance(ipp, (list, tuple)) and len(ipp) == 3) else 0.0
+            return (inst, z)
+
+        dsets.sort(key=sort_key)
+        frames = [_prep_pixels(ds) for ds in dsets]
+
+        # each frame is (H,W); make (H,W,Z)
+        H, W = int(frames[0].shape[-2]), int(frames[0].shape[-1])
+        vol = np.stack([f if f.ndim == 2 else f[0] for f in frames], axis=-1).astype(np.float32)
+
+    # Normalize to [0,1] for consistent downstream PNG saving
+    vmin = np.nanmin(vol)
+    vmax = np.nanmax(vol)
+    if np.isfinite(vmax) and vmax > vmin:
+        vol = (vol - vmin) / (vmax - vmin)
+    else:
+        vol = np.zeros_like(vol, dtype=np.float32)
+
+    # Spacing
+    pxsp = getattr(dsets[0], "PixelSpacing", None)
+    if not (isinstance(pxsp, (list, tuple)) and len(pxsp) == 2):
+        # XA often uses ImagerPixelSpacing instead
+        pxsp = getattr(dsets[0], "ImagerPixelSpacing", None)
+    sy, sx = (float(pxsp[0]), float(pxsp[1])) if pxsp else (1.0, 1.0)
+
+    # Slice spacing
+    if vol.shape[-1] > 1:
+        try:
+            # use IPP difference if available
+            z0 = float(getattr(dsets[0], "ImagePositionPatient", [0, 0, 0])[2])
+            z1 = float(getattr(dsets[min(1, len(dsets)-1)], "ImagePositionPatient", [0, 0, 0])[2])
+            sz = abs(z1 - z0) if z1 != z0 else float(getattr(dsets[0], "SliceThickness", 1.0))
         except Exception:
             sz = float(getattr(dsets[0], "SliceThickness", 1.0))
+    else:
+        sz = float(getattr(dsets[0], "SliceThickness", 1.0))
 
     meta = {
         "format": "DICOM",
-        "shape": vol.shape,
-        "spacing": (sy, sx, sz),  # row, col, slice (mm)
+        "shape": vol.shape,               # (H, W, Z)
+        "spacing": (sy, sx, sz),          # mm
         "Modality": getattr(dsets[0], "Modality", None),
         "BodyPartExamined": getattr(dsets[0], "BodyPartExamined", None),
         "SeriesDescription": getattr(dsets[0], "SeriesDescription", None),
@@ -101,17 +165,34 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
         "StudyDescription": getattr(dsets[0], "StudyDescription", None),
         "PatientSex": getattr(dsets[0], "PatientSex", None),
         "PatientAge": getattr(dsets[0], "PatientAge", None),
+        "PhotometricInterpretation": getattr(dsets[0], "PhotometricInterpretation", None),
+        "NumberOfFrames": getattr(dsets[0], "NumberOfFrames", None),
+        "BitsStored": getattr(dsets[0], "BitsStored", None),
     }
-    return vol, meta
+    return vol.astype(np.float32), meta
+
 
 def load_any(path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
-    p = maybe_unzip(path)
-    if Path(p).is_dir() or is_dicom_path(p):
-        return load_dicom_series(p)
-    s = str(p).lower()
-    if s.endswith(".nii") or s.endswith(".nii.gz"):
-        return load_nifti(p)
-    # 2D image or TIFF stack -> imageio
-    arr = iio.imread(str(p))
-    meta = {"format": Path(p).suffix.upper().lstrip("."), "shape": arr.shape}
-    return arr.astype(np.float32), meta
+    """Load any supported image format with better error handling"""
+    try:
+        p = maybe_unzip(path)
+        
+        # Handle DICOM
+        if Path(p).is_dir() or is_dicom_path(p):
+            return load_dicom_series(p)
+            
+        # Handle NIfTI
+        s = str(p).lower()
+        if s.endswith('.nii') or s.endswith('.nii.gz'):
+            return load_nifti(p)
+            
+        # Handle regular images
+        arr = iio.imread(str(p))
+        meta = {
+            "format": Path(p).suffix.upper().lstrip("."), 
+            "shape": arr.shape
+        }
+        return arr.astype(np.float32), meta
+        
+    except Exception as e:
+        raise ValueError(f"Failed to load image {path}: {str(e)}")

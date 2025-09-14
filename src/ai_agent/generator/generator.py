@@ -4,9 +4,14 @@ import json, os, logging, re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+from openai import OpenAI
+from datetime import datetime
+from pathlib import Path
+import base64
 
 from generator.schema import CandidateDoc, ToolSelection
 from generator.prompts import SELECTOR_SYSTEM
+from utils.image_analyzer import _to_supported_png_dataurl as to_data_url
 
 class LLMProvider:
     def generate_json(self, system: str, user: str, response_schema_name: str = "json") -> str:
@@ -14,7 +19,6 @@ class LLMProvider:
 
 class OpenAIProvider(LLMProvider):
     def __init__(self, model: Optional[str] = None, timeout: float = 60.0):
-        from openai import OpenAI
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = (
             model
@@ -69,7 +73,6 @@ class VLMToolSelector:
     Writes a readable prompt + the exact PNG sent to the model when LOG_PROMPTS=1.
     """
     def __init__(self, model: Optional[str] = None):
-        from openai import OpenAI
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = (
             model
@@ -90,9 +93,6 @@ class VLMToolSelector:
         """Save a .txt with system+user (+ image note) and, if present, the response and usage."""
         if str(os.getenv("LOG_PROMPTS", "")).lower() not in ("1", "true", "yes", "on"):
             return None
-        from datetime import datetime
-        from pathlib import Path
-        import base64
 
         Path("logs").mkdir(exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -136,10 +136,6 @@ class VLMToolSelector:
         Returns ToolSelection(choice, alternates, why).
         Robust to empty/non-JSON responses and always logs prompt (+ response if available).
         """
-        from generator.prompts import SELECTOR_SYSTEM
-        from generator.schema import ToolSelection, CandidateDoc
-        from utils.image_analyzer import _to_supported_png_dataurl as to_data_url
-
         # ---- Build compact candidate list
         def _csv(seq) -> str:
             return ",".join(str(x) for x in (seq or []) if x not in (None, ""))
