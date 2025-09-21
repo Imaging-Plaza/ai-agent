@@ -239,16 +239,34 @@ class ToolChoice(BaseModel):
     why: str
 
 class ToolSelection(BaseModel):
-    choices: List[ToolChoice]
-    reason: Optional[NoToolReason] = None
-    explanation: Optional[str] = None  # Added field for detailed explanation
+    conversation: Conversation
+    choices: List[ToolChoice] = []
+    explanation: Optional[str] = None
 
     @model_validator(mode='after')
-    def validate_choices_and_reason(self) -> 'ToolSelection':
-        if not self.choices and not self.reason:
-            raise ValueError("Empty choices must specify a reason")
-        if not self.choices and not self.explanation:
-            raise ValueError("Empty choices must include an explanation")
+    def validate_selection(self) -> 'ToolSelection':
+        if not self.choices and self.conversation.status == ConversationStatus.COMPLETE:
+            if not self.explanation:
+                raise ValueError("Empty choices must include an explanation")
+        return self
+
+class ConversationStatus(str, Enum):
+    NEEDS_CLARIFICATION = "needs_clarification"
+    COMPLETE = "complete"
+
+class Conversation(BaseModel):
+    status: ConversationStatus
+    question: Optional[str] = None
+    context: Optional[str] = None
+    options: Optional[List[str]] = None
+
+    @model_validator(mode='after')
+    def validate_fields(self) -> 'Conversation':
+        if self.status == ConversationStatus.NEEDS_CLARIFICATION:
+            if not self.question:
+                raise ValueError("Question required when status is needs_clarification")
+            if not self.context:
+                raise ValueError("Context required when status is needs_clarification")
         return self
 
 

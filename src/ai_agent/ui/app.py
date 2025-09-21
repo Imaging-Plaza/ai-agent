@@ -46,17 +46,19 @@ log.info("Starting Gradio UI")
 
 # --- imports that rely on sys.path -------------------------------------------
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
+import json
+
 import gradio as gr
 from pandas import DataFrame
-import json
 
 from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
-from utils.file_validator import FileValidator  # <-- Add to imports section
+from utils.file_validator import FileValidator  # optional validator if present
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
+INDEX_DIR = os.getenv("RAG_INDEX_DIR", "artifacts/rag_index")
 
 # --- catalog loader (supports JSON or JSONL) ----------------------------------
 def _load_catalog(path: str) -> List[SoftwareDoc]:
@@ -70,7 +72,7 @@ def _load_catalog(path: str) -> List[SoftwareDoc]:
     text = p.read_text(encoding="utf-8").strip()
     docs: List[SoftwareDoc] = []
 
-    # Try full JSON first
+    # Try full JSON array/object first
     try:
         obj = json.loads(text)
         obj = [obj] if isinstance(obj, dict) else obj
@@ -107,16 +109,12 @@ def get_pipeline() -> RAGImagingPipeline:
         _DOCS = _load_catalog(CATALOG_PATH)
         _DOC_BY_NAME = {d.name: d for d in _DOCS if getattr(d, "name", None)}
         log.info("Loaded %d tools from %s", len(_DOCS), CATALOG_PATH)
-        _pipe = RAGImagingPipeline(docs=_DOCS, index_dir="artifacts/rag_index")
+        _pipe = RAGImagingPipeline(docs=_DOCS, index_dir=INDEX_DIR)
         log.info("Pipeline ready")
     return _pipe
 
 # --- helpers ------------------------------------------------------------------
 def _coerce_gradio_files_to_paths(fobjs) -> List[str]:
-    """
-    Gradio 'Files' returns a list where each item can be a str (path)
-    or a dict with 'name'/'path'.
-    """
     out: List[str] = []
     if not fobjs:
         return out
@@ -136,19 +134,23 @@ def _coerce_gradio_files_to_paths(fobjs) -> List[str]:
             deduped.append(p)
     return deduped
 
+
+def _clear_textbox():
+    return ""
+
+
 def _fmt_toolcard(name: str) -> str:
-    """
-    Render a compact toolcard for a tool name using the loaded catalog.
-    """
     d = _DOC_BY_NAME.get(name)
     if not d:
         return f"- **{name}**"
     modality = ", ".join(d.modality) if getattr(d, "modality", None) else ""
-    dims = " / ".join(f"{x}D" for x in getattr(d, "dims", []) or [])
+    dims = " / ".join(f"{x}D" for x in (getattr(d, "dims", None) or []))
     license_ = getattr(d, "license", "") or ""
     tags = []
-    if getattr(d, "tasks", None): tags.extend(d.tasks)
-    if getattr(d, "keywords", None): tags.extend(d.keywords)
+    if getattr(d, "tasks", None):
+        tags.extend(d.tasks)
+    if getattr(d, "keywords", None):
+        tags.extend(d.keywords)
     tags = ", ".join(sorted(set(t for t in tags if t)))[:160]
     bits = []
     if modality: bits.append(modality)
@@ -157,285 +159,376 @@ def _fmt_toolcard(name: str) -> str:
     meta = " • ".join(bits)
     desc = getattr(d, "description", "") or ""
     short = (desc[:160] + "…") if len(desc) > 160 else desc
-    # markdown card
     out = f"**{d.name}**"
     if meta: out += f"  \n{meta}"
     if short: out += f"  \n_{short}_"
     if tags: out += f"  \n`{tags}`"
     return out
 
-# --- main action (streaming with progress messages) ---------------------------
-def run_agent(task_text: str, uploaded_files, history_rows):
-    """Process query and return recommendations"""
-    if not task_text:
-        yield _blank()
-        return
 
-    # Validate uploaded files
-    image_paths = _coerce_gradio_files_to_paths(uploaded_files)
-    if image_paths:
-        valid_paths, errors = FileValidator.validate_files(image_paths)
-        # File validation error yield
-        if errors:
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            row = [ts, task_text[:80], "none", "no"]  # Add to history
-            new_history = (history_rows or []) + [row]
-            
-            yield (
-                "❌ **File validation failed:**\n\n" + "\n".join(f"- {err}" for err in errors),
-                "",  # link_md
-                "",  # why_md 
-                "",  # toolcards_md
-                new_history,  # history
-                ""   # demo_link
-            )
-            return
-        image_paths = valid_paths
+def _choices_table_md(choices: List[dict]) -> str:
+    if not choices:
+        return ""
+    rows = ["| # | Tool | Score | Notes |", "|---:|---|:----:|---|"]
+    for c in choices:
+        name = c.get("name", "?")
+        acc = f"{float(c.get('accuracy', 0.0)):.1f}%"
+        why = str(c.get("why", ""))
+        short = (why[:120] + "…") if len(why) > 120 else why
+        if c.get("demo_link"):
+            name = f"{name} (🔗)"
+        rows.append(f"| {int(c.get('rank', 0))} | {name} | {acc} | {short} |")
+    return "\n".join(rows)
 
-    # Step 1: announce start
-    yield "⏳ Analyzing request…", "_Preparing…_", "", "", history_rows, ""
+# --- validation ---------------------------------------------------------------
+def _validate_files(paths: List[str]) -> Tuple[bool, str]:
+    if not paths:
+        return True, ""
+    try:
+        issues = FileValidator.validate(paths)  # type: ignore[attr-defined]
+        if issues:
+            if isinstance(issues, (list, tuple)):
+                issues_text = "\n".join(f"• {x}" for x in issues)
+            else:
+                issues_text = str(issues)
+            return False, f"One or more files look problematic:\n{issues_text}"
+    except Exception as e:
+        log.debug("FileValidator unavailable or raised: %r", e)
+    return True, ""
 
-    pipe = get_pipeline()
-
-    # Step 2: run pipeline
-    result = pipe.recommend_and_link(image_paths=image_paths, user_task=task_text)
-    # Update error yield
-    if "error" in result:
-        yield "", "", f"❌ {result['error']}", "", history_rows, ""
-        return
-
-    # Handle no tools case with explanation
-    if not result.get("choices"):
-        reason = result.get("reason", "Unknown reason")
-        explanation = result.get("explanation")
-        
-        # Add to history with reason
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        row = [ts, task_text[:80], f"No tool ({reason})", "no"]
-        
+# --- Chat handler (streaming + status/disable) --------------------------------
+def _make_handler():
+    def handle_message(message: str,
+                       chat_history,
+                       files,
+                       history_rows,
+                       conv_history,
+                       ):
+        # normalize inputs
         if isinstance(history_rows, DataFrame):
             history_rows = history_rows.values.tolist()
-        elif history_rows is None:
-            history_rows = []
-            
-        new_history = history_rows + [row]
-        
-        # Format message with reason and explanation
-        message = (
-            "❌ **No Suitable Tools Found**\n\n"
-            f"**Reason**: {reason}\n\n"
+        history_rows = history_rows or []
+        chat_history = chat_history or []
+        conv_history = conv_history or []
+
+        empty_radio = gr.update(choices=[], value=None)
+        status_idle   = gr.update(value=None, visible=False)
+        # disable inputs while working
+        disable_inputs = (
+            gr.update(interactive=False),  # msg
+            gr.update(interactive=False),  # submit
+            gr.update(interactive=False),  # files
         )
-        
-        if explanation:  # Only add explanation if it exists
-            message += f"**Details**: {explanation}\n\n"
-            
-        message += "_Consider refining your request or checking if your image format is supported._"
-        
-        yield (
-            message,     # choice_md
-            "",         # link_md
-            "",         # why_md
-            "",         # toolcards_md
-            new_history,
-            ""          # demo_link
+
+        if not message:
+            yield (chat_history, history_rows, "", "", conv_history,
+                   empty_radio, "—",
+                   gr.update(value=None, visible=False),  # preview
+                   status_idle,  # status
+                   *disable_inputs)
+            return
+
+        # 0) immediately show user's message + show status and disable inputs
+        chat_history = chat_history + [[message, None]]
+        conv_history = conv_history + [f"User: {message}"]
+        status = gr.update(value="🔄 Validating files…", visible=True)
+        yield (chat_history, history_rows, "", "", conv_history,
+               empty_radio, "—",
+               gr.update(value=None, visible=False),  # preview
+               status,
+               *disable_inputs)
+
+        # 1) file validation
+        paths = _coerce_gradio_files_to_paths(files)
+        ok, why_not = _validate_files(paths)
+        if not ok:
+            chat_history[-1][1] = f"⚠️ File issues detected.\n\n{why_not}"
+            status_done = gr.update(value="⚠️ File validation failed.", visible=True)
+            # re-enable inputs
+            enable_inputs = (
+                gr.update(interactive=True),
+                gr.update(interactive=True),
+                gr.update(interactive=True),
+            )
+            yield (chat_history, history_rows, "", "", conv_history,
+                   empty_radio, "—",
+                   gr.update(value=None, visible=False),
+                   status_done,
+                   *enable_inputs)
+            return
+
+        # 2) build preview
+        status = gr.update(value="🖼️ Building preview…", visible=True)
+        yield (chat_history, history_rows, "", "", conv_history,
+               empty_radio, "—",
+               gr.update(value=None, visible=False),
+               status,
+               *disable_inputs)
+
+        preview_path = None
+        try:
+            preview_path, _meta_text = get_pipeline()._build_preview_for_vlm(paths)
+        except Exception:
+            preview_path = None
+
+        yield (chat_history, history_rows, "", "", conv_history,
+               empty_radio, "—",
+               gr.update(value=preview_path, visible=bool(preview_path)),
+               gr.update(value="📚 Reranking candidates…", visible=True),
+               *disable_inputs)
+
+        # 3) run pipeline
+        pipeline = get_pipeline()
+        result = pipeline.recommend_and_link(
+            image_paths=paths,
+            user_task=message,
+            conversation_history=conv_history,
         )
-        return
 
-    # Create results table with accuracy threshold warning
-    choices_table = ""
-    low_accuracy_warning = False
-    
-    for choice in result.get("choices", []):
-        if choice.get("accuracy", 0) < 50:
-            low_accuracy_warning = True
-            break
-    
-    if low_accuracy_warning:
-        choices_table = "⚠️ **Warning**: Some suggested tools have low accuracy scores (<50%). Consider reviewing alternatives.\n\n"
-    
-    choices_table += "| Rank | Tool | Accuracy | Explanation | Demo |\n"
-    choices_table += "|------|------|----------|-------------|------|\n"
-    
-    demo_link = ""  # Store first demo link for the copy button
-    
-    for choice in result.get("choices", []):
-        name = choice["name"]
-        rank = choice["rank"]
-        accuracy = f"{choice.get('accuracy', 0):.1f}%"
-        why = choice["why"]
-        demo = f"[Open demo]({choice.get('demo_link', '')})" if choice.get('demo_link') else "_No demo_"
-        
-        # Store first demo link
-        if rank == 1 and choice.get('demo_link'):
-            demo_link = choice['demo_link']
-            
-        choices_table += f"| {rank} | `{name}` | {accuracy} | {why} | {demo} |\n"
+        # helpers
+        def _choices_render(choices):
+            names = [c["name"] for c in choices]
+            md_cards = "\n\n".join(
+                f"{_fmt_toolcard(c['name'])}\n\n> **Score:** {float(c.get('accuracy',0.0)):.1f}%\n\n{c.get('why','')}"
+                for c in choices
+            ) if names else "—"
+            table = _choices_table_md(choices)
+            return names, md_cards, table
 
-    # Format tool cards
-    cards = []
-    for choice in result.get("choices", []):
-        cards.append(_fmt_toolcard(choice["name"]))
-    toolcards_md = "\n\n---\n\n".join(cards) if cards else ""
+        # 4) needs clarification
+        if result["conversation"]["status"] == "needs_clarification":
+            q = result["conversation"]["question"]
+            ctx = result["conversation"]["context"]
+            opts = result["conversation"].get("options", [])
+            resp = f"I need more information:\n{q}\n\n"
+            if opts:
+                resp += "Options:\n" + "\n".join(f"• {o}" for o in opts) + "\n\n"
+            resp += f"_{ctx}_"
+            chat_history[-1][1] = resp
 
-    # Update history
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    top_choice = result.get("choices", [{}])[0].get("name", "none")
-    has_demo = "yes" if demo_link else "no"
-    row = [ts, task_text[:80], top_choice, has_demo]
+            status_done = gr.update(value="ℹ️ More info needed.", visible=True)
+            enable_inputs = (
+                gr.update(interactive=True),
+                gr.update(interactive=True),
+                gr.update(interactive=True),
+            )
+            yield (chat_history, history_rows, "", "", conv_history,
+                   empty_radio, "—",
+                   gr.update(value=preview_path, visible=bool(preview_path)),
+                   status_done,
+                   *enable_inputs)
+            return
 
-    if isinstance(history_rows, DataFrame):
-        history_rows = history_rows.values.tolist()
-    elif history_rows is None:
-        history_rows = []
+        # 5) choices (up to NUM_CHOICES)
+        if result.get("choices"):
+            names, md_cards, md_table = _choices_render(result["choices"])
+            top = result["choices"][0]
+            demo = top.get("demo_link", "")
 
-    new_history = history_rows + [row]
+            table_block = f"\n\n**Top candidates** (up to {os.getenv('NUM_CHOICES', '3')}):\n\n" + md_table
+            chat_history[-1][1] = (
+                f"I recommend **{top['name']}** ({float(top.get('accuracy',0.0)):.1f}% match)\n\n"
+                f"_{top.get('why','')}_" + table_block
+            )
 
-    # Show confidence scores if available
-    scores = result.get("scores", {})
-    if scores:
-        confidence = (
-            f"\n\n**Confidence metrics:**  \n"
-            f"Top score: {scores.get('top', 0):.3f}  \n"
-            f"Second score: {scores.get('second', 0):.3f}  \n"
-            f"Margin: {scores.get('margin', 0):.3f}"
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            history_rows = history_rows + [[ts, message[:80], top["name"], "yes" if demo else "no"]]
+
+            radio_update = gr.update(choices=names, value=names[0] if names else None)
+
+            status_done = gr.update(value="✅ Ready.", visible=True)
+            enable_inputs = (
+                gr.update(interactive=True),
+                gr.update(interactive=True),
+                gr.update(interactive=True),
+            )
+            yield (chat_history, history_rows, top["name"], demo, conv_history,
+                   radio_update, md_cards,
+                   gr.update(value=preview_path, visible=bool(preview_path)),
+                   status_done,
+                   *enable_inputs)
+            return
+
+        # 6) no suitable tools
+        chat_history[-1][1] = "❌ No suitable tools found.\n\n" + result.get("explanation", "")
+        status_done = gr.update(value="✅ Ready.", visible=True)
+        enable_inputs = (
+            gr.update(interactive=True),
+            gr.update(interactive=True),
+            gr.update(interactive=True),
         )
-    else:
-        confidence = ""
+        yield (chat_history, history_rows, "", "", conv_history,
+               empty_radio, "—",
+               gr.update(value=preview_path, visible=bool(preview_path)),
+               status_done,
+               *enable_inputs)
 
-    # Return results
-    # Final yield - remove status from tuple
-    yield (
-        choices_table,     # choice_md now contains the table
-        "",               # link_md (empty since links are in table)
-        confidence,       # why_md shows confidence metrics
-        toolcards_md,     # detailed tool cards
-        new_history,
-        demo_link         # for copy button
-    )
-
-def reset_all(history_rows):
-    # task_box, images_in, out_choice, out_link, out_why, out_cards, history_df, copy_link_tb
-    return "", None, "", "", "", "", history_rows, ""
-
-
-def clear_history():
-    return []
-
-def _blank():
-    """Default empty return values"""
-    return "", "", "", "", [], ""  # 6 values matching the output components
+    return handle_message
 
 # --- UI -----------------------------------------------------------------------
-with gr.Blocks(title="AI Imaging Agent", theme=gr.themes.Soft()) as demo:
-    gr.Markdown(
-        "## 🔎 AI-assisted software picker\n"
-        "Describe your task and (optionally) drop one or more images/volumes. "
-        "We’ll select the best software and send you to its public runnable demo (when available)."
-    )
+def create_interface():
+    with gr.Blocks(title="Imaging Tool Finder", theme=gr.themes.Soft()) as demo:
+        conversation_history = gr.State([])
 
-    with gr.Row():
-        task_box = gr.Textbox(
-            label="Describe your task",
-            placeholder='e.g., "Segment the lungs" or "Deblur this photo"',
-            lines=2,
+        gr.Markdown(
+            "# 🧭 Imaging Tool Finder\n"
+            "Upload an image/volume and describe your goal. "
+            "I'll recommend the best tool(s) with scores and a demo link.\n\n"
+            "_Tip: include modality (CT/MRI/microscopy), operation (segment/denoise/register), and objects of interest._"
         )
 
-    images_in = gr.Files(
-        label="Images / volumes (drag & drop multiple; DICOM zip/folder, NIfTI, TIFF, PNG/JPEG, etc.)",
-        file_count="multiple",
-        type="filepath",
-        file_types=None
-    )
-
-    with gr.Row():
-        run_btn = gr.Button("Find software", variant="primary")
-        reset_btn = gr.Button("Reset", variant="secondary")
-
-    # Outputs
-    out_choice = gr.Markdown()
-    out_link   = gr.Markdown()
-    out_why    = gr.Markdown(visible=False)    # HIDDEN: confidence metrics
-    out_cards  = gr.Markdown(visible=False)    # HIDDEN: alternatives/tool cards
-
-    # History
-    history_state = gr.State(value=[])
-    with gr.Accordion("Result history (session)", open=False):
-        history_df = gr.Dataframe(
-            headers=["time", "task (head)", "choice", "demo?"],
-            datatype=["str", "str", "str", "str"],
-            row_count=(0, "dynamic"),
-            col_count=(4, "fixed"),
-            interactive=False,
-            wrap=True,
-            label="History",
-            elem_id="history_df",
-        )
         with gr.Row():
-            clear_btn = gr.Button("Clear history")
+            # LEFT
+            with gr.Column(scale=7):
+                files = gr.File(
+                    label="Images / volumes (drag & drop multiple: DICOM zip/folder, NIfTI, TIFF, PNG/JPEG, etc.)",
+                    file_types=["image", ".nii", ".nii.gz", ".dcm", ".zip"],
+                    file_count="multiple",
+                )
 
-    # Demo link textbox with native copy button
-    copy_link_tb = gr.Textbox(
-        label="Demo link",
-        value="",
-        interactive=False,
-        show_copy_button=True,
-    )
-    copy_tip = gr.Markdown("")
+                preview_img = gr.Image(
+                    label="Preview",
+                    interactive=False,
+                    value=None,
+                    visible=False,  # toggled by handler via gr.update
+                )
 
-    # Streamed outputs
-    run_btn.click(
-        fn=run_agent,
-        inputs=[task_box, images_in, history_state],
-        outputs=[
-            out_choice,    # choice_md
-            out_link,      # link_md
-            out_why,       # why_md
-            out_cards,     # toolcards_md
-            history_df,    # history
-            copy_link_tb   # demo_link
-        ],
-        show_progress="full",
-        api_name="recommend_and_link",
-    ).then(
-        fn=lambda rows: rows,
-        inputs=history_df,
-        outputs=history_state,
-        show_progress=False,
-    )
+                chatbot = gr.Chatbot(
+                    label="Conversation",
+                    type="tuples",  # current data shape; OK for now
+                )
 
-    # Clear history
-    clear_btn.click(
-        fn=lambda: (clear_history(), []),
-        inputs=None,
-        outputs=[history_df, history_state],
-        show_progress=False,
-    )
+                with gr.Row():
+                    msg = gr.Textbox(
+                        label="Your request",
+                        placeholder="e.g., 'CT: segment lungs' or 'Microscopy TIFF: denoise & register stack'",
+                        lines=2,
+                    )
+                    submit = gr.Button("Send", variant="primary")
+                    clear = gr.Button("Clear")
 
-    # Reset button
-    reset_btn.click(
-        fn=reset_all,
-        inputs=[history_state],
-        outputs=[task_box, images_in, out_choice, out_link, out_why, out_cards, history_df, copy_link_tb],
-        show_progress="hidden",
-    )
+                # Small status area (shows while working)
+                status_md = gr.Markdown(visible=False)
 
-# RUN THE APP
+            # RIGHT
+            with gr.Column(scale=5):
+                chosen_tool = gr.Markdown(label="Selected Tool")
+                demo_link = gr.Textbox(
+                    label="Demo link",
+                    show_copy_button=True,
+                    interactive=False,
+                )
+
+                with gr.Accordion("Top choices (details)", open=False):
+                    choices_radio = gr.Radio(
+                        label="Pick a tool",
+                        choices=[],
+                        interactive=True,
+                    )
+                    choices_md = gr.Markdown(value="—")
+
+                history_df = gr.Dataframe(
+                    headers=["Time", "Request", "Tool", "Demo"],
+                    label="History",
+                    row_count=5,
+                    value=[],
+                    type="array",
+                )
+
+        handle_message = _make_handler()
+
+        submit.click(
+            handle_message,
+            inputs=[msg, chatbot, files, history_df, conversation_history],
+            outputs=[
+                chatbot,        # streams
+                history_df,     # table
+                chosen_tool,
+                demo_link,
+                conversation_history,
+                choices_radio,  # updated via gr.update(choices=..., value=...)
+                choices_md,     # detailed markdown cards
+                preview_img,    # preview (handler toggles visibility)
+                status_md,      # status banner (loading / done)
+                msg,            # disable / enable while working
+                submit,         # disable / enable while working
+                files,          # disable / enable while working
+            ],
+        ).then(_clear_textbox, inputs=None, outputs=[msg])
+
+        msg.submit(
+            handle_message,
+            inputs=[msg, chatbot, files, history_df, conversation_history],
+            outputs=[
+                chatbot, history_df, chosen_tool, demo_link,
+                conversation_history, choices_radio, choices_md, preview_img,
+                status_md, msg, submit, files
+            ],
+        ).then(_clear_textbox, inputs=None, outputs=[msg])
+
+        # Clear all (including radio, preview, status) and re-enable inputs
+        # add files to outputs + provide a reset value
+        clear.click(
+            lambda: (
+                [],  # chatbot
+                [],  # history_df
+                "",  # chosen_tool
+                "",  # demo_link
+                [],  # conversation_history
+                gr.update(choices=[], value=None),     # choices_radio reset
+                "—",                                   # choices_md
+                gr.update(value=None, visible=False),  # preview hidden
+                gr.update(value=None),                 # <-- files reset
+            ),
+            outputs=[
+                chatbot, history_df, chosen_tool, demo_link,
+                conversation_history, choices_radio, choices_md, preview_img,
+                files,                                  # <-- include files as an output
+            ],  
+        )
+
+
+    return demo
+
+# RUN THE APP ------------------------------------------------------------------
 def _bind_host() -> str:
     if os.getenv("BIND_HOST"):
         return os.getenv("BIND_HOST")
-
     in_docker = os.path.exists("/.dockerenv")
     return "0.0.0.0" if in_docker else "127.0.0.1"
 
 def launch():
     host = _bind_host()
     port = int(os.getenv("PORT", "7860"))
-    demo.queue(api_open=False).launch(
-        server_name=host,
-        server_port=port,
-        inbrowser=False,
-        show_error=True,
-    )
+    ui = create_interface()
+
+    try:
+        ui.queue(api_open=False, max_size=10, default_concurrency_limit=3).launch(
+            server_name=host,
+            server_port=port,
+            inbrowser=False,
+            show_error=True,
+            share=bool(os.getenv("SHARE", False)),
+            favicon_path=os.path.join(ROOT, "assets", "favicon.ico"),
+            auth=None if not os.getenv("GRADIO_AUTH") else lambda x, y: (
+                x == os.getenv("GRADIO_USERNAME"),
+                y == os.getenv("GRADIO_PASSWORD"),
+            ),
+        )
+    except TypeError:
+        # Older Gradio
+        ui.queue(api_open=False, max_size=10).launch(
+            server_name=host,
+            server_port=port,
+            inbrowser=False,
+            show_error=True,
+            share=bool(os.getenv("SHARE", False)),
+            favicon_path=os.path.join(ROOT, "assets", "favicon.ico"),
+            auth=None if not os.getenv("GRADIO_AUTH") else lambda x, y: (
+                x == os.getenv("GRADIO_USERNAME"),
+                y == os.getenv("GRADIO_PASSWORD"),
+            ),
+        )
 
 if __name__ == "__main__":
     launch()

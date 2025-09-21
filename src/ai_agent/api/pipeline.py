@@ -18,7 +18,7 @@ from retriever.embedders import (
     SoftwareDoc,  # ensure SoftwareDoc maps your catalog; optional .runnables supported
 )
 from generator.generator import VLMToolSelector
-from generator.schema import CandidateDoc, NoToolReason  # Add NoToolReason to the import
+from generator.schema import CandidateDoc, NoToolReason, ConversationStatus, ToolSelection  # Add NoToolReason to the import
 from utils.file_validator import FileValidator
 
 # NOTE: these now handle LISTS of paths and richer metadata
@@ -260,73 +260,85 @@ class RAGImagingPipeline:
         return None, meta_text
 
     # -------- Selection (0-call if confident, else 1-call VLM with preview) --------
-    def _select(
-        self, user_task: str, hits: List[dict], image_paths: Optional[List[str]]
-    ) -> Tuple[Optional[dict], Dict[str, Any]]:
-        # Build candidates using TOP_K from environment
-        top_k = int(os.getenv("TOP_K", "8"))
+    def _select(self, hits, image_meta_text, user_task, preview_path):
+        """
+        Always run the selector (no short-circuit). Ask for up to NUM_CHOICES.
+        Fallback: if the selector returns < NUM_CHOICES, fill from remaining hits.
+        """
+        num_choices = int(os.getenv("NUM_CHOICES", "3"))
+
+        # Build CandidateDoc list from retrieval hits
         candidates = []
-        for h in hits[:top_k]:  # Use TOP_K instead of hardcoded 5
+        for h in hits:
+            d = h["doc"]            # this is your SoftwareDoc (pydantic)
+            # Convert SoftwareDoc -> CandidateDoc (let pydantic handle aliases)
             try:
-                candidates.append(CandidateDoc(**h["doc"].model_dump()))
+                cd = CandidateDoc.model_validate(d.model_dump(mode="python"))
             except Exception:
-                continue
+                # last-resort loose mapping
+                cd = CandidateDoc(
+                    name=getattr(d, "name", None),
+                    description=getattr(d, "description", None),
+                    url=getattr(d, "url", None),
+                    tasks=getattr(d, "tasks", []),
+                    modality=getattr(d, "modality", []),
+                    dims=getattr(d, "dims", []),
+                    programming_language=getattr(d, "programming_language", None),
+                    gpu_required=getattr(d, "gpu", None),
+                    runnable_examples=getattr(d, "runnable_example", []),
+                    executable_notebooks=getattr(d, "has_executable_notebook", []),
+                )
+            candidates.append(cd)
 
-        # Quick exit if retrieval already looks confident
-        if self._is_confident(hits):
-            chosen = hits[0]
-            sel_json = {
-                "choices": [{
-                    "name": chosen["doc"].name,
-                    "rank": 1,
-                    "accuracy": 100.0,  # High confidence
-                    "why": "High-confidence retrieval; top candidate clearly dominates."
-                }],
-            }
-            return chosen, sel_json
+        # Call the VLM selector with the proper signature
+        sel = self.selector_vlm.select(
+            user_task=user_task,
+            candidates=candidates,
+            image_path=preview_path,          # <- IMPORTANT
+            image_meta=image_meta_text or "",
+        )
 
-        log.info("Using VLM selector (FORCE_VLM=%s)", getattr(self, "force_vlm", None))
+        # Normalize to dict
+        sel_json = sel.model_dump() if hasattr(sel, "model_dump") else dict(sel or {})
 
-        preview_path, meta_text = self._build_preview_for_vlm(image_paths)
-        log.info("Selector preview → %s", preview_path or "<none>")
+        # Ensure up to NUM_CHOICES by topping up with remaining hits (preserve order)
+        selected_names = [c.get("name") for c in sel_json.get("choices", []) if c.get("name")]
+        selected_names = [n for i, n in enumerate(selected_names) if n not in selected_names[:i]]
 
-        try:
-            sel = self.selector_vlm.select(
-                user_task=user_task,
-                candidates=candidates,
-                image_path=preview_path,
-                image_meta=meta_text,
-            )
-            sel_json = sel.model_dump()
+        if len(selected_names) < num_choices:
+            for h in hits:
+                nm = h["doc"].name
+                if nm not in selected_names:
+                    selected_names.append(nm)
+                if len(selected_names) >= num_choices:
+                    break
 
-            # Handle no suitable tools case
-            if not sel.choices:
-                return None, sel_json
+            # rebuild choices with rank; keep model’s fields if present
+            new_choices = []
+            for i, nm in enumerate(selected_names[:num_choices], start=1):
+                existing = next((c for c in sel_json.get("choices", []) if c.get("name") == nm), None)
+                if existing:
+                    c = dict(existing)
+                    c["rank"] = i
+                else:
+                    rr = float(next((x.get("rerank_score") or x.get("__rerank__") or 0.0 for x in hits if x["doc"].name == nm), 0.0))
+                    sim = float(next((x.get("score") or x.get("__sim__") or 0.0 for x in hits if x["doc"].name == nm), 0.0))
+                    base = 85.0 if i == 1 else 75.0
+                    acc = max(60.0, min(98.0, base + rr * 10.0))
+                    c = {
+                        "name": nm,
+                        "rank": i,
+                        "accuracy": float(acc),
+                        "why": f"High retrieval/reranker match (rerank={rr:.3f}, sim={sim:.3f}).",
+                    }
+                new_choices.append(c)
+            sel_json["choices"] = new_choices
 
-            # Map to hit or fallback
-            chosen = next((h for h in hits if h["doc"].name == sel.choices[0].name), None)
-            if chosen is None and hits:
-                chosen = hits[0]
-            return chosen, sel_json
+        # Cap (in case the model gave too many)
+        sel_json["choices"] = sel_json.get("choices", [])[:num_choices]
+        return sel_json
 
-        except Exception as e:
-            log.exception("VLM selector failed. Falling back to top-1.")
-            if not hits:
-                return None, {
-                    "choices": [],
-                    "reason": NoToolReason.NO_MATCHES
-                }
 
-            chosen = hits[0]
-            return chosen, {
-                "choices": [{
-                    "name": chosen["doc"].name,
-                    "rank": 1,
-                    "accuracy": 50.0,
-                    "why": f"Fallback to retrieval due to error: {str(e)}"
-                }],
-                "reason": NoToolReason.FALLBACK_TO_RETRIEVAL
-            }
 
     # -------- Confidence gate --------
     def _is_confident(self, hits: List[dict]) -> bool:
@@ -378,68 +390,128 @@ class RAGImagingPipeline:
         return None
 
     # -------- Public API --------
-    def recommend_and_link(self, image_paths: Optional[List[str]], user_task: str) -> Dict[str, Any]:
-        """Process query and return recommendations"""
-        
-        # Validate files first
+    def recommend_and_link(self, image_paths: Optional[List[str]], user_task: str, 
+                       conversation_history: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Process query and return recommendations (no short-circuit; always up to NUM_CHOICES)."""
+
+        # ------------- Build enriched task text (include prior turns) -------------
+        full_task = user_task
+        if conversation_history:
+            full_task = "\\n".join([
+                "Previous conversation:",
+                *conversation_history,
+                "\\nCurrent request:",
+                user_task
+            ])
+
+        # ------------- Validate files --------------------------------------------
         if image_paths:
             valid_paths, errors = FileValidator.validate_files(image_paths)
             if errors:
                 return {
-                    "error": "File validation failed:\n" + "\n".join(errors),
+                    "error": "File validation failed:\\n" + "\\n".join(errors),
                     "choices": [],
                     "reason": NoToolReason.INVALID_FILES
                 }
             image_paths = valid_paths
 
+        # ------------- Optional: extract preview/meta for better prompting --------
+        preview_path = None
+        image_meta_text = ""
+        try:
+            preview_path, image_meta_text = self._build_preview_for_vlm(image_paths or [])
+        except Exception:
+            image_meta_text = ""
+
+        # ------------- Retrieve candidates ---------------------------------------
         top_k = int(os.getenv("TOP_K", "8"))
         num_choices = int(os.getenv("NUM_CHOICES", "3"))
-        hits, scores = self.recommend(user_task, image_paths, top_k=top_k)
+        hits, scores = self.recommend(full_task, image_paths, top_k=top_k)
         if not hits:
             return {"error": "No candidates found."}
 
-        chosen, selection = self._select(user_task, hits, image_paths)
-        
-        # Convert selection to new format with multiple ranked choices
-        if isinstance(selection.get("choices"), list):
-            # Already in new format
-            result = {
-                "choices": selection["choices"],
-                "scores": {k: round(v, 3) for k, v in scores.items()},
-            }
-            # Preserve reason and explanation if present
-            if "reason" in selection:
-                result["reason"] = selection["reason"]
-            if "explanation" in selection:
-                result["explanation"] = selection["explanation"]
-        else:
-            # Convert old format to new
-            choices = []
-            if chosen:
-                choices.append({
-                    "name": chosen["doc"].name,
-                    "rank": 1,
-                    "why": selection.get("why", "")
-                })
-                # Add alternates as lower-ranked choices
-                for i, alt in enumerate(selection.get("alternates", [])[:num_choices-1], 2):
-                    choices.append({
-                        "name": alt,
-                        "rank": i,
-                        "why": f"Alternative choice #{i}"
-                    })
-            
-            result = {
-                "choices": choices,
-                "scores": {k: round(v, 3) for k, v in scores.items()},
-            }
+        # Build compact candidate hints to condition the selector
+        # (name | tasks | modality | dims | lang)
+        cand_lines = []
+        for h in hits:
+            d = h["doc"]
+            cand_lines.append(
+                f"- {getattr(d, 'name', '?')} | "
+                f"tasks={','.join(getattr(d, 'tasks', []) or [])} | "
+                f"modality={','.join(getattr(d, 'modality', []) or [])} | "
+                f"dims={','.join(map(str, getattr(d, 'dims', []) or []))} | "
+                f"lang={getattr(d, 'lang', '')}"
+            )
 
-        # Add demo links for each choice
-        for choice in result["choices"]:
-            doc = next((h["doc"] for h in hits if h["doc"].name == choice["name"]), None)
-            if doc:
-                link = self._best_runnable_link(doc)
-                if link:
-                    choice["demo_link"] = link
+        selector_task = full_task
+        if image_meta_text:
+            selector_task += f"\\n\\nImage metadata: {image_meta_text}"
+        if cand_lines:
+            selector_task += "\\n\\nCandidate tool hints:\\n" + "\\n".join(cand_lines)
+        selector_task += f"\\n\\nRequest up to {num_choices} choices."
+
+        # ------------- Run selector (no short-circuit here) -----------------------
+        # FIX: pass arguments in the correct order, including conversation history
+        selection = self._select(hits, image_meta_text, selector_task, preview_path)
+
+        # Convert to conversation format
+        result = {
+            "conversation": selection.get("conversation", {"status": "complete"}),
+            "choices": selection.get("choices", []),
+        }
+
+        # ------------- Enforce NUM_CHOICES & add demo links -----------------------
+        def _fallback_score(i: int, hit: dict) -> float:
+            """Simple bounded fallback accuracy if selector didn't provide one."""
+            rr = float(hit.get("rerank_score") or hit.get("__rerank__") or 0.0)
+            base = 85.0 if i == 1 else 75.0
+            return max(60.0, min(98.0, base + rr * 10.0))
+
+        # If selector returned < num_choices, top up from remaining hits
+        chosen_names = [c.get("name") for c in result["choices"] if c.get("name")]
+        # de-dup preserve order
+        chosen_names = [n for i, n in enumerate(chosen_names) if n and n not in chosen_names[:i]]
+
+        if len(chosen_names) < num_choices:
+            for h in hits:
+                nm = h["doc"].name
+                if nm not in chosen_names:
+                    chosen_names.append(nm)
+                if len(chosen_names) >= num_choices:
+                    break
+
+            # rebuild choices keeping selector fields when present
+            new_choices = []
+            for i, nm in enumerate(chosen_names[:num_choices], start=1):
+                existing = next((c for c in result["choices"] if c.get("name") == nm), None)
+                if existing:
+                    # ensure rank is consistent
+                    c = dict(existing)
+                    c["rank"] = i
+                else:
+                    hit = next((x for x in hits if x["doc"].name == nm), None)
+                    acc = _fallback_score(i, hit or {})
+                    sim = float((hit or {}).get("score") or (hit or {}).get("__sim__") or 0.0)
+                    rr  = float((hit or {}).get("rerank_score") or (hit or {}).get("__rerank__") or 0.0)
+                    c = {
+                        "name": nm,
+                        "rank": i,
+                        "accuracy": float(acc),
+                        "why": f"High retrieval/reranker match (rerank={rr:.3f}, sim={sim:.3f})."
+                    }
+                new_choices.append(c)
+            result["choices"] = new_choices
+
+        # Cap to num_choices (in case selector over-returned)
+        result["choices"] = result["choices"][:num_choices]
+
+        # Add demo links for all choices when conversation is complete
+        if result["conversation"]["status"] == "complete":
+            for choice in result["choices"]:
+                doc = next((h["doc"] for h in hits if h["doc"].name == choice["name"]), None)
+                if doc:
+                    link = self._best_runnable_link(doc)
+                    if link:
+                        choice["demo_link"] = link
 
         return result

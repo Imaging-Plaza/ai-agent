@@ -162,9 +162,15 @@ class VLMToolSelector:
             f"User task: {user_task}\n"
             f"{meta_note}"
             f"Candidates:\n{cand_block}\n"
-            f"Return STRICT JSON with a 'choices' list containing "
-            f"{os.getenv('NUM_CHOICES', 3)} ranked tools. "
-            f"Each choice must have: name, rank (1=best), why.{meta_block}"
+            f"Return STRICT JSON with:\n"
+            f"1. 'conversation.status': Must be 'needs_clarification' if task is unclear\n"
+            f"2. 'choices': Up to {os.getenv('NUM_CHOICES', 3)} ranked tools if task is clear\n"
+            f"Each choice MUST include:\n"
+            f"- name: tool name\n"
+            f"- rank: position (1=best)\n"
+            f"- accuracy: score (0-100) calculated from task/compatibility/features\n"
+            f"- why: explanation with score breakdown (40/40 task + 30/30 compat + 30/30 features)\n"
+            f"{meta_block}"
         )
 
         # ---- Build message parts (include image if available)
@@ -219,12 +225,29 @@ class VLMToolSelector:
             if not data["choices"] and "reason" not in data:
                 data["reason"] = "no_suitable_tool"
 
-            # Validate non-empty choices
+            # Add default values for missing required fields
             if data["choices"]:
-                for choice in data["choices"]:
-                    for k in ("name", "rank", "accuracy", "why"):
-                        if k not in choice:
-                            raise RuntimeError(f"Choice missing required key: {k}")
+                for i, choice in enumerate(data["choices"], 1):
+                    # Required fields must be present
+                    if "name" not in choice:
+                        raise RuntimeError("Choice missing required field: name")
+                    if "rank" not in choice:
+                        choice["rank"] = i
+                    if "accuracy" not in choice:
+                        raise RuntimeError("Choice missing required field: accuracy")
+                    if "why" not in choice:
+                        raise RuntimeError("Choice missing required field: why")
+
+                    # Validate values
+                    if not choice["name"]:
+                        raise RuntimeError("Choice name cannot be empty")
+                    if not isinstance(choice["rank"], (int, float)):
+                        raise RuntimeError(f"Invalid rank value: {choice['rank']}")
+                    if not isinstance(choice["accuracy"], (int, float)):
+                        raise RuntimeError(f"Invalid accuracy value: {choice['accuracy']}")
+                    
+                    # Ensure accuracy is in valid range
+                    choice["accuracy"] = max(0.0, min(100.0, float(choice["accuracy"])))
 
             return ToolSelection(**data)
 
