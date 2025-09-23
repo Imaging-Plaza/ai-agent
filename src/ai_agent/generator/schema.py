@@ -230,7 +230,7 @@ class NoToolReason(str, Enum):
     NO_MODALITY_MATCH = "no_modality_match"
     NO_TASK_MATCH = "no_task_match"
     NO_DIMENSION_MATCH = "no_dimension_match"
-    FALLBACK_TO_RETRIEVAL = "fallback_to_retrieval"
+    INVALID_FILES = "invalid_files"  
 
 class ToolChoice(BaseModel):
     name: str
@@ -240,15 +240,48 @@ class ToolChoice(BaseModel):
 
 class ToolSelection(BaseModel):
     conversation: Conversation
-    choices: List[ToolChoice] = []
+    choices: List[ToolChoice] = Field(default_factory=list)
     explanation: Optional[str] = None
+    reason: Optional[NoToolReason] = None
 
-    @model_validator(mode='after')
-    def validate_selection(self) -> 'ToolSelection':
-        if not self.choices and self.conversation.status == ConversationStatus.COMPLETE:
-            if not self.explanation:
-                raise ValueError("Empty choices must include an explanation")
+    @model_validator(mode="after")
+    def normalize(self) -> "ToolSelection":
+        has_choices = len(self.choices) > 0
+        asked_q = bool(self.conversation.question and str(self.conversation.question).strip())
+
+        if asked_q:
+            # Clarification turn
+            self.conversation.status = ConversationStatus.NEEDS_CLARIFICATION
+            self.reason = None
+            self.explanation = None
+            return self
+
+        if has_choices:
+            # Normal success: per-tool 'why' explains rationale; no global reason
+            self.conversation.status = ConversationStatus.COMPLETE
+            self.reason = None
+            # explanation optional but usually unnecessary; keep if you want, or null it:
+            # self.explanation = None
+            return self
+
+        # No choices
+        if self.reason or (self.explanation and self.explanation.strip()):
+            # Terminal no-tool
+            self.conversation.status = ConversationStatus.COMPLETE
+            return self
+
+        # Ambiguous empty -> ask a question
+        self.conversation.status = ConversationStatus.NEEDS_CLARIFICATION
         return self
+
+    @field_validator("reason", mode="before")
+    def _reason_empty_to_none(cls, v):
+        return None if v is None or str(v).strip() == "" else v
+
+    @field_validator("explanation", mode="before")
+    def _expl_empty_to_none(cls, v):
+        return None if v is None or str(v).strip() == "" else v
+
 
 class ConversationStatus(str, Enum):
     NEEDS_CLARIFICATION = "needs_clarification"

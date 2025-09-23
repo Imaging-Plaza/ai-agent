@@ -249,6 +249,24 @@ class VLMToolSelector:
                     # Ensure accuracy is in valid range
                     choice["accuracy"] = max(0.0, min(100.0, float(choice["accuracy"])))
 
+            # Drop empty strings
+            if "reason" in data and not str(data["reason"]).strip():
+                data.pop("reason", None)
+            if "explanation" in data and not str(data["explanation"]).strip():
+                data.pop("explanation", None)
+
+            # Ensure clean shape
+            conv = data.get("conversation") or {}
+            if str(conv.get("status", "complete")).lower() == "needs_clarification":
+                data["choices"] = []
+                data.pop("reason", None)
+                data.pop("explanation", None)
+
+            # If choices exist, do not carry a global reason
+            if data.get("choices"):
+                data.pop("reason", None)
+
+
             return ToolSelection(**data)
 
         finally:

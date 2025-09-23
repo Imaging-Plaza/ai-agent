@@ -56,6 +56,9 @@ from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
 from utils.file_validator import FileValidator  # optional validator if present
 
+import re
+TAG_RE = re.compile(r"\[(?:REFINE|NO_RERANK|EXCLUDE:[^\]]*)\]")
+
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
 INDEX_DIR = os.getenv("RAG_INDEX_DIR", "artifacts/rag_index")
@@ -223,18 +226,26 @@ def _make_handler():
         if not message:
             yield (chat_history, history_rows, "", "", conv_history,
                    empty_radio, "—",
-                   gr.update(value=None, visible=False),  # preview
-                   status_idle,  # status
+                   gr.update(visible=False),                # preview accordion hidden
+                   gr.update(value=None, visible=False),    # preview img hidden
+                   gr.update(visible=False),                # refine accordion hidden
+                   [],                                      # excluded_names
+                   status_idle,
                    *disable_inputs)
             return
 
+        visible_msg = TAG_RE.sub("", message or "").strip()
+
         # 0) immediately show user's message + show status and disable inputs
-        chat_history = chat_history + [[message, None]]
-        conv_history = conv_history + [f"User: {message}"]
+        chat_history = chat_history + [[visible_msg, None]]
+        conv_history = conv_history + [f"User: {visible_msg}"]
         status = gr.update(value="🔄 Validating files…", visible=True)
         yield (chat_history, history_rows, "", "", conv_history,
                empty_radio, "—",
-               gr.update(value=None, visible=False),  # preview
+               gr.update(visible=False),                # preview acc
+               gr.update(value=None, visible=False),    # preview img
+               gr.update(visible=False),                # refine acc
+               [],                                      # excluded_names
                status,
                *disable_inputs)
 
@@ -252,16 +263,22 @@ def _make_handler():
             )
             yield (chat_history, history_rows, "", "", conv_history,
                    empty_radio, "—",
+                   gr.update(visible=False),
                    gr.update(value=None, visible=False),
+                   gr.update(visible=False),
+                   [],                                      # excluded_names
                    status_done,
                    *enable_inputs)
             return
 
-        # 2) build preview
+        # 2) build preview (collapsed & only visible if present)
         status = gr.update(value="🖼️ Building preview…", visible=True)
         yield (chat_history, history_rows, "", "", conv_history,
                empty_radio, "—",
+               gr.update(visible=False),
                gr.update(value=None, visible=False),
+               gr.update(visible=False),
+               [],                                      # excluded_names
                status,
                *disable_inputs)
 
@@ -271,9 +288,15 @@ def _make_handler():
         except Exception:
             preview_path = None
 
+        preview_acc_upd = gr.update(visible=bool(preview_path))
+        preview_img_upd = gr.update(value=preview_path, visible=bool(preview_path))
+
         yield (chat_history, history_rows, "", "", conv_history,
                empty_radio, "—",
-               gr.update(value=preview_path, visible=bool(preview_path)),
+               preview_acc_upd,
+               preview_img_upd,
+               gr.update(visible=False),                  # refine hidden while working
+               [],                                        # excluded_names
                gr.update(value="📚 Reranking candidates…", visible=True),
                *disable_inputs)
 
@@ -314,7 +337,9 @@ def _make_handler():
             )
             yield (chat_history, history_rows, "", "", conv_history,
                    empty_radio, "—",
-                   gr.update(value=preview_path, visible=bool(preview_path)),
+                   preview_acc_upd, preview_img_upd,
+                   gr.update(visible=False),               # refine hidden in clarify mode
+                   [],                                      # excluded_names
                    status_done,
                    *enable_inputs)
             return
@@ -344,24 +369,49 @@ def _make_handler():
             )
             yield (chat_history, history_rows, top["name"], demo, conv_history,
                    radio_update, md_cards,
-                   gr.update(value=preview_path, visible=bool(preview_path)),
+                   preview_acc_upd, preview_img_upd,
+                   gr.update(visible=True),                 # refine visible only now (complete)
+                   names,                                   # excluded_names populated for refine
                    status_done,
                    *enable_inputs)
             return
 
-        # 6) no suitable tools
-        chat_history[-1][1] = "❌ No suitable tools found.\n\n" + result.get("explanation", "")
+        # 6) no suitable tools (terminal)
+        reason = result.get("reason")
+        reason_line = f"**Reason:** `{reason}`\n\n" if reason else ""
+        chat_history[-1][1] = (
+            "❌ No suitable tools found.\n\n"
+            + reason_line
+            + result.get("explanation", "")
+        )
+
+        # Clear the choices UI & hide refine
+        radio_update   = gr.update(choices=[], value=None)  # clear radio
+        choices_md_upd = "—"                                # clear markdown table/cards
+        refine_hidden  = gr.update(visible=False)           # hide “Find alternatives”
+
         status_done = gr.update(value="✅ Ready.", visible=True)
         enable_inputs = (
-            gr.update(interactive=True),
-            gr.update(interactive=True),
-            gr.update(interactive=True),
+            gr.update(interactive=True),  # message textbox
+            gr.update(interactive=True),  # Send
+            gr.update(interactive=True),  # Files
         )
-        yield (chat_history, history_rows, "", "", conv_history,
-               empty_radio, "—",
-               gr.update(value=preview_path, visible=bool(preview_path)),
-               status_done,
-               *enable_inputs)
+
+        yield (
+            chat_history,
+            history_rows,
+            "",                  # chosen_tool
+            "",                  # demo_link
+            conv_history,
+            radio_update,        # choices_radio
+            choices_md_upd,      # choices_md
+            preview_acc_upd,     # preview accordion (unchanged)
+            preview_img_upd,     # preview image (unchanged)
+            refine_hidden,       # refine accordion hidden
+            [],                  # excluded_names state reset
+            status_done,
+            *enable_inputs
+        )
 
     return handle_message
 
@@ -369,11 +419,12 @@ def _make_handler():
 def create_interface():
     with gr.Blocks(title="Imaging Tool Finder", theme=gr.themes.Soft()) as demo:
         conversation_history = gr.State([])
+        excluded_names = gr.State([])   # keep latest recommended names for refine
 
         gr.Markdown(
-            "# 🧭 Imaging Tool Finder\n"
-            "Upload an image/volume and describe your goal. "
-            "I'll recommend the best tool(s) with scores and a demo link.\n\n"
+            "# 🧭 Imaging Software Finder\n"
+            "Upload an image/volume/stack and describe your task. "
+            "I'll recommend the best tools with scores and a demo link.\n\n"
             "_Tip: include modality (CT/MRI/microscopy), operation (segment/denoise/register), and objects of interest._"
         )
 
@@ -382,21 +433,15 @@ def create_interface():
             with gr.Column(scale=7):
                 files = gr.File(
                     label="Images / volumes (drag & drop multiple: DICOM zip/folder, NIfTI, TIFF, PNG/JPEG, etc.)",
-                    file_types=["image", ".nii", ".nii.gz", ".dcm", ".zip"],
+                    file_types=None,
                     file_count="multiple",
                 )
 
-                preview_img = gr.Image(
-                    label="Preview",
-                    interactive=False,
-                    value=None,
-                    visible=False,  # toggled by handler via gr.update
-                )
+                # Collapsed, hidden-by-default preview
+                with gr.Accordion("Preview", open=False, visible=False) as preview_acc:
+                    preview_img = gr.Image(label="", interactive=False, value=None, visible=True)
 
-                chatbot = gr.Chatbot(
-                    label="Conversation",
-                    type="tuples",  # current data shape; OK for now
-                )
+                chatbot = gr.Chatbot(label="Conversation", type="tuples")
 
                 with gr.Row():
                     msg = gr.Textbox(
@@ -427,6 +472,15 @@ def create_interface():
                     )
                     choices_md = gr.Markdown(value="—")
 
+                # Refine UI — hidden by default; wired to closure after handler is created
+                with gr.Accordion("Not a good fit? Find alternatives", open=False, visible=False) as refine_acc:
+                    refine_feedback = gr.Textbox(
+                        label="Why didn't this fit? (optional)",
+                        placeholder="e.g., expects DICOM; my file is TIFF • wrong organ • needs GPU",
+                        lines=2,
+                    )
+                    refine_btn = gr.Button("Find alternatives")
+
                 history_df = gr.Dataframe(
                     headers=["Time", "Request", "Tool", "Demo"],
                     label="History",
@@ -437,6 +491,23 @@ def create_interface():
 
         handle_message = _make_handler()
 
+        def _refine(message, chatbot, files, history_rows, conv_history, excluded, feedback):
+            # Build control tags for a refine round
+            tag_refine = "[REFINE]"
+            tag_skip_rr = "[NO_RERANK]"
+            tag_excl = f"[EXCLUDE:{'|'.join(excluded)}]" if excluded else ""
+            fb = f" {feedback.strip()}" if feedback and feedback.strip() else ""
+
+            msg2 = (message or "").strip()
+            control = f"{tag_refine}{tag_skip_rr}{tag_excl}{fb}"
+            msg2 = f"{msg2}\n{control}" if msg2 else control
+
+            gen = handle_message(msg2, chatbot, files, history_rows, conv_history)
+            for step in gen:
+                yield step
+
+
+        # Send
         submit.click(
             handle_message,
             inputs=[msg, chatbot, files, history_df, conversation_history],
@@ -448,7 +519,10 @@ def create_interface():
                 conversation_history,
                 choices_radio,  # updated via gr.update(choices=..., value=...)
                 choices_md,     # detailed markdown cards
-                preview_img,    # preview (handler toggles visibility)
+                preview_acc,    # accordion visibility
+                preview_img,    # preview image
+                refine_acc,     # refine visibility (only on complete)
+                excluded_names, # keep names for refine
                 status_md,      # status banner (loading / done)
                 msg,            # disable / enable while working
                 submit,         # disable / enable while working
@@ -460,31 +534,54 @@ def create_interface():
             handle_message,
             inputs=[msg, chatbot, files, history_df, conversation_history],
             outputs=[
-                chatbot, history_df, chosen_tool, demo_link,
-                conversation_history, choices_radio, choices_md, preview_img,
+                chatbot, history_df, chosen_tool, demo_link, conversation_history,
+                choices_radio, choices_md,
+                preview_acc, preview_img,
+                refine_acc,
+                excluded_names,  # <-- keep names for refine
                 status_md, msg, submit, files
             ],
         ).then(_clear_textbox, inputs=None, outputs=[msg])
 
-        # Clear all (including radio, preview, status) and re-enable inputs
-        # add files to outputs + provide a reset value
+        refine_btn.click(
+            _refine,
+            inputs=[msg, chatbot, files, history_df, conversation_history, excluded_names, refine_feedback],
+            outputs=[
+                chatbot, history_df, chosen_tool, demo_link, conversation_history,
+                choices_radio, choices_md,
+                preview_acc, preview_img,
+                refine_acc,
+                excluded_names,   # update for the next round too
+                status_md, msg, submit, files,
+            ],
+        )
+
+        # Clear ALL (chat, history, selections, preview, refine, status) and re-enable inputs
         clear.click(
             lambda: (
                 [],  # chatbot
-                [],  # history_df
                 "",  # chosen_tool
                 "",  # demo_link
                 [],  # conversation_history
-                gr.update(choices=[], value=None),     # choices_radio reset
-                "—",                                   # choices_md
-                gr.update(value=None, visible=False),  # preview hidden
-                gr.update(value=None),                 # <-- files reset
+                gr.update(choices=[], value=None),   # choices_radio reset
+                "—",                                 # choices_md reset
+                gr.update(visible=False),            # preview accordion hidden
+                gr.update(value=None, visible=False),# preview img hidden
+                gr.update(visible=False),            # refine accordion hidden
+                [],                                  # excluded_names reset (if present in outputs)
+                gr.update(value=None, visible=False),# status hidden
+                gr.update(interactive=True),         # msg enabled
+                gr.update(interactive=True),         # submit enabled
+                gr.update(value=None, interactive=True), # files cleared & enabled
             ),
+            inputs=None,
             outputs=[
-                chatbot, history_df, chosen_tool, demo_link,
-                conversation_history, choices_radio, choices_md, preview_img,
-                files,                                  # <-- include files as an output
-            ],  
+                chatbot, chosen_tool, demo_link, conversation_history,
+                choices_radio, choices_md,
+                preview_acc, preview_img, refine_acc,
+                excluded_names,
+                status_md, msg, submit, files
+            ],
         )
 
 
