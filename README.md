@@ -62,16 +62,14 @@ SOFTWARE_CATALOG=path/to/your/catalog.jsonl
 # Pipeline configuration
 TOP_K=8                # Number of candidates to retrieve
 NUM_CHOICES=3          # Number of tools to recommend
-FORCE_VLM=0           # 1 = always call VLM; 0 = use reranker confidence gate
-RERANK_MARGIN=0.15    # if (top - second) > margin OR top >= RERANK_TOP, skip VLM
-RERANK_TOP=0.90
+FORCE_VLM=1           # 1 = always call VLM; 0 = use reranker confidence gate
 
 # Logging configuration
 LOGLEVEL_CONSOLE=WARNING
 LOGLEVEL_FILE=INFO
 FILE_LOG=1
 LOG_DIR=logs
-LOG_PROMPTS=1         # write selector prompt snapshots
+LOG_PROMPTS=0         # write selector prompt snapshots
 ```
 
 ### 3) Run the app
@@ -144,8 +142,7 @@ The catalog is JSON **or** JSONL. Each line/object is a **SoftwareDoc**. Minimal
 - Return top-K candidates (configurable via `TOP_K`)
 
 ### Selection (one VLM call)
-- If retrieval is **very confident** (top score >> second), pick top-1
-- Otherwise, call the **VLM** with:
+- Call the **VLM** with:
   - **Text**: user request + compact table of top-K candidates
   - **Image**: a **PNG preview** (safe for the API)
   - **Metadata**: original file info (name, extension, shape, etc.)
@@ -211,6 +208,8 @@ ai_agent/
     image_meta.py     # Metadata extraction
     image_io.py       # Image loading/conversion
     image_analyzer.py # VLM image analysis
+    tags.py           # Tags passed to the VLM
+    previews.py       # Building previews for user
 tests/               # Unit tests
 pyproject.toml       # Project configuration and dependencies
 ```
