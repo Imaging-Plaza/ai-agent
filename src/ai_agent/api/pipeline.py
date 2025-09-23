@@ -11,8 +11,7 @@ import numpy as np
 import imageio.v3 as iio
 
 import re
-EXCL_RE_1 = re.compile(r"\[EXCLUDE:([^\]]+)\]")
-EXCL_RE_2 = re.compile(r"\[EXCLUDED:([^\]]+)\]")  # alias
+from utils.tags import strip_tags, parse_exclusions, has_no_rerank, has_refine
 
 from retriever.embedders import (
     LocalBGEEmbedder,
@@ -48,8 +47,11 @@ class RAGImagingPipeline:
         self.hf_token = hf_token
 
         self.force_vlm = str(os.getenv("FORCE_VLM", "0")).lower() in ("1", "true", "yes", "on")
-        self.conf_margin = float(os.getenv("RERANK_MARGIN", "0.15"))
-        self.conf_top = float(os.getenv("RERANK_TOP", "0.90"))
+
+        try:
+            self._cleanup_old_previews(hours=24)
+        except Exception:
+            logging.getLogger("api").exception("Preview cleanup at init failed; continuing")
 
         self.index = self._load_or_build_index()
         if docs:
@@ -114,31 +116,21 @@ class RAGImagingPipeline:
         [EXCLUDE:a|b]    -> exclude these tool names *before* reranking/top-k
         [EXCLUDED:a|b]   -> alias of EXCLUDE
         """
-        import re
-        EXCL_RE_1 = re.compile(r"\[EXCLUDE:([^\]]+)\]")
-        EXCL_RE_2 = re.compile(r"\[EXCLUDED:([^\]]+)\]")  # alias
-
         def _norm(s: str) -> str:
             # normalize: lowercase, trim, collapse whitespace
             return re.sub(r"\s+", " ", (s or "").strip().lower())
 
         # --- Control tags ---------------------------------------------------------
-        skip_rerank = "[NO_RERANK]" in (user_task or "")
-        if skip_rerank:
-            user_task = (user_task or "").replace("[NO_RERANK]", "").strip()
-
-        # collect exclusions from either tag, then normalize
-        excluded_raw: set[str] = set()
-        for rx in (EXCL_RE_1, EXCL_RE_2):
-            m = rx.search(user_task or "")
-            if m:
-                excluded_raw |= {s.strip() for s in m.group(1).split("|") if s.strip()}
-                user_task = rx.sub("", user_task).strip()
+        skip_rerank = has_no_rerank(user_task)
+        excluded_raw = parse_exclusions(user_task)
         excluded_norm = {_norm(x) for x in excluded_raw}
+
+        # Work with a clean task (no control tags) for retrieval
+        clean_task = strip_tags(user_task)
 
         # --- Build retrieval query ------------------------------------------------
         ext_tok = detect_ext_token(image_paths)  # e.g., "DICOM NIfTI TIFF"
-        query = (user_task or "").strip()
+        query = (clean_task or "").strip()
         if ext_tok:
             query = f"{query} format:{ext_tok}"
 
@@ -252,6 +244,31 @@ class RAGImagingPipeline:
 
         return None, meta_text
 
+    def _cleanup_old_previews(self, hours: int = 24) -> None:
+        """
+        Delete preview_* folders older than `hours` from the system temp dir.
+        Best-effort; ignore errors.
+        """
+        import time, tempfile
+        root = Path(tempfile.gettempdir())
+        cutoff = time.time() - hours * 3600
+        try:
+            for p in root.glob("preview_*"):
+                try:
+                    if p.is_dir() and p.stat().st_mtime < cutoff:
+                        for sub in p.glob("**/*"):
+                            try:
+                                if sub.is_file():
+                                    sub.unlink()
+                            except Exception:
+                                pass
+                        p.rmdir()
+                except Exception:
+                    pass
+        except Exception:
+            logging.getLogger("api").exception("Preview cleanup failed")
+
+
     def _select(self, hits, image_meta_text, user_task, preview_path):
         num_choices = int(os.getenv("NUM_CHOICES", "3"))
 
@@ -337,13 +354,6 @@ class RAGImagingPipeline:
         sel_json["choices"] = sel_json.get("choices", [])[:num_choices]
         return sel_json
 
-    def _is_confident(self, hits: List[dict]) -> bool:
-        if self.force_vlm or not hits:
-            return False
-        top = float(hits[0].get("rerank_score") or hits[0].get("score", 0.0))
-        second = float(hits[1].get("rerank_score") or hits[1].get("score", 0.0)) if len(hits) > 1 else 0.0
-        return (top - second) > self.conf_margin or top >= self.conf_top
-
     def _best_runnable_link(self, doc: SoftwareDoc) -> Optional[str]:
         def priority(item) -> float:
             if isinstance(item, dict) and "priority" in item:
@@ -383,8 +393,6 @@ class RAGImagingPipeline:
         conversation_history: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         # --- helpers ------------------------------------------------------------
-        TAG_RE  = re.compile(r"\[(?:REFINE|NO_RERANK|EXCLUDE:[^\]]*)\]")
-        EXCL_RE = re.compile(r"\[EXCLUDE:([^\]]+)\]")
 
         def _norm(s: str) -> str:
             return re.sub(r"\s+", " ", (s or "").strip().lower())
@@ -397,14 +405,9 @@ class RAGImagingPipeline:
             )
 
         # --- control tags ------------------------------------------------------
-        force_clarification = "[REFINE]" in full_task  # user clicked "Find alternatives"
-        # exclusions (keep original for filtering hits; also normalized for safety)
-        exclude_names: set[str] = set()
-        m = EXCL_RE.search(full_task)
-        if m:
-            exclude_names |= {s.strip() for s in m.group(1).split("|") if s.strip()}
-
-        selector_task_clean = TAG_RE.sub("", full_task).strip()
+        force_clarification = has_refine(full_task)
+        exclude_names = set(parse_exclusions(full_task))
+        selector_task_clean = strip_tags(full_task)
         excluded_norm = {_norm(x) for x in exclude_names}
 
         # --- validate files ----------------------------------------------------

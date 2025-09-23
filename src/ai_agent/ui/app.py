@@ -54,10 +54,9 @@ from pandas import DataFrame
 
 from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
-from utils.file_validator import FileValidator  # optional validator if present
 
-import re
-TAG_RE = re.compile(r"\[(?:REFINE|NO_RERANK|EXCLUDE:[^\]]*)\]")
+from utils.file_validator import FileValidator
+from utils.tags import strip_tags, parse_exclusions
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
@@ -188,13 +187,14 @@ def _validate_files(paths: List[str]) -> Tuple[bool, str]:
     if not paths:
         return True, ""
     try:
-        issues = FileValidator.validate(paths)  # type: ignore[attr-defined]
-        if issues:
-            if isinstance(issues, (list, tuple)):
-                issues_text = "\n".join(f"• {x}" for x in issues)
+        valid_paths, errors = FileValidator.validate_files(paths)  # type: ignore[attr-defined]
+        if errors:
+            if isinstance(errors, (list, tuple)):
+                issues_text = "\n".join(f"• {x}" for x in errors)
             else:
-                issues_text = str(issues)
+                issues_text = str(errors)
             return False, f"One or more files look problematic:\n{issues_text}"
+        
     except Exception as e:
         log.debug("FileValidator unavailable or raised: %r", e)
     return True, ""
@@ -216,25 +216,40 @@ def _make_handler():
 
         empty_radio = gr.update(choices=[], value=None)
         status_idle   = gr.update(value=None, visible=False)
-        # disable inputs while working
+
+        # Allow control-tag-only refine messages to proceed (don't treat as empty)
+        raw_message = (message or "")
+        has_any_text = bool(raw_message.strip())
+        has_files    = bool(files)
+
+        if (not has_any_text) and (not has_files):
+            # nothing to do → DO NOT disable inputs; just return quietly
+            yield (chat_history, history_rows, "", "", conv_history,
+                   empty_radio, "—",
+                   gr.update(visible=False),             # preview accordion hidden
+                   gr.update(value=None, visible=False), # preview img hidden
+                   gr.update(visible=False),             # refine accordion hidden
+                   [],                                   # excluded_names
+                   status_idle,
+                   gr.update(interactive=True),          # re-enable msg
+                   gr.update(interactive=True),          # re-enable submit
+                   gr.update(interactive=True))          # re-enable files
+            return
+
+        # What the user sees in the chat (tags removed)
+        visible_msg = strip_tags(raw_message)
+        if not visible_msg:
+            # If message had only control tags, show a friendly stub
+            excluded = parse_exclusions(raw_message)
+            suffix = f" (excluding: {', '.join(excluded)})" if excluded else ""
+            visible_msg = f"Find alternatives{suffix}"
+
+        # Now disable inputs and continue
         disable_inputs = (
             gr.update(interactive=False),  # msg
             gr.update(interactive=False),  # submit
             gr.update(interactive=False),  # files
         )
-
-        if not message:
-            yield (chat_history, history_rows, "", "", conv_history,
-                   empty_radio, "—",
-                   gr.update(visible=False),                # preview accordion hidden
-                   gr.update(value=None, visible=False),    # preview img hidden
-                   gr.update(visible=False),                # refine accordion hidden
-                   [],                                      # excluded_names
-                   status_idle,
-                   *disable_inputs)
-            return
-
-        visible_msg = TAG_RE.sub("", message or "").strip()
 
         # 0) immediately show user's message + show status and disable inputs
         chat_history = chat_history + [[visible_msg, None]]
@@ -494,12 +509,11 @@ def create_interface():
         def _refine(message, chatbot, files, history_rows, conv_history, excluded, feedback):
             # Build control tags for a refine round
             tag_refine = "[REFINE]"
-            tag_skip_rr = "[NO_RERANK]"
             tag_excl = f"[EXCLUDE:{'|'.join(excluded)}]" if excluded else ""
             fb = f" {feedback.strip()}" if feedback and feedback.strip() else ""
 
             msg2 = (message or "").strip()
-            control = f"{tag_refine}{tag_skip_rr}{tag_excl}{fb}"
+            control = f"{tag_refine}{tag_excl}{fb}"
             msg2 = f"{msg2}\n{control}" if msg2 else control
 
             gen = handle_message(msg2, chatbot, files, history_rows, conv_history)
