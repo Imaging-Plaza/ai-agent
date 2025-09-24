@@ -62,7 +62,6 @@ SOFTWARE_CATALOG=path/to/your/catalog.jsonl
 # Pipeline configuration
 TOP_K=8                # Number of candidates to retrieve
 NUM_CHOICES=3          # Number of tools to recommend
-FORCE_VLM=1           # 1 = always call VLM; 0 = use reranker confidence gate
 
 # Logging configuration
 LOGLEVEL_CONSOLE=WARNING
@@ -220,8 +219,6 @@ pyproject.toml       # Project configuration and dependencies
 
 - Run UI from project root:  
   `python -m ui.gradio_app`
-- Toggle **always-VLM** selection during demos:  
-  `FORCE_VLM=1`
 - Save selector prompts to compare changes:  
   `LOG_PROMPTS=1`
 

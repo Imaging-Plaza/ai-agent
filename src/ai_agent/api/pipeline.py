@@ -46,8 +46,6 @@ class RAGImagingPipeline:
         self.selector_vlm = VLMToolSelector()
         self.hf_token = hf_token
 
-        self.force_vlm = str(os.getenv("FORCE_VLM", "0")).lower() in ("1", "true", "yes", "on")
-
         try:
             self._cleanup_old_previews(hours=24)
         except Exception:
