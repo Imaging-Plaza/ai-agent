@@ -3,12 +3,8 @@ from __future__ import annotations
 
 import os
 import logging
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
-import imageio.v3 as iio
 
 import re
 from utils.tags import strip_tags, parse_exclusions, has_no_rerank, has_refine
@@ -24,9 +20,9 @@ from generator.generator import VLMToolSelector
 from generator.schema import CandidateDoc, NoToolReason
 from utils.file_validator import FileValidator
 
-from utils.image_meta import summarize_image_metadata, detect_ext_token
-from utils.image_io import load_any
-from utils.previews import mip_montage, slice_gif, stack_sweep_gif, contact_sheet_slices
+from utils.image_meta import detect_ext_token
+from utils.previews import _build_preview_for_vlm, _cleanup_old_previews
+from utils.utils import _best_runnable_link
 
 log = logging.getLogger("pipeline")
 
@@ -35,7 +31,6 @@ class RAGImagingPipeline:
     def __init__(
         self,
         docs: List[SoftwareDoc],
-        hf_token: Optional[str] = None,
         index_dir: Optional[str] = None,
     ):
         self.index_dir = Path(index_dir or os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
@@ -44,10 +39,9 @@ class RAGImagingPipeline:
         self.embedder = LocalBGEEmbedder()
         self.reranker = CrossEncoderReranker()
         self.selector_vlm = VLMToolSelector()
-        self.hf_token = hf_token
 
         try:
-            self._cleanup_old_previews(hours=24)
+            _cleanup_old_previews(hours=24)
         except Exception:
             logging.getLogger("api").exception("Preview cleanup at init failed; continuing")
 
@@ -183,90 +177,6 @@ class RAGImagingPipeline:
         return hits, {"top": top, "second": second, "margin": margin}
 
 
-    def _build_preview_for_vlm(self, image_paths: Optional[List[str]]) -> Tuple[Optional[str], Optional[str]]:
-        if not image_paths:
-            return None, None
-
-        meta_text = None
-        try:
-            meta_text = summarize_image_metadata(image_paths)
-        except Exception:
-            log.exception("Image metadata summarization failed; continuing without metadata.")
-
-        for p in image_paths:
-            try:
-                data, meta = load_any(p)
-                shp = getattr(meta, "shape", None) or meta.get("shape")
-                if shp is None:
-                    shp = getattr(data, "shape", None)
-                if shp is None:
-                    continue
-
-                tmpdir = Path(tempfile.mkdtemp(prefix="preview_"))
-
-                if len(shp) == 3:
-                    png_path = tmpdir / "slices_grid.png"
-                    gif_path = tmpdir / "sweep.gif"
-                    try:
-                        contact_sheet_slices(data, png_path, max_slices=36, grid_cols=6)
-                    except Exception:
-                        try:
-                            mip_montage(data, png_path)
-                        except Exception:
-                            pass
-                    try:
-                        stack_sweep_gif(data, gif_path, fps=12, max_frames=64)
-                    except Exception:
-                        pass
-                    if png_path.exists():
-                        return str(png_path), meta_text
-                    if gif_path.exists():
-                        return str(gif_path), meta_text
-
-                if len(shp) == 4:
-                    vol = np.asarray(data).mean(axis=-1)
-                    out = tmpdir / "sweep.gif"
-                    step = max(1, vol.shape[2] // 64)
-                    slice_gif(vol, out, axis=2, step=step, fps=12)
-                    return str(out), meta_text
-
-                if len(shp) == 2:
-                    out = tmpdir / "image.png"
-                    arr = data
-                    if arr.dtype != np.uint8:
-                        arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
-                    iio.imwrite(str(out), arr)
-                    return str(out), meta_text
-            except Exception:
-                continue
-
-        return None, meta_text
-
-    def _cleanup_old_previews(self, hours: int = 24) -> None:
-        """
-        Delete preview_* folders older than `hours` from the system temp dir.
-        Best-effort; ignore errors.
-        """
-        import time, tempfile
-        root = Path(tempfile.gettempdir())
-        cutoff = time.time() - hours * 3600
-        try:
-            for p in root.glob("preview_*"):
-                try:
-                    if p.is_dir() and p.stat().st_mtime < cutoff:
-                        for sub in p.glob("**/*"):
-                            try:
-                                if sub.is_file():
-                                    sub.unlink()
-                            except Exception:
-                                pass
-                        p.rmdir()
-                except Exception:
-                    pass
-        except Exception:
-            logging.getLogger("api").exception("Preview cleanup failed")
-
-
     def _select(self, hits, image_meta_text, user_task, preview_path):
         num_choices = int(os.getenv("NUM_CHOICES", "3"))
 
@@ -352,38 +262,6 @@ class RAGImagingPipeline:
         sel_json["choices"] = sel_json.get("choices", [])[:num_choices]
         return sel_json
 
-    def _best_runnable_link(self, doc: SoftwareDoc) -> Optional[str]:
-        def priority(item) -> float:
-            if isinstance(item, dict) and "priority" in item:
-                try:
-                    return float(item["priority"])
-                except Exception:
-                    pass
-            return 1e9
-
-        def extract_url(item) -> Optional[str]:
-            if isinstance(item, str):
-                u = item.strip()
-                return u or None
-            if isinstance(item, dict):
-                for k in ("url", "href", "link", "contentUrl"):
-                    u = item.get(k)
-                    if isinstance(u, str) and u.strip():
-                        return u.strip()
-            return None
-
-        for items in (getattr(doc, "runnable_example", None) or [], getattr(doc, "has_executable_notebook", None) or []):
-            try:
-                items_sorted = sorted(items, key=priority)
-            except Exception:
-                items_sorted = items
-            for it in items_sorted:
-                url = extract_url(it)
-                if url:
-                    return url
-
-        return None
-
     def recommend_and_link(
         self,
         image_paths: Optional[List[str]],
@@ -423,7 +301,7 @@ class RAGImagingPipeline:
         preview_path = None
         image_meta_text = ""
         try:
-            preview_path, image_meta_text = self._build_preview_for_vlm(image_paths or [])
+            preview_path, image_meta_text = _build_preview_for_vlm(image_paths or [])
         except Exception:
             image_meta_text = ""
 
@@ -548,7 +426,7 @@ class RAGImagingPipeline:
             for choice in result["choices"]:
                 doc = next((h["doc"] for h in hits if getattr(h["doc"], "name", "") == choice["name"]), None)
                 if doc:
-                    link = self._best_runnable_link(doc)
+                    link = _best_runnable_link(doc)
                     if link:
                         choice["demo_link"] = link
 

@@ -57,6 +57,7 @@ from api.pipeline import RAGImagingPipeline
 
 from utils.file_validator import FileValidator
 from utils.tags import strip_tags, parse_exclusions
+from utils.previews import _build_preview_for_vlm
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
@@ -299,7 +300,7 @@ def _make_handler():
 
         preview_path = None
         try:
-            preview_path, _meta_text = get_pipeline()._build_preview_for_vlm(paths)
+            preview_path, _meta_text = _build_preview_for_vlm(paths)
         except Exception:
             preview_path = None
 

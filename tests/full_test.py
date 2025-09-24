@@ -262,7 +262,7 @@ def test_pipeline_against_sheet_with_urls(tmp_path: Path, monkeypatch, subtests,
     docs = _load_catalog_docs()
     from api.pipeline import RAGImagingPipeline
 
-    pipe = RAGImagingPipeline(docs=docs, hf_token=None)
+    pipe = RAGImagingPipeline(docs=docs)
 
     # For determinism in this unit test, we also disable the (patched) reranker.
     pipe.reranker = None
