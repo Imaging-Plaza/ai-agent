@@ -99,9 +99,10 @@ class RAGImagingPipeline:
                     break
         return out
 
-    def recommend(
-        self, user_task: str, image_paths: Optional[List[str]], top_k: int = 5
-    ) -> Tuple[List[dict], Dict[str, float]]:
+    def recommend(self, user_task: str, image_paths: Optional[List[str]], top_k: int = 5,
+                persisted_exclusions: Optional[List[str]] = None
+        ) -> Tuple[List[dict], Dict[str, float]]:
+
         """
         Retrieve candidate tools for the given request. Control tags:
         [NO_RERANK]      -> skip CrossEncoder reranker
@@ -114,7 +115,9 @@ class RAGImagingPipeline:
 
         # --- Control tags ---------------------------------------------------------
         skip_rerank = has_no_rerank(user_task)
-        excluded_raw = parse_exclusions(user_task)
+        excluded_raw = set(parse_exclusions(user_task))
+        if persisted_exclusions:
+            excluded_raw |= set(persisted_exclusions)
         excluded_norm = {_norm(x) for x in excluded_raw}
 
         # Work with a clean task (no control tags) for retrieval
@@ -267,6 +270,7 @@ class RAGImagingPipeline:
         image_paths: Optional[List[str]],
         user_task: str,
         conversation_history: Optional[List[str]] = None,
+        persisted_exclusions: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         # --- helpers ------------------------------------------------------------
 
@@ -283,6 +287,8 @@ class RAGImagingPipeline:
         # --- control tags ------------------------------------------------------
         force_clarification = has_refine(full_task)
         exclude_names = set(parse_exclusions(full_task))
+        if persisted_exclusions:
+            exclude_names |= set(persisted_exclusions)
         selector_task_clean = strip_tags(full_task)
         excluded_norm = {_norm(x) for x in exclude_names}
 
@@ -309,7 +315,11 @@ class RAGImagingPipeline:
         top_k       = int(os.getenv("TOP_K", "8"))
         num_choices = int(os.getenv("NUM_CHOICES", "3"))
 
-        hits, _scores = self.recommend(full_task, image_paths, top_k=top_k)
+        hits, _scores = self.recommend(
+            full_task, image_paths, top_k=top_k,
+            persisted_exclusions=list(exclude_names) if exclude_names else None
+        )
+        
         if not hits:
             return {
                 "conversation": {"status": "complete"},
