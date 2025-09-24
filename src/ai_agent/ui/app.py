@@ -54,10 +54,10 @@ from pandas import DataFrame
 
 from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
-from utils.file_validator import FileValidator  # optional validator if present
 
-import re
-TAG_RE = re.compile(r"\[(?:REFINE|NO_RERANK|EXCLUDE:[^\]]*)\]")
+from utils.file_validator import FileValidator
+from utils.tags import strip_tags, parse_exclusions, is_refine_intent, strip_refine_keywords
+from utils.previews import _build_preview_for_vlm
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
@@ -188,13 +188,14 @@ def _validate_files(paths: List[str]) -> Tuple[bool, str]:
     if not paths:
         return True, ""
     try:
-        issues = FileValidator.validate(paths)  # type: ignore[attr-defined]
-        if issues:
-            if isinstance(issues, (list, tuple)):
-                issues_text = "\n".join(f"• {x}" for x in issues)
+        valid_paths, errors = FileValidator.validate_files(paths)  # type: ignore[attr-defined]
+        if errors:
+            if isinstance(errors, (list, tuple)):
+                issues_text = "\n".join(f"• {x}" for x in errors)
             else:
-                issues_text = str(issues)
+                issues_text = str(errors)
             return False, f"One or more files look problematic:\n{issues_text}"
+        
     except Exception as e:
         log.debug("FileValidator unavailable or raised: %r", e)
     return True, ""
@@ -202,52 +203,97 @@ def _validate_files(paths: List[str]) -> Tuple[bool, str]:
 # --- Chat handler (streaming + status/disable) --------------------------------
 def _make_handler():
     def handle_message(message: str,
-                       chat_history,
-                       files,
-                       history_rows,
-                       conv_history,
-                       ):
+                    chat_history,
+                    files,
+                    history_rows,
+                    conv_history,
+                    banlist_state,
+                    last_task_state,
+                    last_suggestions_state):
         # normalize inputs
         if isinstance(history_rows, DataFrame):
             history_rows = history_rows.values.tolist()
         history_rows = history_rows or []
         chat_history = chat_history or []
         conv_history = conv_history or []
+        banlist = set(banlist_state or set())
+        base_task = (last_task_state or "").strip()
+        prev_suggestions = list(last_suggestions_state or [])
 
         empty_radio = gr.update(choices=[], value=None)
-        status_idle   = gr.update(value=None, visible=False)
-        # disable inputs while working
+        status_idle = gr.update(value=None, visible=False)
+
+        # Allow control-tag-only refine messages to proceed (don't treat as empty)
+        raw_message = (message or "")
+        has_any_text = bool(raw_message.strip())
+        has_files    = bool(files)
+
+        if (not has_any_text) and (not has_files):
+            # nothing to do → DO NOT disable inputs; just return quietly
+            yield (chat_history, history_rows, "", "", conv_history,
+                empty_radio, "—",
+                gr.update(visible=False),              # preview accordion hidden
+                gr.update(value=None, visible=False),  # preview image hidden
+                [],                                    # excluded_names
+                status_idle,                           # status hidden
+                gr.update(interactive=True),           # msg enabled
+                gr.update(interactive=True),           # submit enabled
+                gr.update(interactive=True),           # files enabled
+                banlist, base_task, prev_suggestions)
+
+            return
+
+        # Visible user text (no control tags)
+        visible_msg = strip_tags(raw_message)
+        if not visible_msg:
+            # If message had only control tags, show a friendly stub
+            excluded = parse_exclusions(raw_message)
+            suffix = f" (excluding: {', '.join(excluded)})" if excluded else ""
+            visible_msg = f"Find alternatives{suffix}"
+
+        # Determine refine intent + exclusions
+        intent_refine = is_refine_intent(raw_message) or is_refine_intent(visible_msg)
+        new_exclusions = set(parse_exclusions(raw_message))
+        banlist |= new_exclusions
+        # If refine but user didn’t name exclusions, auto-exclude the last shown tools
+        if intent_refine and not new_exclusions:
+            banlist |= set(prev_suggestions)
+
+        # Build effective task to send to the pipeline
+        # - If refine: keep the previous base task, only append new constraints (strip refine keywords)
+        # - Else: message becomes the new base task
+        constraint_text = strip_refine_keywords(visible_msg)
+        if intent_refine:
+            if not base_task:
+                effective_task = constraint_text or visible_msg
+                base_task = effective_task
+            else:
+                if constraint_text and constraint_text.lower() not in ("find alternatives",):
+                    effective_task = f"{base_task}\n{constraint_text}".strip()
+                else:
+                    effective_task = base_task
+        else:
+            effective_task = visible_msg
+            base_task = effective_task  # update base task on normal turns
+
+        # Disable inputs and show the user line immediately
         disable_inputs = (
             gr.update(interactive=False),  # msg
             gr.update(interactive=False),  # submit
             gr.update(interactive=False),  # files
         )
 
-        if not message:
-            yield (chat_history, history_rows, "", "", conv_history,
-                   empty_radio, "—",
-                   gr.update(visible=False),                # preview accordion hidden
-                   gr.update(value=None, visible=False),    # preview img hidden
-                   gr.update(visible=False),                # refine accordion hidden
-                   [],                                      # excluded_names
-                   status_idle,
-                   *disable_inputs)
-            return
-
-        visible_msg = TAG_RE.sub("", message or "").strip()
-
-        # 0) immediately show user's message + show status and disable inputs
         chat_history = chat_history + [[visible_msg, None]]
         conv_history = conv_history + [f"User: {visible_msg}"]
         status = gr.update(value="🔄 Validating files…", visible=True)
         yield (chat_history, history_rows, "", "", conv_history,
-               empty_radio, "—",
-               gr.update(visible=False),                # preview acc
-               gr.update(value=None, visible=False),    # preview img
-               gr.update(visible=False),                # refine acc
-               [],                                      # excluded_names
-               status,
-               *disable_inputs)
+            empty_radio, "—",
+            gr.update(visible=False),
+            gr.update(value=None, visible=False),
+            [],                                      # excluded_names
+            status,
+            *disable_inputs,
+            banlist, base_task, prev_suggestions)
 
         # 1) file validation
         paths = _coerce_gradio_files_to_paths(files)
@@ -262,29 +308,31 @@ def _make_handler():
                 gr.update(interactive=True),
             )
             yield (chat_history, history_rows, "", "", conv_history,
-                   empty_radio, "—",
-                   gr.update(visible=False),
-                   gr.update(value=None, visible=False),
-                   gr.update(visible=False),
-                   [],                                      # excluded_names
-                   status_done,
-                   *enable_inputs)
+                empty_radio, "—",
+                gr.update(visible=False),
+                gr.update(value=None, visible=False),
+                [],                                      # excluded_names
+                status_done,
+                *enable_inputs,
+                banlist, base_task, prev_suggestions)
+
             return
 
         # 2) build preview (collapsed & only visible if present)
         status = gr.update(value="🖼️ Building preview…", visible=True)
         yield (chat_history, history_rows, "", "", conv_history,
-               empty_radio, "—",
-               gr.update(visible=False),
-               gr.update(value=None, visible=False),
-               gr.update(visible=False),
-               [],                                      # excluded_names
-               status,
-               *disable_inputs)
+            empty_radio, "—",
+            gr.update(visible=False),
+            gr.update(value=None, visible=False),
+            [],                                    # excluded_names
+            status,
+            *disable_inputs,
+            banlist, base_task, prev_suggestions)
+
 
         preview_path = None
         try:
-            preview_path, _meta_text = get_pipeline()._build_preview_for_vlm(paths)
+            preview_path, _meta_text = _build_preview_for_vlm(paths)
         except Exception:
             preview_path = None
 
@@ -292,20 +340,21 @@ def _make_handler():
         preview_img_upd = gr.update(value=preview_path, visible=bool(preview_path))
 
         yield (chat_history, history_rows, "", "", conv_history,
-               empty_radio, "—",
-               preview_acc_upd,
-               preview_img_upd,
-               gr.update(visible=False),                  # refine hidden while working
-               [],                                        # excluded_names
-               gr.update(value="📚 Reranking candidates…", visible=True),
-               *disable_inputs)
+            empty_radio, "—",
+            preview_acc_upd,
+            preview_img_upd,
+            [],                                        # excluded_names
+            gr.update(value="📚 Reranking candidates…", visible=True),
+            *disable_inputs,
+            banlist, base_task, prev_suggestions)
 
-        # 3) run pipeline
+        # 3) run pipeline (pass merged persistent bans every time)
         pipeline = get_pipeline()
         result = pipeline.recommend_and_link(
             image_paths=paths,
-            user_task=message,
+            user_task=effective_task,
             conversation_history=conv_history,
+            persisted_exclusions=list(banlist),    # <-- NEW
         )
 
         # helpers
@@ -336,12 +385,12 @@ def _make_handler():
                 gr.update(interactive=True),
             )
             yield (chat_history, history_rows, "", "", conv_history,
-                   empty_radio, "—",
-                   preview_acc_upd, preview_img_upd,
-                   gr.update(visible=False),               # refine hidden in clarify mode
-                   [],                                      # excluded_names
-                   status_done,
-                   *enable_inputs)
+                empty_radio, "—",
+                preview_acc_upd, preview_img_upd,
+                [],                                      # excluded_names
+                status_done,
+                *enable_inputs,
+                banlist, base_task, prev_suggestions)
             return
 
         # 5) choices (up to NUM_CHOICES)
@@ -357,9 +406,13 @@ def _make_handler():
             )
 
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            history_rows = history_rows + [[ts, message[:80], top["name"], "yes" if demo else "no"]]
+            history_rows = history_rows + [[ts, effective_task[:80], top["name"], "yes" if demo else "no"]]
 
             radio_update = gr.update(choices=names, value=names[0] if names else None)
+
+            # Update persistent states for next round
+            prev_suggestions = names  # last_suggestions
+            # (banlist already includes any explicit excludes; we do NOT auto-ban here)
 
             status_done = gr.update(value="✅ Ready.", visible=True)
             enable_inputs = (
@@ -368,12 +421,12 @@ def _make_handler():
                 gr.update(interactive=True),
             )
             yield (chat_history, history_rows, top["name"], demo, conv_history,
-                   radio_update, md_cards,
-                   preview_acc_upd, preview_img_upd,
-                   gr.update(visible=True),                 # refine visible only now (complete)
-                   names,                                   # excluded_names populated for refine
-                   status_done,
-                   *enable_inputs)
+                radio_update, md_cards,
+                preview_acc_upd, preview_img_upd,
+                names,                                   # excluded_names populated for legacy refine
+                status_done,
+                *enable_inputs,
+                banlist, base_task, prev_suggestions)
             return
 
         # 6) no suitable tools (terminal)
@@ -385,10 +438,9 @@ def _make_handler():
             + result.get("explanation", "")
         )
 
-        # Clear the choices UI & hide refine
+        # Clear the choices UI 
         radio_update   = gr.update(choices=[], value=None)  # clear radio
         choices_md_upd = "—"                                # clear markdown table/cards
-        refine_hidden  = gr.update(visible=False)           # hide “Find alternatives”
 
         status_done = gr.update(value="✅ Ready.", visible=True)
         enable_inputs = (
@@ -407,19 +459,23 @@ def _make_handler():
             choices_md_upd,      # choices_md
             preview_acc_upd,     # preview accordion (unchanged)
             preview_img_upd,     # preview image (unchanged)
-            refine_hidden,       # refine accordion hidden
             [],                  # excluded_names state reset
             status_done,
-            *enable_inputs
+            *enable_inputs,
+            banlist, base_task, prev_suggestions
         )
-
     return handle_message
+
 
 # --- UI -----------------------------------------------------------------------
 def create_interface():
     with gr.Blocks(title="Imaging Tool Finder", theme=gr.themes.Soft()) as demo:
         conversation_history = gr.State([])
         excluded_names = gr.State([])   # keep latest recommended names for refine
+        banlist_state = gr.State(set())          # persistent set of banned tool names
+        last_task_state = gr.State("")           # persistent "base task" text
+        last_suggestions_state = gr.State([])    # last proposed tool names to auto-ban on refine
+
 
         gr.Markdown(
             "# 🧭 Imaging Software Finder\n"
@@ -472,15 +528,6 @@ def create_interface():
                     )
                     choices_md = gr.Markdown(value="—")
 
-                # Refine UI — hidden by default; wired to closure after handler is created
-                with gr.Accordion("Not a good fit? Find alternatives", open=False, visible=False) as refine_acc:
-                    refine_feedback = gr.Textbox(
-                        label="Why didn't this fit? (optional)",
-                        placeholder="e.g., expects DICOM; my file is TIFF • wrong organ • needs GPU",
-                        lines=2,
-                    )
-                    refine_btn = gr.Button("Find alternatives")
-
                 history_df = gr.Dataframe(
                     headers=["Time", "Request", "Tool", "Demo"],
                     label="History",
@@ -491,26 +538,11 @@ def create_interface():
 
         handle_message = _make_handler()
 
-        def _refine(message, chatbot, files, history_rows, conv_history, excluded, feedback):
-            # Build control tags for a refine round
-            tag_refine = "[REFINE]"
-            tag_skip_rr = "[NO_RERANK]"
-            tag_excl = f"[EXCLUDE:{'|'.join(excluded)}]" if excluded else ""
-            fb = f" {feedback.strip()}" if feedback and feedback.strip() else ""
-
-            msg2 = (message or "").strip()
-            control = f"{tag_refine}{tag_skip_rr}{tag_excl}{fb}"
-            msg2 = f"{msg2}\n{control}" if msg2 else control
-
-            gen = handle_message(msg2, chatbot, files, history_rows, conv_history)
-            for step in gen:
-                yield step
-
-
         # Send
         submit.click(
             handle_message,
-            inputs=[msg, chatbot, files, history_df, conversation_history],
+            inputs=[msg, chatbot, files, history_df, conversation_history,
+                    banlist_state, last_task_state, last_suggestions_state],
             outputs=[
                 chatbot,        # streams
                 history_df,     # table
@@ -521,42 +553,32 @@ def create_interface():
                 choices_md,     # detailed markdown cards
                 preview_acc,    # accordion visibility
                 preview_img,    # preview image
-                refine_acc,     # refine visibility (only on complete)
-                excluded_names, # keep names for refine
+                excluded_names, # keep names for refine (legacy right panel)
                 status_md,      # status banner (loading / done)
                 msg,            # disable / enable while working
                 submit,         # disable / enable while working
                 files,          # disable / enable while working
+                banlist_state, last_task_state, last_suggestions_state,
             ],
         ).then(_clear_textbox, inputs=None, outputs=[msg])
+
 
         msg.submit(
             handle_message,
-            inputs=[msg, chatbot, files, history_df, conversation_history],
+            inputs=[msg, chatbot, files, history_df, conversation_history,
+                    banlist_state, last_task_state, last_suggestions_state],
             outputs=[
                 chatbot, history_df, chosen_tool, demo_link, conversation_history,
                 choices_radio, choices_md,
                 preview_acc, preview_img,
-                refine_acc,
-                excluded_names,  # <-- keep names for refine
-                status_md, msg, submit, files
+                excluded_names,
+                status_md, msg, submit, files,
+                banlist_state, last_task_state, last_suggestions_state,
             ],
         ).then(_clear_textbox, inputs=None, outputs=[msg])
 
-        refine_btn.click(
-            _refine,
-            inputs=[msg, chatbot, files, history_df, conversation_history, excluded_names, refine_feedback],
-            outputs=[
-                chatbot, history_df, chosen_tool, demo_link, conversation_history,
-                choices_radio, choices_md,
-                preview_acc, preview_img,
-                refine_acc,
-                excluded_names,   # update for the next round too
-                status_md, msg, submit, files,
-            ],
-        )
 
-        # Clear ALL (chat, history, selections, preview, refine, status) and re-enable inputs
+        # Clear ALL (chat, history, selections, preview, status) and re-enable inputs
         clear.click(
             lambda: (
                 [],  # chatbot
@@ -567,20 +589,23 @@ def create_interface():
                 "—",                                 # choices_md reset
                 gr.update(visible=False),            # preview accordion hidden
                 gr.update(value=None, visible=False),# preview img hidden
-                gr.update(visible=False),            # refine accordion hidden
-                [],                                  # excluded_names reset (if present in outputs)
+                [],                                  # excluded_names reset
                 gr.update(value=None, visible=False),# status hidden
                 gr.update(interactive=True),         # msg enabled
                 gr.update(interactive=True),         # submit enabled
                 gr.update(value=None, interactive=True), # files cleared & enabled
+                set(),                               # NEW: banlist_state reset
+                "",                                  # NEW: last_task_state reset
+                [],                                  # NEW: last_suggestions_state reset
             ),
             inputs=None,
             outputs=[
                 chatbot, chosen_tool, demo_link, conversation_history,
                 choices_radio, choices_md,
-                preview_acc, preview_img, refine_acc,
+                preview_acc, preview_img,
                 excluded_names,
-                status_md, msg, submit, files
+                status_md, msg, submit, files,
+                banlist_state, last_task_state, last_suggestions_state
             ],
         )
 

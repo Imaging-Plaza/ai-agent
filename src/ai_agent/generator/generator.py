@@ -1,8 +1,6 @@
 # generator/generator.py
 from __future__ import annotations
 import json, os, logging, re
-from datetime import datetime
-from pathlib import Path
 from typing import List, Optional, Dict, Any
 from openai import OpenAI
 from datetime import datetime
@@ -13,59 +11,8 @@ from generator.schema import CandidateDoc, ToolSelection
 from generator.prompts import SELECTOR_SYSTEM
 from utils.image_analyzer import _to_supported_png_dataurl as to_data_url
 
-class LLMProvider:
-    def generate_json(self, system: str, user: str, response_schema_name: str = "json") -> str:
-        raise NotImplementedError
 
-class OpenAIProvider(LLMProvider):
-    def __init__(self, model: Optional[str] = None, timeout: float = 60.0):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = (
-            model
-            or os.getenv("OPENAI_SELECTOR_MODEL")
-            or os.getenv("OPENAI_MODEL")
-            or "gpt-4o-mini"
-        )
-        self.timeout = timeout
-        self.log = logging.getLogger("generator.openai")
-        self.last_request = None
-        self.last_response = None
-        self.last_usage = None
-        self.last_logfile = None
-
-    def _maybe_log_to_file(self, system: str, user: str, response_text: str, usage: dict | None):
-        if str(os.getenv("LOG_PROMPTS", "")).lower() not in ("1", "true", "yes", "on"):
-            return None
-        Path("logs").mkdir(exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = Path("logs") / f"openai_{ts}.txt"
-        with path.open("w", encoding="utf-8") as f:
-            f.write(f"MODEL: {self.model}\n\n--- SYSTEM ---\n{system.strip()}\n\n--- USER ---\n{user.strip()}\n\n--- RESPONSE ---\n{(response_text or '').strip()}\n\n--- USAGE ---\n{str(usage or {})}")
-        return str(path)
-
-    def generate_json(self, system: str, user: str, response_schema_name: str = "json") -> str:
-        self.last_request = {"model": self.model, "system": system, "user": user}
-        self.log.info("OpenAI chat.completions model=%s", self.model)
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role":"system","content":system},{"role":"user","content":user}],
-            response_format={"type":"json_object"},
-            temperature=0.2,
-            timeout=self.timeout,
-        )
-        text = resp.choices[0].message.content
-        try:
-            usage = resp.usage.model_dump()
-        except Exception:
-            usage = getattr(resp, "usage", None)
-        self.last_response = text
-        self.last_usage = usage
-        self.last_logfile = self._maybe_log_to_file(system, user, text, usage)
-        if self.last_logfile:
-            self.log.info("Saved prompt log → %s", self.last_logfile)
-        return text
-
-# -------- Single-call VLM selector --------
+# -------- VLM selector --------
 class VLMToolSelector:
     """
     Single-call VLM selector:
@@ -76,7 +23,6 @@ class VLMToolSelector:
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = (
             model
-            or os.getenv("OPENAI_SELECTOR_MODEL")
             or os.getenv("OPENAI_VLM_MODEL")
             or os.getenv("OPENAI_MODEL")
             or "gpt-4o-mini"
@@ -266,6 +212,8 @@ class VLMToolSelector:
             if data.get("choices"):
                 data.pop("reason", None)
 
+            if not data.get("conversation"):
+                data["conversation"] = {"status": "complete"}
 
             return ToolSelection(**data)
 

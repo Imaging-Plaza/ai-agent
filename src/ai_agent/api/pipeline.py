@@ -3,16 +3,11 @@ from __future__ import annotations
 
 import os
 import logging
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
-import imageio.v3 as iio
-
 import re
-EXCL_RE_1 = re.compile(r"\[EXCLUDE:([^\]]+)\]")
-EXCL_RE_2 = re.compile(r"\[EXCLUDED:([^\]]+)\]")  # alias
+from utils.tags import strip_tags, parse_exclusions, has_no_rerank, has_refine
 
 from retriever.embedders import (
     LocalBGEEmbedder,
@@ -25,9 +20,9 @@ from generator.generator import VLMToolSelector
 from generator.schema import CandidateDoc, NoToolReason
 from utils.file_validator import FileValidator
 
-from utils.image_meta import summarize_image_metadata, detect_ext_token
-from utils.image_io import load_any
-from utils.previews import mip_montage, slice_gif, stack_sweep_gif, contact_sheet_slices
+from utils.image_meta import detect_ext_token
+from utils.previews import _build_preview_for_vlm, _cleanup_old_previews
+from utils.utils import _best_runnable_link
 
 log = logging.getLogger("pipeline")
 
@@ -36,7 +31,6 @@ class RAGImagingPipeline:
     def __init__(
         self,
         docs: List[SoftwareDoc],
-        hf_token: Optional[str] = None,
         index_dir: Optional[str] = None,
     ):
         self.index_dir = Path(index_dir or os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
@@ -45,11 +39,11 @@ class RAGImagingPipeline:
         self.embedder = LocalBGEEmbedder()
         self.reranker = CrossEncoderReranker()
         self.selector_vlm = VLMToolSelector()
-        self.hf_token = hf_token
 
-        self.force_vlm = str(os.getenv("FORCE_VLM", "0")).lower() in ("1", "true", "yes", "on")
-        self.conf_margin = float(os.getenv("RERANK_MARGIN", "0.15"))
-        self.conf_top = float(os.getenv("RERANK_TOP", "0.90"))
+        try:
+            _cleanup_old_previews(hours=24)
+        except Exception:
+            logging.getLogger("api").exception("Preview cleanup at init failed; continuing")
 
         self.index = self._load_or_build_index()
         if docs:
@@ -105,40 +99,33 @@ class RAGImagingPipeline:
                     break
         return out
 
-    def recommend(
-        self, user_task: str, image_paths: Optional[List[str]], top_k: int = 5
-    ) -> Tuple[List[dict], Dict[str, float]]:
+    def recommend(self, user_task: str, image_paths: Optional[List[str]], top_k: int = 5,
+                persisted_exclusions: Optional[List[str]] = None
+        ) -> Tuple[List[dict], Dict[str, float]]:
+
         """
         Retrieve candidate tools for the given request. Control tags:
         [NO_RERANK]      -> skip CrossEncoder reranker
         [EXCLUDE:a|b]    -> exclude these tool names *before* reranking/top-k
         [EXCLUDED:a|b]   -> alias of EXCLUDE
         """
-        import re
-        EXCL_RE_1 = re.compile(r"\[EXCLUDE:([^\]]+)\]")
-        EXCL_RE_2 = re.compile(r"\[EXCLUDED:([^\]]+)\]")  # alias
-
         def _norm(s: str) -> str:
             # normalize: lowercase, trim, collapse whitespace
             return re.sub(r"\s+", " ", (s or "").strip().lower())
 
         # --- Control tags ---------------------------------------------------------
-        skip_rerank = "[NO_RERANK]" in (user_task or "")
-        if skip_rerank:
-            user_task = (user_task or "").replace("[NO_RERANK]", "").strip()
-
-        # collect exclusions from either tag, then normalize
-        excluded_raw: set[str] = set()
-        for rx in (EXCL_RE_1, EXCL_RE_2):
-            m = rx.search(user_task or "")
-            if m:
-                excluded_raw |= {s.strip() for s in m.group(1).split("|") if s.strip()}
-                user_task = rx.sub("", user_task).strip()
+        skip_rerank = has_no_rerank(user_task)
+        excluded_raw = set(parse_exclusions(user_task))
+        if persisted_exclusions:
+            excluded_raw |= set(persisted_exclusions)
         excluded_norm = {_norm(x) for x in excluded_raw}
+
+        # Work with a clean task (no control tags) for retrieval
+        clean_task = strip_tags(user_task)
 
         # --- Build retrieval query ------------------------------------------------
         ext_tok = detect_ext_token(image_paths)  # e.g., "DICOM NIfTI TIFF"
-        query = (user_task or "").strip()
+        query = (clean_task or "").strip()
         if ext_tok:
             query = f"{query} format:{ext_tok}"
 
@@ -192,65 +179,6 @@ class RAGImagingPipeline:
 
         return hits, {"top": top, "second": second, "margin": margin}
 
-
-    def _build_preview_for_vlm(self, image_paths: Optional[List[str]]) -> Tuple[Optional[str], Optional[str]]:
-        if not image_paths:
-            return None, None
-
-        meta_text = None
-        try:
-            meta_text = summarize_image_metadata(image_paths)
-        except Exception:
-            log.exception("Image metadata summarization failed; continuing without metadata.")
-
-        for p in image_paths:
-            try:
-                data, meta = load_any(p)
-                shp = getattr(meta, "shape", None) or meta.get("shape")
-                if shp is None:
-                    shp = getattr(data, "shape", None)
-                if shp is None:
-                    continue
-
-                tmpdir = Path(tempfile.mkdtemp(prefix="preview_"))
-
-                if len(shp) == 3:
-                    png_path = tmpdir / "slices_grid.png"
-                    gif_path = tmpdir / "sweep.gif"
-                    try:
-                        contact_sheet_slices(data, png_path, max_slices=36, grid_cols=6)
-                    except Exception:
-                        try:
-                            mip_montage(data, png_path)
-                        except Exception:
-                            pass
-                    try:
-                        stack_sweep_gif(data, gif_path, fps=12, max_frames=64)
-                    except Exception:
-                        pass
-                    if png_path.exists():
-                        return str(png_path), meta_text
-                    if gif_path.exists():
-                        return str(gif_path), meta_text
-
-                if len(shp) == 4:
-                    vol = np.asarray(data).mean(axis=-1)
-                    out = tmpdir / "sweep.gif"
-                    step = max(1, vol.shape[2] // 64)
-                    slice_gif(vol, out, axis=2, step=step, fps=12)
-                    return str(out), meta_text
-
-                if len(shp) == 2:
-                    out = tmpdir / "image.png"
-                    arr = data
-                    if arr.dtype != np.uint8:
-                        arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
-                    iio.imwrite(str(out), arr)
-                    return str(out), meta_text
-            except Exception:
-                continue
-
-        return None, meta_text
 
     def _select(self, hits, image_meta_text, user_task, preview_path):
         num_choices = int(os.getenv("NUM_CHOICES", "3"))
@@ -337,54 +265,14 @@ class RAGImagingPipeline:
         sel_json["choices"] = sel_json.get("choices", [])[:num_choices]
         return sel_json
 
-    def _is_confident(self, hits: List[dict]) -> bool:
-        if self.force_vlm or not hits:
-            return False
-        top = float(hits[0].get("rerank_score") or hits[0].get("score", 0.0))
-        second = float(hits[1].get("rerank_score") or hits[1].get("score", 0.0)) if len(hits) > 1 else 0.0
-        return (top - second) > self.conf_margin or top >= self.conf_top
-
-    def _best_runnable_link(self, doc: SoftwareDoc) -> Optional[str]:
-        def priority(item) -> float:
-            if isinstance(item, dict) and "priority" in item:
-                try:
-                    return float(item["priority"])
-                except Exception:
-                    pass
-            return 1e9
-
-        def extract_url(item) -> Optional[str]:
-            if isinstance(item, str):
-                u = item.strip()
-                return u or None
-            if isinstance(item, dict):
-                for k in ("url", "href", "link", "contentUrl"):
-                    u = item.get(k)
-                    if isinstance(u, str) and u.strip():
-                        return u.strip()
-            return None
-
-        for items in (getattr(doc, "runnable_example", None) or [], getattr(doc, "has_executable_notebook", None) or []):
-            try:
-                items_sorted = sorted(items, key=priority)
-            except Exception:
-                items_sorted = items
-            for it in items_sorted:
-                url = extract_url(it)
-                if url:
-                    return url
-
-        return None
-
     def recommend_and_link(
         self,
         image_paths: Optional[List[str]],
         user_task: str,
         conversation_history: Optional[List[str]] = None,
+        persisted_exclusions: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         # --- helpers ------------------------------------------------------------
-        TAG_RE  = re.compile(r"\[(?:REFINE|NO_RERANK|EXCLUDE:[^\]]*)\]")
-        EXCL_RE = re.compile(r"\[EXCLUDE:([^\]]+)\]")
 
         def _norm(s: str) -> str:
             return re.sub(r"\s+", " ", (s or "").strip().lower())
@@ -397,14 +285,11 @@ class RAGImagingPipeline:
             )
 
         # --- control tags ------------------------------------------------------
-        force_clarification = "[REFINE]" in full_task  # user clicked "Find alternatives"
-        # exclusions (keep original for filtering hits; also normalized for safety)
-        exclude_names: set[str] = set()
-        m = EXCL_RE.search(full_task)
-        if m:
-            exclude_names |= {s.strip() for s in m.group(1).split("|") if s.strip()}
-
-        selector_task_clean = TAG_RE.sub("", full_task).strip()
+        force_clarification = has_refine(full_task)
+        exclude_names = set(parse_exclusions(full_task))
+        if persisted_exclusions:
+            exclude_names |= set(persisted_exclusions)
+        selector_task_clean = strip_tags(full_task)
         excluded_norm = {_norm(x) for x in exclude_names}
 
         # --- validate files ----------------------------------------------------
@@ -422,7 +307,7 @@ class RAGImagingPipeline:
         preview_path = None
         image_meta_text = ""
         try:
-            preview_path, image_meta_text = self._build_preview_for_vlm(image_paths or [])
+            preview_path, image_meta_text = _build_preview_for_vlm(image_paths or [])
         except Exception:
             image_meta_text = ""
 
@@ -430,7 +315,11 @@ class RAGImagingPipeline:
         top_k       = int(os.getenv("TOP_K", "8"))
         num_choices = int(os.getenv("NUM_CHOICES", "3"))
 
-        hits, _scores = self.recommend(full_task, image_paths, top_k=top_k)
+        hits, _scores = self.recommend(
+            full_task, image_paths, top_k=top_k,
+            persisted_exclusions=list(exclude_names) if exclude_names else None
+        )
+        
         if not hits:
             return {
                 "conversation": {"status": "complete"},
@@ -547,7 +436,7 @@ class RAGImagingPipeline:
             for choice in result["choices"]:
                 doc = next((h["doc"] for h in hits if getattr(h["doc"], "name", "") == choice["name"]), None)
                 if doc:
-                    link = self._best_runnable_link(doc)
+                    link = _best_runnable_link(doc)
                     if link:
                         choice["demo_link"] = link
 

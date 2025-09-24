@@ -87,17 +87,12 @@ class FileValidator:
                 elif name.endswith('.nii'):
                     ext = '.nii'
 
-                # Add debug logging
-                print(f"Checking file: {p.name} with ext: {ext}")
-
                 # Special validation for NIfTI files
                 if ext in ['.nii', '.nii.gz']:
                     try:
-                        print(f"Attempting to load NIfTI file: {p}")
                         img = nib.load(str(p))
                         img.header  # Try to access header to verify file
                         valid_paths.append(path)
-                        print("Successfully validated NIfTI file")
                     except Exception as e:
                         errors.append(f"Invalid NIfTI file {path}: {str(e)}")
                     continue

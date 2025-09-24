@@ -3,6 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 import numpy as np
 import imageio.v3 as iio
+import tempfile
+import logging
+import time
+from typing import List, Optional, Tuple
+from utils.image_meta import summarize_image_metadata
+from utils.image_io import load_any
+
+log = logging.getLogger("pipeline")
+
 
 def _norm_uint8(a: np.ndarray) -> np.ndarray:
     v = a.astype(np.float32)
@@ -64,3 +73,85 @@ def contact_sheet_slices(
 
     iio.imwrite(str(out_png), canvas)
     return str(out_png)
+
+def _build_preview_for_vlm(image_paths: Optional[List[str]]) -> Tuple[Optional[str], Optional[str]]:
+    if not image_paths:
+        return None, None
+
+    meta_text = None
+    try:
+        meta_text = summarize_image_metadata(image_paths)
+    except Exception:
+        log.exception("Image metadata summarization failed; continuing without metadata.")
+
+    for p in image_paths:
+        try:
+            data, meta = load_any(p)
+            shp = getattr(meta, "shape", None) or meta.get("shape")
+            if shp is None:
+                shp = getattr(data, "shape", None)
+            if shp is None:
+                continue
+
+            tmpdir = Path(tempfile.mkdtemp(prefix="preview_"))
+
+            if len(shp) == 3:
+                png_path = tmpdir / "slices_grid.png"
+                gif_path = tmpdir / "sweep.gif"
+                try:
+                    contact_sheet_slices(data, png_path, max_slices=36, grid_cols=6)
+                except Exception:
+                    try:
+                        mip_montage(data, png_path)
+                    except Exception:
+                        pass
+                try:
+                    stack_sweep_gif(data, gif_path, fps=12, max_frames=64)
+                except Exception:
+                    pass
+                if png_path.exists():
+                    return str(png_path), meta_text
+                if gif_path.exists():
+                    return str(gif_path), meta_text
+
+            if len(shp) == 4:
+                vol = np.asarray(data).mean(axis=-1)
+                out = tmpdir / "sweep.gif"
+                step = max(1, vol.shape[2] // 64)
+                slice_gif(vol, out, axis=2, step=step, fps=12)
+                return str(out), meta_text
+
+            if len(shp) == 2:
+                out = tmpdir / "image.png"
+                arr = data
+                if arr.dtype != np.uint8:
+                    arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
+                iio.imwrite(str(out), arr)
+                return str(out), meta_text
+        except Exception:
+            continue
+
+    return None, meta_text
+
+def _cleanup_old_previews(hours: int = 24) -> None:
+    """
+    Delete preview_* folders older than `hours` from the system temp dir.
+    Best-effort; ignore errors.
+    """
+    root = Path(tempfile.gettempdir())
+    cutoff = time.time() - hours * 3600
+    try:
+        for p in root.glob("preview_*"):
+            try:
+                if p.is_dir() and p.stat().st_mtime < cutoff:
+                    for sub in p.glob("**/*"):
+                        try:
+                            if sub.is_file():
+                                sub.unlink()
+                        except Exception:
+                            pass
+                    p.rmdir()
+            except Exception:
+                pass
+    except Exception:
+        logging.getLogger("api").exception("Preview cleanup failed")
