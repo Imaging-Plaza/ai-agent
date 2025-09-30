@@ -1,9 +1,9 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm
 
 # Crear usuario no-root con UID/GID que suele usar VS Code (1000:1000)
-RUN useradd -ms /bin/bash -u 1000 vscode \
+RUN useradd -ms /bin/bash -u 1000 non-root-user \
     && apt-get update && apt-get install -y sudo \
-    && echo "vscode ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+    && echo "non-root-user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 USER non-root-user
 WORKDIR /workspaces
