@@ -1,5 +1,8 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm
 
+# Set default shell to bash for all subsequent RUN commands
+SHELL ["/bin/bash", "-c"]
+
 # Crear usuario no-root con UID/GID que suele usar VS Code (1000:1000)
 RUN useradd -ms /bin/bash -u 1000 non-root-user \
     && apt-get update && apt-get install -y sudo \
@@ -18,11 +21,8 @@ RUN uv venv && \
 # Copy the rest of the project
 COPY --chown=non-root-user:non-root-user . ./
 
-# Install the package in editable mode
-RUN source .venv/bin/activate && \
-    uv pip install -e .
+# Install the package in editable mode (now using bash by default)
+RUN source .venv/bin/activate && uv pip install -e .
 
-# Set default shell to use the virtual environment
-SHELL ["/bin/bash", "-c"]
 EXPOSE 7860
-ENTRYPOINT ["/bin/bash", "-c", "source .venv/bin/activate && python -m ai_agent.app"]
+ENTRYPOINT ["source .venv/bin/activate && python -m ai_agent.app"]

@@ -223,7 +223,7 @@ You can find the docker image in `tools/image/Dockerfile`
 ### Build and run - app starts automatically
 
 ```bash
-docker build -t ai-agent:latest -f tools/images/Dockerfile .
+docker build -t ai-agent:latest -f tools/image/Dockerfile .
 docker run -d --rm -p 7860:7860 ai-agent:latest
 ```
 
