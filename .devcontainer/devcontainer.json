@@ -1,5 +1,5 @@
 {
-  "name": "echoes-of-style-classifier-dev",
+  "name": "ai-agent-dev",
   "build": {
     "dockerfile": "Dockerfile"
   },
@@ -11,7 +11,8 @@
   "customizations": {
     "vscode": {
     "settings": {
-      "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
+      "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+      "python.envFile": "${workspaceFolder}/.env"
     },
       "extensions": [
         "ms-python.python",
@@ -20,6 +21,8 @@
       ]
     }
   },
+
+  "forwardPorts": [7860],
 
   // Install project in editable mode after the container is built  
   "postCreateCommand": "rm -rf .venv && uv venv && uv pip install -e . && echo '. $PWD/.venv/bin/activate' >> /home/vscode/.bashrc"
