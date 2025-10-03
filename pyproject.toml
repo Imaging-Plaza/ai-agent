@@ -1,6 +1,6 @@
 [project]
 name = "ai_agent"
-version = "0.1.0"
+version = "0.1.1"
 description = "AI imaging agent with Gradio UI and RAG pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -11,6 +11,7 @@ dependencies = [
   "pydantic>=2",
   "sentence-transformers",
   "openai>=1.30.0",
+  "pydantic-ai",
   "requests",
   "python-dotenv",
   "gradio==5.42.0",
