@@ -54,16 +54,7 @@ from pandas import DataFrame
 
 from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
-
-# Optional agent feature flag
-USE_AGENT = str(os.getenv("USE_AGENT", "0")).lower() in ("1", "true", "yes", "on")
-if USE_AGENT:
-    try:
-        from agent.agent import run_agent  # type: ignore
-        from utils.image_analyzer import _to_supported_png_dataurl as _img_to_data_url
-    except Exception as e:  # pragma: no cover
-        logging.getLogger("ui").warning("Agent import failed, falling back to legacy pipeline: %s", e)
-        USE_AGENT = False
+from agent.agent import run_agent
 
 from utils.file_validator import FileValidator
 from utils.tags import strip_tags, parse_exclusions, is_refine_intent, strip_refine_keywords
@@ -72,6 +63,7 @@ from utils.previews import _build_preview_for_vlm
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
 INDEX_DIR = os.getenv("RAG_INDEX_DIR", "artifacts/rag_index")
+USE_AGENT = str(os.getenv("USE_AGENT", "0")).lower() in ("1", "true", "yes", "on")
 
 # --- catalog loader (supports JSON or JSONL) ----------------------------------
 def _load_catalog(path: str) -> List[SoftwareDoc]:
