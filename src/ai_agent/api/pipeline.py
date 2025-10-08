@@ -179,6 +179,52 @@ class RAGImagingPipeline:
 
         return hits, {"top": top, "second": second, "margin": margin}
 
+    # ----------------------- Agent-facing lightweight APIs -------------------
+    def retrieve_no_rerank(
+        self,
+        query: str,
+        image_paths: Optional[List[str]] = None,
+        top_k: int = 30,
+        exclusions: Optional[List[str]] = None,
+    ) -> List[dict]:
+        """Return raw vector hits WITHOUT applying the CrossEncoder reranker.
+        Each item: {id, doc, score}. Exclusions are case-insensitive on name.
+        """
+        def _norm(s: str) -> str:
+            import re as _re
+            return _re.sub(r"\s+", " ", (s or "").strip().lower())
+        excluded_norm = {_norm(x) for x in (exclusions or []) if x}
+        ext_tok = detect_ext_token(image_paths) if image_paths else ""
+        clean_q = strip_tags(query)
+        if ext_tok:
+            clean_q = f"{clean_q} format:{ext_tok}" if clean_q else f"format:{ext_tok}"
+        pool_k = max(50, top_k * 3)
+        hits = self.index.search(clean_q, k=pool_k, reranker=None)
+        if excluded_norm:
+            hits = [h for h in hits if _norm(getattr(h["doc"], "name", "")) not in excluded_norm]
+        # attach convenience fields expected downstream similar to recommend()
+        for h in hits:
+            h["__sim__"] = float(h.get("score", 0.0))
+            h["__rerank__"] = 0.0
+        return hits[:top_k]
+
+    def rerank_only(self, query: str, hits: List[dict], top_k: int = 10) -> List[dict]:
+        """Apply CrossEncoder reranker to a pre-fetched hit list.
+        Returns new list of dicts (subset) with rerank_score set.
+        """
+        if not hits:
+            return []
+        # Recreate query with any existing format tokens already embedded in retrieval
+        ranked = self._apply_reranker(strip_tags(query), hits, top_k=top_k)
+        return ranked
+
+    def get_doc(self, name: str) -> Optional[SoftwareDoc]:
+        """Lookup a SoftwareDoc by name (case-sensitive match)."""
+        try:
+            return self.index.docs.get(name)
+        except Exception:
+            return None
+
 
     def _select(self, hits, image_meta_text, user_task, preview_path):
         num_choices = int(os.getenv("NUM_CHOICES", "3"))

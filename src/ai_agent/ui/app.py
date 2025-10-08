@@ -59,6 +59,7 @@ from agent.agent import run_agent
 from utils.file_validator import FileValidator
 from utils.tags import strip_tags, parse_exclusions, is_refine_intent, strip_refine_keywords
 from utils.previews import _build_preview_for_vlm
+from utils.image_analyzer import _to_supported_png_dataurl
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
@@ -333,8 +334,9 @@ def _make_handler():
 
 
         preview_path = None
+        meta_text = None
         try:
-            preview_path, _meta_text = _build_preview_for_vlm(paths)
+            preview_path, meta_text = _build_preview_for_vlm(paths)
         except Exception:
             preview_path = None
 
@@ -357,11 +359,19 @@ def _make_handler():
             data_url = None
             if preview_path:
                 try:
-                    from utils.image_analyzer import _to_supported_png_dataurl as to_data_url
-                    data_url = to_data_url(preview_path)
+                    data_url = _to_supported_png_dataurl(preview_path)
                 except Exception:
                     data_url = None
-            agent_sel = run_agent(effective_task, image_data_url=data_url, excluded=list(banlist))
+            # Inject OriginalFormats line if we have uploaded paths so agent/search tool can add format tokens
+            original_formats = []
+            if paths:
+                for pth in paths:
+                    ext = os.path.splitext(pth)[1].lower().lstrip('.')
+                    if ext == 'gz' and pth.lower().endswith('.nii.gz'):
+                        ext = 'nii.gz'
+                    if ext and ext not in original_formats:
+                        original_formats.append(ext)
+            agent_sel = run_agent(effective_task, image_data_url=data_url, excluded=list(banlist), original_formats=original_formats, image_meta=meta_text)
             result = agent_sel.to_legacy_dict()
             log.info("Agent tool calls: %s", result["tool_calls"])
         else:
