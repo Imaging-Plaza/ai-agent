@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2] - 2025-10-07
+
+### Added
+- Pydantic AI pipeline working with a few tools
+- Better handling of the runnable example link and reranker
+
 ## [0.1.1] - 2025-10-02
 
 ### Added
