@@ -4,6 +4,8 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import os
 from .utils import get_pipeline
+from utils.utils import _best_runnable_link
+from gradio_client import Client, handle_file
 
 # -------- Gradio run_example tool -------------------------------------------
 class RunExampleInput(BaseModel):
@@ -19,38 +21,6 @@ class RunExampleOutput(BaseModel):
     endpoint_url: Optional[str] = None
     api_name: Optional[str] = None
     notes: Optional[str] = None
-
-
-def _prefer_space_url(doc) -> Optional[str]:
-    """Return preferred runnable URL from catalog (HF Space preferred)."""
-    try:
-        from utils.utils import _best_runnable_link  # local utility
-    except Exception:
-        _best_runnable_link = None  # type: ignore
-    if _best_runnable_link:
-        try:
-            return _best_runnable_link(doc)
-        except Exception:
-            pass
-    # Fallback: scan raw dump for URLs
-    try:
-        raw = doc.model_dump(mode="python", exclude_none=True)
-        examples = raw.get("runnableExample") or raw.get("runnable_example") or []
-        for ex in examples:
-            if isinstance(ex, dict):
-                u = (ex.get("url") or "").strip()
-                if not u:
-                    continue
-                lu = u.lower()
-                if "huggingface.co/spaces" in lu or lu.startswith("https://hf.space"):
-                    return u
-                # keep first non-empty as last resort
-                if not lu:
-                    continue
-        # none found
-    except Exception:
-        pass
-    return None
 
 
 def _choose_endpoint(endpoints: List[Dict[str, Any]], have_image: bool) -> Optional[Dict[str, Any]]:
@@ -73,11 +43,6 @@ def _choose_endpoint(endpoints: List[Dict[str, Any]], have_image: bool) -> Optio
 def _build_payload(fn: Dict[str, Any], image_path: Optional[str], extra_text: Optional[str]) -> List[Any]:
     inputs = fn.get("inputs", [])
     payload: List[Any] = []
-    # Use handle_file when available for file uploads (per gradio_client docs)
-    try:
-        from gradio_client import handle_file  # type: ignore
-    except Exception:
-        handle_file = None  # type: ignore
     for spec in inputs:
         t = str(spec.get("type") or spec.get("component") or "").lower()
         # Gradio client supports passing file paths for image inputs
@@ -99,17 +64,12 @@ def tool_run_example(inp: RunExampleInput) -> RunExampleOutput:
       - Discover API endpoints via view_api and choose one matching image/no-image needs.
       - Build payload by mapping image path to image inputs and extra_text into text fields.
     """
-    try:
-        from gradio_client import Client
-    except Exception:
-        return RunExampleOutput(tool_name=inp.tool_name, ran=False, notes="gradio_client not installed")
-
     pipe = get_pipeline()
     url = (inp.endpoint_url or None)
     if not url:
         doc = pipe.get_doc(inp.tool_name)
         if doc:
-            url = _prefer_space_url(doc)
+            url = _best_runnable_link(doc)
     if not url:
         return RunExampleOutput(tool_name=inp.tool_name, ran=False, notes="No runnable example URL found")
 

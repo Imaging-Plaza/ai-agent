@@ -23,8 +23,7 @@ log = logging.getLogger("agent.core")
 # Agent model ---------------------------------------------------------------
 
 MODEL_NAME = (
-    os.getenv("OPENAI_VLM_MODEL")
-    or os.getenv("OPENAI_MODEL")
+    os.getenv("OPENAI_MODEL")
     or "gpt-4o-mini"
 )
 

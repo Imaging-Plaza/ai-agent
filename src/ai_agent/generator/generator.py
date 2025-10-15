@@ -23,7 +23,6 @@ class VLMToolSelector:
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = (
             model
-            or os.getenv("OPENAI_VLM_MODEL")
             or os.getenv("OPENAI_MODEL")
             or "gpt-4o-mini"
         )

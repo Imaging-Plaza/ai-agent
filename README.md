@@ -53,8 +53,7 @@ Create a `.env` file at repo root:
 ```dotenv
 OPENAI_API_KEY=sk-xxxx
 # Optional model overrides (defaults work):
-OPENAI_VLM_MODEL=gpt-4o
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-4o
 
 # Software catalog
 SOFTWARE_CATALOG=path/to/your/catalog.jsonl

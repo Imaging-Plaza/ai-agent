@@ -115,7 +115,7 @@ def analyze_image_with_text(image_path: str, user_task: str) -> Dict[str, Any]:
         return {}
 
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    model_name = os.getenv("OPENAI_VLM_MODEL", "gpt-4o-mini")
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     log.info("VLM model=%s", model_name)
 
     system = (
