@@ -3,7 +3,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm
 # Set default shell to bash for all subsequent RUN commands
 SHELL ["/bin/bash", "-c"]
 
-# Crear usuario no-root con UID/GID que suele usar VS Code (1000:1000)
+# Create non-root user with UID/GID typically used by VS Code (1000:1000)
 RUN useradd -ms /bin/bash -u 1000 non-root-user \
     && apt-get update && apt-get install -y sudo \
     && echo "non-root-user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
