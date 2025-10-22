@@ -134,7 +134,13 @@ def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] 
         tool_logs.append(ToolRunLog(tool=tc.get("tool"), inputs={k: v for k, v in tc.items() if k not in {"tool"}}, summary=str(tc)))
 
     # Post-run enrichment: pull demo links from resolve_demo_link tool calls
-    demo_map = {tc.inputs.get("tool_name"): tc.inputs.get("demo_link") for tc in tool_logs if tc.tool == "resolve_demo_link" and tc.inputs.get("tool_name")}
+    demo_map = {}
+    for tc in tool_logs:
+        if tc.tool == "resolve_demo_link":
+            tool_name = tc.inputs.get("tool_name")
+            if tool_name:
+                demo_link = tc.inputs.get("demo_link")
+                demo_map[tool_name] = demo_link
     for ch in result.choices:
         if getattr(ch, 'name', None) and ch.name in demo_map and demo_map[ch.name]:
             setattr(ch, 'demo_link', demo_map[ch.name])
