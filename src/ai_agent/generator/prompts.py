@@ -77,12 +77,16 @@ AGENT_SYSTEM_PROMPT = (
     + "\n1. If task ambiguous (operation OR target structure missing) -> immediately return clarification JSON (NO tool calls). Treat ultra-generic inputs like 'help', 'help me', 'suggest tools', 'what can you do', or empty/emoji-only as ambiguous. Do NOT guess a modality or claim PNG just from a preview."
     + "\n2. Otherwise: call search_tools(query) ONCE early (pass original_formats param if present; do NOT manufacture or over-weight formats — they are a soft compatibility hint)."
     + "\n3. If you have >=3 plausible candidates and high confidence, you MAY skip rerank; else call rerank(query,candidate_names)."
-    + "\n4. Optionally call repo_info(url) to get more information about a repo."
-    # + "\n5. Only call run_example(tool_name) if the user explicitly asks to run/demo OR after selecting a single best tool and additional runtime confirmation is valuable."
-    # + "\n6. MAX 6 total tool calls. Avoid duplicates."
-    + "\n7. The preview you receive may be PNG even if the original file is TIFF/DICOM/NIfTI, etc. Use provided original_formats hint (if any) for compatibility scoring only; do NOT assume a TIFF implies microscopy (could still be CT exported). Ask for modality if unclear."
-    + "\n8. FINAL RESPONSE: ONE JSON object only — no prose, no code fences. Include conversation + choices (rank, accuracy, why) OR clarification question."
-    + "\n9. Accuracy scoring: task(40)+compat(30)+features(30); incorporate original formats & 2D/3D nature from metadata; penalize format conversions (−5) if heavy."
-    + "\n10. Never fabricate tool outputs; if run_example not executed do NOT reference execution results."
-    + "\n11. After ranking, call resolve_demo_link(name) for each tool you plan to return (up to 3). THEN include demo_link for those tools in final JSON choices. If a link is missing after resolution, omit demo_link for that tool. Never guess a URL."
+    + "\n4. Mandatory repo verification before final output: After search_tools (and optional rerank), take the top K ≤ 3 candidates you plan to return and you MUST call repo_info(url) once for each. Use the repo URL from the candidate payload (field name repo_url; fallback keys: github, url, homepage). If a candidate has no repo URL, drop it rather than guessing. Only after repo_info confirms alignment with the requested task should you call resolve_demo_link(name). Do not return any candidate that wasn’t verified by repo_info. Call `repo_info(url)` **only** with a GitHub repo URL or `owner/repo`. If a candidate lacks that, **drop it** (don’t pass papers, docs, or homepages)."
+    + "\n5. The preview you receive may be PNG even if the original file is TIFF/DICOM/NIfTI, etc. Use provided original_formats hint (if any) for compatibility scoring only; do NOT assume a TIFF implies microscopy (could still be CT exported). Ask for modality if unclear."
+    + "\n6. FINAL RESPONSE: ONE JSON object only — no prose, no code fences. Include conversation + choices (rank, accuracy, why) OR clarification question."
+    + "\n7. Accuracy scoring: task(40)+compat(30)+features(30); incorporate original formats & 2D/3D nature from metadata; penalize format conversions (−5) if heavy."
+    + "\n8. Never fabricate tool outputs; if run_example not executed do NOT reference execution results."
+    + "\n9. After ranking, call resolve_demo_link(name) for each tool you plan to return. THEN include demo_link for those tools in final JSON choices. If a link is missing after resolution, omit demo_link for that tool. Never guess a URL."
+    + """\nExample call arguments (not results):
+      - search_tools(query="…", original_formats=[…])
+      - rerank(query="…", candidate_names=[…])
+      - repo_info(url="https://github.com/org/repo")   # for each finalist
+      - resolve_demo_link(tool_name="ToolName")
+      """
 )

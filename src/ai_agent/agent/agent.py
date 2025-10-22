@@ -11,7 +11,7 @@ from generator.schema import ToolSelection
 from api.pipeline import RAGImagingPipeline
 from utils.utils import _best_runnable_link
 from .models import AgentToolSelection, ToolRunLog
-from .tools.repo_info_tool import tool_repo_info, RepoInfoInput
+from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput, coerce_github_url_or_none
 from .tools.rerank_tool import tool_rerank, RerankInput
 from .tools.search_tool import tool_search_tools, SearchToolsInput
 from .tools.gradio_space_tool import tool_run_example, RunExampleInput
@@ -80,12 +80,32 @@ async def rerank(ctx: RunContext[AgentState], query: str, candidate_names: List[
 #     })
 #     return out.model_dump(mode="python")
 
-@agent.tool(retries=2, prepare=cap_prepare)
-@limit_tool_calls("repo_info", cap=2)
+@agent.tool(retries=0, prepare=cap_prepare)
+@limit_tool_calls("repo_info", cap=3)
 async def repo_info(ctx: RunContext[AgentState], url: str):
-    out = tool_repo_info(RepoInfoInput(url=url))
-    ctx.deps.tool_calls.append({"tool": "repo_info", "url": url, "truncated": out.truncated})
-    return out.model_dump(mode="python")
+    norm_url = coerce_github_url_or_none(url)
+    if not norm_url:
+        payload = {
+            "invalid": True,
+            "reason": "NON_GITHUB_URL",
+            "hint": "Pass a GitHub repo URL or 'owner/repo' to repo_info(url).",
+            "original": url,
+        }
+        ctx.deps.tool_calls.append({"tool": "repo_info", "url": url, "skipped": True, "reason": "NON_GITHUB_URL"})
+        return payload
+
+    try:
+        out = tool_repo_summary(RepoSummaryInput(url=norm_url))
+        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "truncated": out.truncated})
+        return out.model_dump(mode="python")
+    except Exception as e:
+        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "error": str(e)})
+        return {
+            "invalid": True,
+            "reason": "FETCH_FAILED",
+            "url": norm_url,
+            "message": str(e),
+        }
 
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("resolve_demo_link", cap=3)
@@ -126,8 +146,7 @@ def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] 
         short_meta = " ".join(x.strip() for x in image_meta.splitlines() if x.strip())
         hidden_meta += "\n(Image Metadata: " + short_meta[:500] + ("…" if len(short_meta) > 500 else "") + ")"
     prompt = task + extra_context + hidden_meta
-    log.info(f"Agent prompt: {prompt}")
-    result = agent.run_sync(prompt, deps=deps, output_type=ToolSelection, usage_limits=UsageLimits(tool_calls_limit=6)).output
+    result = agent.run_sync(prompt, deps=deps, output_type=ToolSelection, usage_limits=UsageLimits(tool_calls_limit=10)).output
 
     # Convert tool call dicts into ToolRunLog entries
     for tc in deps.tool_calls:
