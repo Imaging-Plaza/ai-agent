@@ -269,7 +269,7 @@ def _extract_cli(files: List[FetchedFile]) -> List[tuple[str, str]]:
         for m in CLI_LINE_RE.finditer(f.content):
             cmd = re.sub(r"^\s*(\$|>)\s*", "", m.group(0)).strip()
             out.append((cmd, f.path))
-    return _dedupe_pairs(out)[:5]   # <-- changed
+    return _dedupe_pairs(out)[:5]   # Limit to 5 CLI command examples for brevity and relevance
 
 def _extract_api(files: List[FetchedFile]) -> List[tuple[str, str]]:
     out: List[tuple[str,str]] = []
