@@ -259,7 +259,7 @@ def _extract_install(files: List[FetchedFile]) -> List[tuple[str, str]]:
             continue
         for m in INSTALL_PAT.finditer(f.content):
             out.append((m.group(0).strip(), f.path))
-    return _dedupe_pairs(out)[:3]   # <-- changed
+    return _dedupe_pairs(out)[:3]
 
 def _extract_cli(files: List[FetchedFile]) -> List[tuple[str, str]]:
     out: List[tuple[str,str]] = []
