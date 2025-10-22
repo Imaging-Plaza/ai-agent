@@ -1,6 +1,9 @@
 # utils/image_io.py
 from __future__ import annotations
 from pathlib import Path
+import shutil
+import time
+import os
 import tempfile
 import zipfile
 import numpy as np
@@ -24,13 +27,41 @@ def is_dicom_path(path: str | Path) -> bool:
     except Exception:
         return False
 
+def _safe_rmtree(p: Path) -> None:
+    """Remove temp directory if it was created by us (safety guard)."""
+    try:
+        p = Path(p)
+        troot = Path(tempfile.gettempdir())
+        if p.is_dir() and p.parent == troot and (p.name.startswith("dicom_zip_") or p.name.startswith("preview_")):
+            shutil.rmtree(p, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _cleanup_old_dicom_zips(hours: int = 6) -> None:
+    """Cleanup stale dicom_zip_* temp folders older than `hours`. Best-effort."""
+    troot = Path(tempfile.gettempdir())
+    cutoff = time.time() - hours * 3600
+    try:
+        for d in troot.glob("dicom_zip_*"):
+            try:
+                if d.is_dir() and d.stat().st_mtime < cutoff:
+                    shutil.rmtree(d, ignore_errors=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def maybe_unzip(path: str | Path) -> Path:
-    """Safely extract zip file to temp directory, with better error handling"""
+    """Safely extract zip file to temp directory, with better error handling."""
     p = Path(path)
     if p.is_dir() or p.suffix.lower() != ".zip":
         return p
     
     try:
+        _cleanup_old_dicom_zips(hours=6)
+
         tmp = Path(tempfile.mkdtemp(prefix="dicom_zip_"))
         with zipfile.ZipFile(p) as z:
             # Check if zip contains DICOM files
@@ -173,26 +204,38 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
 
 
 def load_any(path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
-    """Load any supported image format with better error handling"""
+    """Load any supported image format with better error handling and temp cleanup.
+
+    If the input is a ZIP containing DICOMs, we extract to a temp dir and ensure
+    it is deleted after loading.
+    """
+    temp_dir: Path | None = None
     try:
         p = maybe_unzip(path)
-        
+        # Track whether we created a temp extraction dir
+        pt = Path(p)
+        if pt.is_dir() and pt.parent == Path(tempfile.gettempdir()) and pt.name.startswith("dicom_zip_"):
+            temp_dir = pt
+
         # Handle DICOM
         if Path(p).is_dir() or is_dicom_path(p):
-            return load_dicom_series(p)
-            
+            data, meta = load_dicom_series(p)
+            return data, meta
+
         # Handle NIfTI
         s = str(p).lower()
         if s.endswith('.nii') or s.endswith('.nii.gz'):
             return load_nifti(p)
-            
+
         # Handle regular images
         arr = iio.imread(str(p))
         meta = {
-            "format": Path(p).suffix.upper().lstrip("."), 
+            "format": Path(p).suffix.upper().lstrip("."),
             "shape": arr.shape
         }
         return arr.astype(np.float32), meta
-        
     except Exception as e:
         raise ValueError(f"Failed to load image {path}: {str(e)}")
+    finally:
+        if temp_dir is not None:
+            _safe_rmtree(temp_dir)

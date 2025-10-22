@@ -84,6 +84,11 @@ def _build_preview_for_vlm(image_paths: Optional[List[str]]) -> Tuple[Optional[s
     except Exception:
         log.exception("Image metadata summarization failed; continuing without metadata.")
 
+    try:
+        _cleanup_old_previews(hours=24)
+    except Exception:
+        pass
+
     for p in image_paths:
         try:
             data, meta = load_any(p)
