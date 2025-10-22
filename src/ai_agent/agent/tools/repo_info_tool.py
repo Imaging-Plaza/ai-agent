@@ -352,7 +352,7 @@ def _notable_paths(files: List[FetchedFile]) -> List[str]:
     for p in candidates:
         if p.startswith(("examples/","scripts/","docs/","demo/","README")):
             keep.append(p)
-    return _dedupe_str(keep)[:10]   # <-- ensure string dedupe
+    return _dedupe_str(keep)[:10]
 
 # ---------------------------- Normalizer for GitHub links ----------------------------
 
