@@ -53,8 +53,7 @@ Create a `.env` file at repo root:
 ```dotenv
 OPENAI_API_KEY=sk-xxxx
 # Optional model overrides (defaults work):
-OPENAI_VLM_MODEL=gpt-4o
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-4o
 
 # Software catalog
 SOFTWARE_CATALOG=path/to/your/catalog.jsonl
@@ -164,6 +163,7 @@ The catalog is JSON **or** JSONL. Each line/object is a **SoftwareDoc**. Minimal
     ]
   }
   ```
+
 - Returns up to `NUM_CHOICES` ranked tools with accuracy scores
 - UI displays choices with explanation and demo links
 
@@ -215,12 +215,35 @@ pyproject.toml       # Project configuration and dependencies
 
 ---
 
+## Docker deployment
+
+You can find the docker image in `tools/image/Dockerfile`
+
+### Build and run - app starts automatically
+
+```bash
+docker build -t ai-agent:latest -f tools/image/Dockerfile .
+docker run -d --rm -p 7860:7860 ai-agent:latest
+```
+
+### With environment variables
+
+```bash
+docker run -d --rm -p 7860:7860 \
+  -e OPENAI_API_KEY="your-key" \
+  ai-agent:latest
+```
+
+---
+
 ## Development tips
 
 - Run UI from project root:  
   `python -m ui.gradio_app`
 - Save selector prompts to compare changes:  
   `LOG_PROMPTS=1`
+- Use a devcontainer when working with `vscode`
+  `.devcontainer/devcontainer.json`
 
 ---
 

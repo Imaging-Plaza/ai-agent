@@ -68,3 +68,21 @@ CLARIFICATION EXAMPLES (for style only — DO NOT reuse wording)
   Q: “For this microscopy TIFF, what’s the goal?” 
   Options: ["Cell/nuclei segmentation", "Denoise + deconvolution", "Drift/stack alignment", "Other (briefly specify)"]
 """
+
+###### AGENT SYSTEM PROMPT ######
+
+AGENT_SYSTEM_PROMPT = (
+    SELECTOR_SYSTEM
+    + "\n\nAGENT TOOLING RULES (CRITICAL):"
+    + "\n1. If task ambiguous (operation OR target structure missing) -> immediately return clarification JSON (NO tool calls). Treat ultra-generic inputs like 'help', 'help me', 'suggest tools', 'what can you do', or empty/emoji-only as ambiguous. Do NOT guess a modality or claim PNG just from a preview."
+    + "\n2. Otherwise: call search_tools(query) ONCE early (pass original_formats param if present; do NOT manufacture or over-weight formats — they are a soft compatibility hint)."
+    + "\n3. If you have >=3 plausible candidates and high confidence, you MAY skip rerank; else call rerank(query,candidate_names)."
+    + "\n4. Optionally call repo_info(url) to get more information about a repo."
+    # + "\n5. Only call run_example(tool_name) if the user explicitly asks to run/demo OR after selecting a single best tool and additional runtime confirmation is valuable."
+    # + "\n6. MAX 6 total tool calls. Avoid duplicates."
+    + "\n7. The preview you receive may be PNG even if the original file is TIFF/DICOM/NIfTI, etc. Use provided original_formats hint (if any) for compatibility scoring only; do NOT assume a TIFF implies microscopy (could still be CT exported). Ask for modality if unclear."
+    + "\n8. FINAL RESPONSE: ONE JSON object only — no prose, no code fences. Include conversation + choices (rank, accuracy, why) OR clarification question."
+    + "\n9. Accuracy scoring: task(40)+compat(30)+features(30); incorporate original formats & 2D/3D nature from metadata; penalize format conversions (−5) if heavy."
+    + "\n10. Never fabricate tool outputs; if run_example not executed do NOT reference execution results."
+    + "\n11. After ranking, call resolve_demo_link(name) for each tool you plan to return (up to 3). THEN include demo_link for those tools in final JSON choices. If a link is missing after resolution, omit demo_link for that tool. Never guess a URL."
+)

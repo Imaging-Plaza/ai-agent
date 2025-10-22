@@ -54,14 +54,17 @@ from pandas import DataFrame
 
 from retriever.embedders import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
+from agent.agent import run_agent
 
 from utils.file_validator import FileValidator
 from utils.tags import strip_tags, parse_exclusions, is_refine_intent, strip_refine_keywords
 from utils.previews import _build_preview_for_vlm
+from utils.image_analyzer import _to_supported_png_dataurl
 
 # --- config -------------------------------------------------------------------
 CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
 INDEX_DIR = os.getenv("RAG_INDEX_DIR", "artifacts/rag_index")
+USE_AGENT = str(os.getenv("USE_AGENT", "0")).lower() in ("1", "true", "yes", "on")
 
 # --- catalog loader (supports JSON or JSONL) ----------------------------------
 def _load_catalog(path: str) -> List[SoftwareDoc]:
@@ -331,8 +334,9 @@ def _make_handler():
 
 
         preview_path = None
+        meta_text = None
         try:
-            preview_path, _meta_text = _build_preview_for_vlm(paths)
+            preview_path, meta_text = _build_preview_for_vlm(paths)
         except Exception:
             preview_path = None
 
@@ -349,13 +353,35 @@ def _make_handler():
             banlist, base_task, prev_suggestions)
 
         # 3) run pipeline (pass merged persistent bans every time)
-        pipeline = get_pipeline()
-        result = pipeline.recommend_and_link(
-            image_paths=paths,
-            user_task=effective_task,
-            conversation_history=conv_history,
-            persisted_exclusions=list(banlist),    # <-- NEW
-        )
+        if USE_AGENT:
+            # Agent path
+            log.info("Using agent for task: %s", effective_task)
+            data_url = None
+            if preview_path:
+                try:
+                    data_url = _to_supported_png_dataurl(preview_path)
+                except Exception:
+                    data_url = None
+            # Inject OriginalFormats line if we have uploaded paths so agent/search tool can add format tokens
+            original_formats = []
+            if paths:
+                for pth in paths:
+                    ext = os.path.splitext(pth)[1].lower().lstrip('.')
+                    if ext == 'gz' and pth.lower().endswith('.nii.gz'):
+                        ext = 'nii.gz'
+                    if ext and ext not in original_formats:
+                        original_formats.append(ext)
+            agent_sel = run_agent(effective_task, image_data_url=data_url, excluded=list(banlist), original_formats=original_formats, image_meta=meta_text)
+            result = agent_sel.to_legacy_dict()
+            log.info("Agent tool calls: %s", result["tool_calls"])
+        else:
+            pipeline = get_pipeline()
+            result = pipeline.recommend_and_link(
+                image_paths=paths,
+                user_task=effective_task,
+                conversation_history=conv_history,
+                persisted_exclusions=list(banlist),
+            )
 
         # helpers
         def _choices_render(choices):
@@ -621,36 +647,52 @@ def _bind_host() -> str:
 
 def launch():
     host = _bind_host()
-    port = int(os.getenv("PORT", "7860"))
+    preferred = int(os.getenv("PORT", "7860"))
+    max_tries = int(os.getenv("PORT_TRIES", "10"))  # try sequential ports if busy
+    allow_fallback = str(os.getenv("ALLOW_PORT_FALLBACK", "1")).lower() in ("1", "true", "yes", "on")
     ui = create_interface()
 
-    try:
-        ui.queue(api_open=False, max_size=10, default_concurrency_limit=3).launch(
-            server_name=host,
-            server_port=port,
-            inbrowser=False,
-            show_error=True,
-            share=bool(os.getenv("SHARE", False)),
-            favicon_path=os.path.join(ROOT, "assets", "favicon.ico"),
-            auth=None if not os.getenv("GRADIO_AUTH") else lambda x, y: (
-                x == os.getenv("GRADIO_USERNAME"),
-                y == os.getenv("GRADIO_PASSWORD"),
-            ),
-        )
-    except TypeError:
-        # Older Gradio
-        ui.queue(api_open=False, max_size=10).launch(
-            server_name=host,
-            server_port=port,
-            inbrowser=False,
-            show_error=True,
-            share=bool(os.getenv("SHARE", False)),
-            favicon_path=os.path.join(ROOT, "assets", "favicon.ico"),
-            auth=None if not os.getenv("GRADIO_AUTH") else lambda x, y: (
-                x == os.getenv("GRADIO_USERNAME"),
-                y == os.getenv("GRADIO_PASSWORD"),
-            ),
-        )
+    last_err = None
+    for attempt in range(max_tries if allow_fallback else 1):
+        port = preferred + attempt
+        try:
+            try:
+                ui.queue(api_open=False, max_size=10, default_concurrency_limit=3).launch(
+                    server_name=host,
+                    server_port=port,
+                    inbrowser=False,
+                    show_error=True,
+                    share=bool(os.getenv("SHARE", False)),
+                    auth=None if not os.getenv("GRADIO_AUTH") else lambda x, y: (
+                        x == os.getenv("GRADIO_USERNAME"),
+                        y == os.getenv("GRADIO_PASSWORD"),
+                    ),
+                )
+            except TypeError:
+                # Older Gradio signature
+                ui.queue(api_open=False, max_size=10).launch(
+                    server_name=host,
+                    server_port=port,
+                    inbrowser=False,
+                    show_error=True,
+                    share=bool(os.getenv("SHARE", False)),
+                    auth=None if not os.getenv("GRADIO_AUTH") else lambda x, y: (
+                        x == os.getenv("GRADIO_USERNAME"),
+                        y == os.getenv("GRADIO_PASSWORD"),
+                    ),
+                )
+            if attempt > 0:
+                log.info("Launched on fallback port %d (preferred %d was busy)", port, preferred)
+            return
+        except OSError as e:  # port busy
+            last_err = e
+            busy = "Cannot find empty port" in str(e)
+            if not busy or attempt == (max_tries - 1) or not allow_fallback:
+                raise
+            log.warning("Port %d busy; trying %d", port, port + 1)
+
+    if last_err:  # Should not reach if we raised above, but defensive
+        raise last_err
 
 if __name__ == "__main__":
     launch()
