@@ -228,7 +228,7 @@ docker run -d --rm -p 7860:7860 ai-agent:latest
 
 ### With environment variables
 
-``` bash
+```bash
 docker run -d --rm -p 7860:7860 \
   -e OPENAI_API_KEY="your-key" \
   ai-agent:latest
