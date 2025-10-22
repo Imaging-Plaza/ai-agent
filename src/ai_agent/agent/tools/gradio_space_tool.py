@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
-import os
+import os, re, logging
 from .utils import get_pipeline
 from utils.utils import _best_runnable_link
+from utils.previews import _build_preview_for_vlm
 from gradio_client import Client, handle_file
+import tempfile
+from pathlib import Path
+import requests
 
 # -------- Gradio run_example tool -------------------------------------------
 class RunExampleInput(BaseModel):
@@ -21,39 +25,75 @@ class RunExampleOutput(BaseModel):
     endpoint_url: Optional[str] = None
     api_name: Optional[str] = None
     notes: Optional[str] = None
+    # Back-compat: 'result_image' kept as alias for preview
+    result_image: Optional[str] = None
+    result_preview: Optional[str] = None
+    result_origin: Optional[str] = None  # original returned file (downloaded if URL)
+
+log = logging.getLogger("agent.run_example")
+
+_HF_SPACE_RE = re.compile(r"^https?://huggingface\.co/spaces/([^/]+)/([^/]+)/?$")
+
+def _normalize_space_identifier(url_or_name: str) -> str:
+    """Accepts full HF Spaces URL or 'owner/space' or a direct app URL; returns a Client-acceptable src.
+    Prefer 'owner/space' for HF Spaces page URLs.
+    """
+    s = (url_or_name or "").strip()
+    m = _HF_SPACE_RE.match(s)
+    if m:
+        owner, space = m.group(1), m.group(2)
+        return f"{owner}/{space}"
+    return s
 
 
-def _choose_endpoint(endpoints: List[Dict[str, Any]], have_image: bool) -> Optional[Dict[str, Any]]:
-    """Pick a sensible endpoint: prefer one that accepts an image if we have one; else the first text-only."""
-    def has_image(f: Dict[str, Any]) -> bool:
-        for i in f.get("inputs", []):
-            t = str(i.get("type") or i.get("component") or "").lower()
-            if "image" in t:
-                return True
-        return False
+def _download_to_temp(url: str) -> Optional[str]:
+    try:
+        r = requests.get(url, timeout=20)
+        if r.status_code != 200 or not r.content:
+            return None
+        # try to preserve extension from URL
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        ext = os.path.splitext(parsed.path)[1]
+        if not ext:
+            # guess based on content-type
+            ct = r.headers.get("content-type", "").lower()
+            if "tiff" in ct or "tif" in ct:
+                ext = ".tif"
+            elif "png" in ct:
+                ext = ".png"
+            elif "jpeg" in ct or "jpg" in ct:
+                ext = ".jpg"
+            else:
+                ext = ".bin"
+        fd = tempfile.NamedTemporaryFile(delete=False, prefix="demo_result_", suffix=ext)
+        fd.write(r.content)
+        fd.flush(); fd.close()
+        return fd.name
+    except Exception:
+        return None
 
-    if have_image:
-        for f in endpoints:
-            if has_image(f):
-                return f
-    # fallback: any endpoint
-    return endpoints[0] if endpoints else None
 
-
-def _build_payload(fn: Dict[str, Any], image_path: Optional[str], extra_text: Optional[str]) -> List[Any]:
-    inputs = fn.get("inputs", [])
-    payload: List[Any] = []
-    for spec in inputs:
-        t = str(spec.get("type") or spec.get("component") or "").lower()
-        # Gradio client supports passing file paths for image inputs
-        if "image" in t and image_path:
-            payload.append(handle_file(image_path) if handle_file else image_path)
-        elif "textbox" in t or "text" in t or "textarea" in t:
-            payload.append(extra_text or "")
-        else:
-            # default empty for other inputs (checkbox, number, etc.)
-            payload.append("")
-    return payload
+def _materialize_result(obj: Any) -> Optional[str]:
+    """Try to materialize an image result to a local file and return the path.
+    Accepts a filepath or URL from common Gradio outputs.
+    """
+    # Direct file path
+    try:
+        s = str(obj)
+    except Exception:
+        return None
+    if not s:
+        return None
+    # If it's an existing local file
+    p = Path(s)
+    if p.exists() and p.is_file():
+        return str(p)
+    # If it's a URL, try to download
+    if s.lower().startswith("http://") or s.lower().startswith("https://"):
+        return _download_to_temp(s)
+    # Unknown shape
+    return None
 
 
 def tool_run_example(inp: RunExampleInput) -> RunExampleOutput:
@@ -74,25 +114,63 @@ def tool_run_example(inp: RunExampleInput) -> RunExampleOutput:
         return RunExampleOutput(tool_name=inp.tool_name, ran=False, notes="No runnable example URL found")
 
     try:
-        client = Client(url)
-        apis = client.view_api(return_format="dict") or {}
-        endpoints = apis.get("endpoints") or apis.get("named_endpoints") or []
-        if not isinstance(endpoints, list):
-            # some versions return dict of name->spec
-            endpoints = list(endpoints.values())
-        fn = _choose_endpoint(endpoints, have_image=bool(inp.image_path))
-        if not fn:
-            return RunExampleOutput(tool_name=inp.tool_name, ran=False, notes="No endpoints discovered", endpoint_url=url)
-        api_name = fn.get("api_name") or fn.get("path") or fn.get("route")
-        if not api_name:
-            # common default
-            api_name = "/predict"
-        payload = _build_payload(fn, inp.image_path, inp.extra_text)
+        src = _normalize_space_identifier(url)
+        hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+        log.info("Gradio run_example: src=%s (from=%s), tool=%s", src, url, inp.tool_name)
+        client = Client(src, hf_token=hf_token) if hf_token else Client(src)
+        api_name = "/segment"  # agreed endpoint
+        # For a simple segmentation endpoint that takes a single image input
+        if inp.image_path:
+            payload_file = handle_file(inp.image_path)
+            payload = [payload_file]
+            try:
+                log.info("Gradio run_example payload: file=%s ext=%s", inp.image_path, os.path.splitext(inp.image_path)[1].lower())
+            except Exception:
+                pass
+        else:
+            payload = [""]
         try:
-            res = client.predict(*payload, api_name=api_name)
+            # Prefer keyword expected by docs ('file_obj'), then fallback to positional
+            res = None
+            try:
+                res = client.predict(file_obj=payload[0], api_name=api_name)
+            except Exception as e_kw:
+                log.debug("Keyword predict failed, falling back to positional: %r", e_kw)
+                res = client.predict(*payload, api_name=api_name)
             stdout = str(res)
         except Exception as e:
             return RunExampleOutput(tool_name=inp.tool_name, ran=False, notes=f"predict failed: {e}", endpoint_url=url, api_name=api_name)
-        return RunExampleOutput(tool_name=inp.tool_name, ran=True, stdout=str(stdout)[:6000], endpoint_url=url, api_name=str(api_name))
+
+        # Materialize original result file (any supported format)
+        origin_path = None
+        if isinstance(res, (list, tuple)) and res:
+            origin_path = _materialize_result(res[0]) or origin_path
+        elif isinstance(res, dict):
+            # common keys from outputs
+            for k in ("file", "filepath", "image", "output", "result", "mask"):
+                if k in res:
+                    origin_path = _materialize_result(res[k]) or origin_path
+                    if origin_path:
+                        break
+        else:
+            origin_path = _materialize_result(res)
+
+        preview_path = None
+        if origin_path:
+            try:
+                preview_path, _ = _build_preview_for_vlm([origin_path])
+            except Exception as e:
+                log.debug("Preview build failed for %s: %r", origin_path, e)
+
+        return RunExampleOutput(
+            tool_name=inp.tool_name,
+            ran=True,
+            stdout=str(stdout)[:6000],
+            endpoint_url=url,
+            api_name=str(api_name),
+            result_image=preview_path,
+            result_preview=preview_path,
+            result_origin=origin_path,
+        )
     except Exception as e:
         return RunExampleOutput(tool_name=inp.tool_name, ran=False, notes=str(e), endpoint_url=url)
