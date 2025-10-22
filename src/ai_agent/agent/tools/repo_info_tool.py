@@ -237,15 +237,7 @@ HEAD_INPUTS = re.compile(r"(?im)^#{1,6}\s*inputs?\b")
 HEAD_OUTPUTS = re.compile(r"(?im)^#{1,6}\s*outputs?\b")
 URL_RE = re.compile(r"https?://[^\s\]\)>\}\"\']+")
 
-def _dedupe(seq: Iterable[str]) -> List[str]:
-    seen, out = set(), []
-    for x in seq:
-        x = x.strip()
-        if not x:
-            continue
-        if x not in seen:
-            out.append(x); seen.add(x)
-    return out
+# (Removed duplicate _dedupe function; use _dedupe_str instead)
 
 def _first_readme_para(files: List[FetchedFile]) -> Optional[str]:
     for f in files:
