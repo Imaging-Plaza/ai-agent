@@ -1,4 +1,4 @@
-# scripts/test_repo_summary.py
+# tests/test_repo_summary.py
 """
 Minimal smoke test for the repo summarizer tool.
 
