@@ -237,8 +237,6 @@ HEAD_INPUTS = re.compile(r"(?im)^#{1,6}\s*inputs?\b")
 HEAD_OUTPUTS = re.compile(r"(?im)^#{1,6}\s*outputs?\b")
 URL_RE = re.compile(r"https?://[^\s\]\)>\}\"\']+")
 
-# (Removed duplicate _dedupe function; use _dedupe_str instead)
-
 def _first_readme_para(files: List[FetchedFile]) -> Optional[str]:
     for f in files:
         if re.search(r"(^|/|\\)readme(\.|$)", f.path, re.I):
@@ -259,7 +257,7 @@ def _extract_install(files: List[FetchedFile]) -> List[tuple[str, str]]:
             continue
         for m in INSTALL_PAT.finditer(f.content):
             out.append((m.group(0).strip(), f.path))
-    return _dedupe_pairs(out)[:3]
+    return _dedupe_pairs(out)[:3]   # <-- changed
 
 def _extract_cli(files: List[FetchedFile]) -> List[tuple[str, str]]:
     out: List[tuple[str,str]] = []
@@ -269,7 +267,7 @@ def _extract_cli(files: List[FetchedFile]) -> List[tuple[str, str]]:
         for m in CLI_LINE_RE.finditer(f.content):
             cmd = re.sub(r"^\s*(\$|>)\s*", "", m.group(0)).strip()
             out.append((cmd, f.path))
-    return _dedupe_pairs(out)[:5]   # Limit to 5 CLI command examples for brevity and relevance
+    return _dedupe_pairs(out)[:5]   # <-- changed
 
 def _extract_api(files: List[FetchedFile]) -> List[tuple[str, str]]:
     out: List[tuple[str,str]] = []

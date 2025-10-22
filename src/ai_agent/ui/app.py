@@ -203,6 +203,23 @@ def _validate_files(paths: List[str]) -> Tuple[bool, str]:
         log.debug("FileValidator unavailable or raised: %r", e)
     return True, ""
 
+# --- NEW: radio selection handler --------------------------------------------
+def _on_pick_tool(selected_name: str, choices_map: dict):
+    """
+    Update the right panel when a radio option is picked.
+    choices_map: {tool_name: {accuracy, why, demo_link, ...}}
+    """
+    c = (choices_map or {}).get(selected_name, {})
+    if not selected_name or not c:
+        return gr.update(value=""), gr.update(value="")
+    md = (
+        _fmt_toolcard(selected_name)
+        + f"\n\n> **Score:** {float(c.get('accuracy', 0.0)):.1f}%\n\n"
+        + (c.get("why", "") or "")
+    )
+    demo = c.get("demo_link", "") or ""
+    return gr.update(value=md), gr.update(value=demo)
+
 # --- Chat handler (streaming + status/disable) --------------------------------
 def _make_handler():
     def handle_message(message: str,
@@ -226,6 +243,9 @@ def _make_handler():
         empty_radio = gr.update(choices=[], value=None)
         status_idle = gr.update(value=None, visible=False)
 
+        choices_acc_hidden = gr.update(visible=False, open=False)
+        empty_choices_map = {}
+
         # Allow control-tag-only refine messages to proceed (don't treat as empty)
         raw_message = (message or "")
         has_any_text = bool(raw_message.strip())
@@ -242,7 +262,9 @@ def _make_handler():
                 gr.update(interactive=True),           # msg enabled
                 gr.update(interactive=True),           # submit enabled
                 gr.update(interactive=True),           # files enabled
-                banlist, base_task, prev_suggestions)
+                banlist, base_task, prev_suggestions,
+                choices_acc_hidden,                    # choices accordion hidden
+                empty_choices_map)                     # last choices map reset
 
             return
 
@@ -293,10 +315,12 @@ def _make_handler():
             empty_radio, "—",
             gr.update(visible=False),
             gr.update(value=None, visible=False),
-            [],                                      # excluded_names
+            [],                                    # excluded_names
             status,
             *disable_inputs,
-            banlist, base_task, prev_suggestions)
+            banlist, base_task, prev_suggestions,
+            choices_acc_hidden,                     
+            empty_choices_map)                      
 
         # 1) file validation
         paths = _coerce_gradio_files_to_paths(files)
@@ -314,10 +338,12 @@ def _make_handler():
                 empty_radio, "—",
                 gr.update(visible=False),
                 gr.update(value=None, visible=False),
-                [],                                      # excluded_names
+                [],                                    # excluded_names
                 status_done,
                 *enable_inputs,
-                banlist, base_task, prev_suggestions)
+                banlist, base_task, prev_suggestions,
+                choices_acc_hidden,                     
+                empty_choices_map)                      
 
             return
 
@@ -330,7 +356,9 @@ def _make_handler():
             [],                                    # excluded_names
             status,
             *disable_inputs,
-            banlist, base_task, prev_suggestions)
+            banlist, base_task, prev_suggestions,
+            choices_acc_hidden,                     
+            empty_choices_map)                      
 
 
         preview_path = None
@@ -350,7 +378,9 @@ def _make_handler():
             [],                                        # excluded_names
             gr.update(value="📚 Reranking candidates…", visible=True),
             *disable_inputs,
-            banlist, base_task, prev_suggestions)
+            banlist, base_task, prev_suggestions,
+            choices_acc_hidden,                         
+            empty_choices_map)                          
 
         # 3) run pipeline (pass merged persistent bans every time)
         if USE_AGENT:
@@ -416,7 +446,9 @@ def _make_handler():
                 [],                                      # excluded_names
                 status_done,
                 *enable_inputs,
-                banlist, base_task, prev_suggestions)
+                banlist, base_task, prev_suggestions,
+                choices_acc_hidden,                       
+                empty_choices_map)                        
             return
 
         # 5) choices (up to NUM_CHOICES)
@@ -440,6 +472,9 @@ def _make_handler():
             prev_suggestions = names  # last_suggestions
             # (banlist already includes any explicit excludes; we do NOT auto-ban here)
 
+            choices_map = {c["name"]: c for c in result["choices"]}
+            choices_acc_upd = gr.update(visible=True, open=True)
+
             status_done = gr.update(value="✅ Ready.", visible=True)
             enable_inputs = (
                 gr.update(interactive=True),
@@ -452,7 +487,9 @@ def _make_handler():
                 names,                                   # excluded_names populated for legacy refine
                 status_done,
                 *enable_inputs,
-                banlist, base_task, prev_suggestions)
+                banlist, base_task, prev_suggestions,
+                choices_acc_upd,                         # show accordion
+                choices_map)                             # keep choices mapping
             return
 
         # 6) no suitable tools (terminal)
@@ -488,7 +525,9 @@ def _make_handler():
             [],                  # excluded_names state reset
             status_done,
             *enable_inputs,
-            banlist, base_task, prev_suggestions
+            banlist, base_task, prev_suggestions,
+            choices_acc_hidden,  # hide accordion
+            empty_choices_map    # reset choices mapping
         )
     return handle_message
 
@@ -501,7 +540,7 @@ def create_interface():
         banlist_state = gr.State(set())          # persistent set of banned tool names
         last_task_state = gr.State("")           # persistent "base task" text
         last_suggestions_state = gr.State([])    # last proposed tool names to auto-ban on refine
-
+        last_choices_state = gr.State({})        
 
         gr.Markdown(
             "# 🧭 Imaging Software Finder\n"
@@ -546,7 +585,7 @@ def create_interface():
                     interactive=False,
                 )
 
-                with gr.Accordion("Top choices (details)", open=False):
+                with gr.Accordion("Top choices (details)", open=False, visible=False) as choices_acc:
                     choices_radio = gr.Radio(
                         label="Pick a tool",
                         choices=[],
@@ -585,6 +624,8 @@ def create_interface():
                 submit,         # disable / enable while working
                 files,          # disable / enable while working
                 banlist_state, last_task_state, last_suggestions_state,
+                choices_acc,          # show/hide top choices accordion
+                last_choices_state,   # keep latest choices mapping
             ],
         ).then(_clear_textbox, inputs=None, outputs=[msg])
 
@@ -600,9 +641,16 @@ def create_interface():
                 excluded_names,
                 status_md, msg, submit, files,
                 banlist_state, last_task_state, last_suggestions_state,
+                choices_acc,
+                last_choices_state,
             ],
         ).then(_clear_textbox, inputs=None, outputs=[msg])
 
+        choices_radio.change(
+            _on_pick_tool,
+            inputs=[choices_radio, last_choices_state],
+            outputs=[chosen_tool, demo_link],
+        )
 
         # Clear ALL (chat, history, selections, preview, status) and re-enable inputs
         clear.click(
@@ -620,9 +668,11 @@ def create_interface():
                 gr.update(interactive=True),         # msg enabled
                 gr.update(interactive=True),         # submit enabled
                 gr.update(value=None, interactive=True), # files cleared & enabled
-                set(),                               # NEW: banlist_state reset
-                "",                                  # NEW: last_task_state reset
-                [],                                  # NEW: last_suggestions_state reset
+                set(),                               # banlist_state reset
+                "",                                  # last_task_state reset
+                [],                                  # last_suggestions_state reset
+                gr.update(visible=False, open=False),# hide choices accordion
+                {},                                  # clear choices mapping
             ),
             inputs=None,
             outputs=[
@@ -631,10 +681,10 @@ def create_interface():
                 preview_acc, preview_img,
                 excluded_names,
                 status_md, msg, submit, files,
-                banlist_state, last_task_state, last_suggestions_state
+                banlist_state, last_task_state, last_suggestions_state,
+                choices_acc, last_choices_state,
             ],
         )
-
 
     return demo
 

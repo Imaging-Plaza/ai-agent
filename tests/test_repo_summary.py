@@ -109,5 +109,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # Allow running with `python scripts/test_repo_summary.py`
+    # Allow running with `python tests/test_repo_summary.py`
     main()
