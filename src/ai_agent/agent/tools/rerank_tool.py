@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 from pydantic import BaseModel
 import os, re
 
-from retriever.embedders import SoftwareDoc
+from retriever.software_doc import SoftwareDoc
 from .utils import get_pipeline
 
 class RerankInput(BaseModel):

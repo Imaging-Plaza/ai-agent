@@ -199,7 +199,10 @@ ai_agent/
     prompts.py       # System prompts and templates
     schema.py        # Pydantic models for validation
   retriever/
-    embedders.py     # Vector search components
+    software_doc.py  # Catalog document schema
+    text_embedder.py # Sentence embedding models
+    reranker.py      # Cross-encoder reranker
+    vector_index.py  # FAISS index management
   ui/
     app.py           # Gradio interface
   utils/

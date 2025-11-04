@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 import os, json
 
-from retriever.embedders import SoftwareDoc
+from retriever.software_doc import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
 
 
@@ -35,5 +35,5 @@ def get_pipeline() -> RAGImagingPipeline:
                     except Exception:
                         continue
         _DOCS = docs
-        _PIPE = RAGImagingPipeline(docs=docs)
+        _PIPE = RAGImagingPipeline()
     return _PIPE

@@ -113,7 +113,7 @@ async def resolve_demo_link(ctx: RunContext[AgentState], tool_name: str):
     """Return the best runnable demo link for a tool (if any)."""
     link = None
     try:
-        pipe = RAGImagingPipeline(docs=[])
+        pipe = RAGImagingPipeline()
         doc = pipe.get_doc(tool_name)
         if doc:
             link = _best_runnable_link(doc)

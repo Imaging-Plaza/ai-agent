@@ -1,4 +1,4 @@
-from retriever.embedders import SoftwareDoc
+from retriever.software_doc import SoftwareDoc
 from typing import Optional
 
 
