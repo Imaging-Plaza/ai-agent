@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
@@ -56,6 +57,7 @@ def _norm_doc_for_diff(d: SoftwareDoc) -> Dict[str, Any]:
         "name": (d.name or "").strip(),
         "url": (d.url or "").strip(),
         "repo_url": (d.repo_url or "").strip(),
+        "documentation": (getattr(d, "documentation", None) or "").strip(),
         "description": (d.description or "").strip(),
         "category": _sorted_unique(d.category),
         "tasks": _sorted_unique(d.tasks),
@@ -131,32 +133,6 @@ def _read_docs(jsonl_path: Path) -> list[SoftwareDoc]:
             s = s.rsplit("/", 1)[-1]
         return s
 
-    def _as_list_str(v):
-        if v is None:
-            return []
-        if isinstance(v, list):
-            out = []
-            for x in v:
-                s = str(x).strip()
-                if s:
-                    out.append(s)
-            return out
-        s = str(v).strip()
-        return [s] if s else []
-
-    def _as_bool(v):
-        if isinstance(v, bool) or v is None:
-            return v
-        if isinstance(v, (int, float)):
-            return bool(v)
-        if isinstance(v, str):
-            s = v.strip().lower()
-            if s in {"true", "1", "yes", "y", "on"}:
-                return True
-            if s in {"false", "0", "no", "n", "off"}:
-                return False
-        return None
-
     docs: list[SoftwareDoc] = []
     total = 0
     made = 0
@@ -176,44 +152,28 @@ def _read_docs(jsonl_path: Path) -> list[SoftwareDoc]:
                     invalid += 1
                     continue
 
-                name = _first_str(data.get("name"))
-                if not name:
-                    for k in ("label", "preferredLabel", "title", "headline",
-                              "repo_url", "codeRepository", "url", "homepage", "downloadUrl", "id"):
-                        t = _tail_token(data.get(k))
-                        if t:
-                            name = t
-                            break
-                    if not name:
-                        payload = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-                        name = "software-" + hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
-
-                if name in seen:
-                    continue
-                seen.add(name)
-
                 payload = {
-                    "name": name,
+                    "name": _first_str(data.get("name")),
                     "url": data.get("url"),
                     "repo_url": data.get("repo_url") or data.get("codeRepository"),
-                    "description": _first_str(data.get("description")),
-                    "applicationCategory": _as_list_str(data.get("applicationCategory")),
-                    "featureList": _as_list_str(data.get("featureList")),
-                    "imagingModality": _as_list_str(data.get("imagingModality") or data.get("modality")),
-                    "keywords": _as_list_str(data.get("keywords")),
+                    "description": data.get("description"),
+                    "applicationCategory": data.get("applicationCategory"),
+                    "featureList": data.get("featureList"),
+                    "imagingModality": data.get("imagingModality") or data.get("modality"),
+                    "keywords": data.get("keywords"),
                     "programmingLanguage": data.get("programmingLanguage"),
-                    "softwareRequirements": _as_list_str(data.get("softwareRequirements")),
-                    "requiresGPU": _as_bool(data.get("requiresGPU")),
-                    "isAccessibleForFree": _as_bool(data.get("isAccessibleForFree")),
-                    "isBasedOn": _as_list_str(data.get("isBasedOn")),
-                    "isPluginModuleOf": _as_list_str(data.get("isPluginModuleOf")),
-                    "relatedToOrganization": _as_list_str(data.get("relatedToOrganization")),
-                    "license": _first_str(data.get("license")),
+                    "softwareRequirements": data.get("softwareRequirements"),
+                    "requiresGPU": data.get("requiresGPU"),
+                    "isAccessibleForFree": data.get("isAccessibleForFree"),
+                    "isBasedOn": data.get("isBasedOn"),
+                    "isPluginModuleOf": data.get("isPluginModuleOf"),
+                    "relatedToOrganization": data.get("relatedToOrganization"),
+                    "license": data.get("license"),
                     "supportingData": data.get("supportingData"),
-                    "os": _as_list_str(data.get("operatingSystem") or data.get("os")),
+                    "os": data.get("operatingSystem") or data.get("os"),
                     "runnableExample": data.get("runnableExample"),
                     "hasExecutableNotebook": data.get("hasExecutableNotebook"),
-                    "weights_available": _as_bool(data.get("weights_available")),
+                    "documentation": data.get("hasDocumentation"),
                 }
 
                 try:
@@ -405,6 +365,3 @@ def sync_once(*, out_jsonld: Path | None = None, out_jsonl: Path | None = None) 
         "faiss_docs": len(items),
         "catalog_diff": {"added": add_n, "removed": rem_n, "changed": chg_n, "diff_path": str(diff_path)},
     }
-
-
-

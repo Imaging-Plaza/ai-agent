@@ -20,6 +20,7 @@ class SoftwareDoc(BaseModel):
     url: Optional[str] = None
     repo_url: Optional[str] = None
     description: Optional[str] = None
+    documentation: Optional[str] = None
 
     # Semantics
     category: List[str] = Field(default_factory=list, alias="applicationCategory")
@@ -43,7 +44,6 @@ class SoftwareDoc(BaseModel):
 
     # Misc
     os: List[str] = Field(default_factory=list)
-    weights_available: Optional[bool] = None
 
     # Demo / Spaces info
     runnable_example: List[Union[str, Dict[str, Any]]] = Field(
@@ -78,6 +78,7 @@ class SoftwareDoc(BaseModel):
         dims_collected: List[int] = []
         anatomy_collected: List[str] = []
         mod_extra: List[str] = []
+        fmt_tokens: List[str] = [] 
 
         def push_dim(x):
             try:
@@ -140,6 +141,22 @@ class SoftwareDoc(BaseModel):
                     if s and s not in mod_extra:
                         mod_extra.append(s)
 
+        fm = it.get("datasetFormat")
+        if fm is not None:
+            vals = fm if isinstance(fm, list) else [fm]
+            for v in vals:
+                s = str(v or "").strip().lower()
+                if not s:
+                    continue
+                # accept mime types, dotted or bare extensions
+                s = s.split("/")[-1]
+                if s.startswith("."):
+                    s = s[1:]
+                if s:
+                    tok = f"format:{s}"
+                    if tok not in fmt_tokens:
+                        fmt_tokens.append(tok)
+
         # populate only if missing/empty at top-level
         if not data.get("dims") and dims_collected:
             data["dims"] = dims_collected
@@ -155,6 +172,14 @@ class SoftwareDoc(BaseModel):
                 if s and s not in merged:
                     merged.append(s)
             data["imagingModality"] = merged
+
+        if fmt_tokens:
+            kws = data.get("keywords") or []
+            kws = kws if isinstance(kws, list) else [kws]
+            for t in fmt_tokens:
+                if t not in kws:
+                    kws.append(t)
+            data["keywords"] = kws
 
         return data
 
@@ -250,7 +275,7 @@ class SoftwareDoc(BaseModel):
             return cls._canon_lang(v) if "programming_language" in cls.__fields__ else v
         return v
 
-    @field_validator("url", "repo_url", mode="before")
+    @field_validator("url", "repo_url", "documentation", mode="before")
     @classmethod
     def _coerce_and_normalize_url(cls, v):
         if isinstance(v, list):
@@ -259,9 +284,27 @@ class SoftwareDoc(BaseModel):
             return cands[0] if cands else None
         return cls._norm_url_one(v)
 
+    @field_validator("description", mode="before")
+    @classmethod
+    def _coerce_description(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            for x in v:
+                s = str(x).strip()
+                if s:
+                    return s
+            return None
+        return str(v).strip()
+
     @field_validator("gpu_required", "is_free", mode="before")
     @classmethod
     def _coerce_bool(cls, v):
+        if isinstance(v, list):
+            b = cls._coerce_bool(v[0])
+            if b is not None:
+                return b
+            return None
         if isinstance(v, bool) or v is None:
             return v
         if isinstance(v, (int, float)):
