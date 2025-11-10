@@ -12,7 +12,7 @@ import logging
 from ai_agent.catalog.sync import sync_once
 from ai_agent.ui.app import get_pipeline, refresh_ui_docs_from_index
 
-# load env variablesn and logger
+# load env variables and logger
 load_dotenv()
 log = logging.getLogger("ai_agent.cli")
 
