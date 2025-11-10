@@ -66,10 +66,10 @@ def _download_to_temp(url: str) -> Optional[str]:
                 ext = ".jpg"
             else:
                 ext = ".bin"
-        fd = tempfile.NamedTemporaryFile(delete=False, prefix="demo_result_", suffix=ext)
-        fd.write(r.content)
-        fd.flush(); fd.close()
-        return fd.name
+        with tempfile.NamedTemporaryFile(delete=False, prefix="demo_result_", suffix=ext) as fd:
+            fd.write(r.content)
+            fd.flush()
+            return fd.name
     except Exception:
         return None
 
