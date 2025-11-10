@@ -131,7 +131,6 @@ def _read_docs(jsonl_path: Path) -> list[SoftwareDoc]:
 
     try:
         with jsonl_path.open("r", encoding="utf-8") as f:
-            seen = set()
             for line in f:
                 total += 1
                 line = line.strip()
