@@ -101,7 +101,7 @@ def tool_run_example(inp: RunExampleInput) -> RunExampleOutput:
 
     Behavior:
       - Determine Space URL: prefer explicit endpoint_url, else catalog runnable link.
-      - Discover API endpoints via view_api and choose one matching image/no-image needs.
+      - Used agreed endpoint /segment for now
       - Build payload by mapping image path to image inputs and extra_text into text fields.
     """
     pipe = get_pipeline()
