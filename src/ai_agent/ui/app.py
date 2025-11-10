@@ -55,6 +55,7 @@ from pandas import DataFrame
 from retriever.software_doc import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
 from agent.agent import run_agent
+from agent.tools.gradio_space_tool import tool_run_example, RunExampleInput
 
 from utils.file_validator import FileValidator
 from utils.tags import strip_tags, parse_exclusions, is_refine_intent, strip_refine_keywords
@@ -202,6 +203,49 @@ def _choices_table_md(choices: List[dict]) -> str:
         rows.append(f"| {int(c.get('rank', 0))} | {name} | {acc} | {short} |")
     return "\n".join(rows)
 
+# --- Chat format helpers (pairs <-> messages) --------------------------------
+def _msgs_to_pairs(msgs):
+    """Convert Chatbot(messages) -> legacy list[[user, assistant]]."""
+    if not msgs:
+        return []
+    # If already pairs, pass through
+    if isinstance(msgs[0], (list, tuple)):
+        return msgs
+    pairs = []
+    pending_user = None
+    for m in msgs:
+        role = m.get("role") if isinstance(m, dict) else None
+        content = (m.get("content", "") if isinstance(m, dict) else "")
+        if role == "user":
+            if pending_user is not None:
+                pairs.append([pending_user, None])
+            pending_user = content
+        elif role == "assistant":
+            if pending_user is None:
+                pairs.append(["", content])
+            else:
+                pairs.append([pending_user, content])
+                pending_user = None
+    if pending_user is not None:
+        pairs.append([pending_user, None])
+    return pairs
+
+def _pairs_to_msgs(pairs):
+    """Convert legacy list[[user, assistant]] -> Chatbot(messages)."""
+    if not pairs:
+        return []
+    # If already messages, pass through
+    if isinstance(pairs[0], dict):
+        return pairs
+    msgs = []
+    for item in pairs:
+        user, assistant = (item + [None, None])[:2] if isinstance(item, list) else (None, None)
+        if user is not None:
+            msgs.append({"role": "user", "content": user})
+        if assistant is not None:
+            msgs.append({"role": "assistant", "content": assistant})
+    return msgs
+
 # --- validation ---------------------------------------------------------------
 def _validate_files(paths: List[str]) -> Tuple[bool, str]:
     if not paths:
@@ -219,7 +263,7 @@ def _validate_files(paths: List[str]) -> Tuple[bool, str]:
         log.debug("FileValidator unavailable or raised: %r", e)
     return True, ""
 
-# --- NEW: radio selection handler --------------------------------------------
+# --- Radio selection handler --------------------------------------------
 def _on_pick_tool(selected_name: str, choices_map: dict):
     """
     Update the right panel when a radio option is picked.
@@ -250,7 +294,11 @@ def _make_handler():
         if isinstance(history_rows, DataFrame):
             history_rows = history_rows.values.tolist()
         history_rows = history_rows or []
-        chat_history = chat_history or []
+        # Accept both old pair format and new messages format from Chatbot
+        if chat_history and isinstance(chat_history, list) and isinstance(chat_history[0], dict):
+            chat_pairs = _msgs_to_pairs(chat_history)
+        else:
+            chat_pairs = chat_history or []
         conv_history = conv_history or []
         banlist = set(banlist_state or set())
         base_task = (last_task_state or "").strip()
@@ -262,6 +310,10 @@ def _make_handler():
         choices_acc_hidden = gr.update(visible=False, open=False)
         empty_choices_map = {}
 
+        # Demo controls hidden by default
+        demo_link_hidden = gr.update(value="", visible=False)
+        run_demo_hidden = gr.update(visible=False)
+
         # Allow control-tag-only refine messages to proceed (don't treat as empty)
         raw_message = (message or "")
         has_any_text = bool(raw_message.strip())
@@ -269,7 +321,7 @@ def _make_handler():
 
         if (not has_any_text) and (not has_files):
             # nothing to do → DO NOT disable inputs; just return quietly
-            yield (chat_history, history_rows, "", "", conv_history,
+            yield (_pairs_to_msgs(chat_pairs), history_rows, "", demo_link_hidden, run_demo_hidden, conv_history,
                 empty_radio, "—",
                 gr.update(visible=False),              # preview accordion hidden
                 gr.update(value=None, visible=False),  # preview image hidden
@@ -324,10 +376,10 @@ def _make_handler():
             gr.update(interactive=False),  # files
         )
 
-        chat_history = chat_history + [[visible_msg, None]]
+        chat_pairs = chat_pairs + [[visible_msg, None]]
         conv_history = conv_history + [f"User: {visible_msg}"]
         status = gr.update(value="🔄 Validating files…", visible=True)
-        yield (chat_history, history_rows, "", "", conv_history,
+        yield (_pairs_to_msgs(chat_pairs), history_rows, "", demo_link_hidden, run_demo_hidden, conv_history,
             empty_radio, "—",
             gr.update(visible=False),
             gr.update(value=None, visible=False),
@@ -342,7 +394,7 @@ def _make_handler():
         paths = _coerce_gradio_files_to_paths(files)
         ok, why_not = _validate_files(paths)
         if not ok:
-            chat_history[-1][1] = f"⚠️ File issues detected.\n\n{why_not}"
+            chat_pairs[-1][1] = f"⚠️ File issues detected.\n\n{why_not}"
             status_done = gr.update(value="⚠️ File validation failed.", visible=True)
             # re-enable inputs
             enable_inputs = (
@@ -350,7 +402,7 @@ def _make_handler():
                 gr.update(interactive=True),
                 gr.update(interactive=True),
             )
-            yield (chat_history, history_rows, "", "", conv_history,
+            yield (_pairs_to_msgs(chat_pairs), history_rows, "", "", conv_history,
                 empty_radio, "—",
                 gr.update(visible=False),
                 gr.update(value=None, visible=False),
@@ -365,7 +417,7 @@ def _make_handler():
 
         # 2) build preview (collapsed & only visible if present)
         status = gr.update(value="🖼️ Building preview…", visible=True)
-        yield (chat_history, history_rows, "", "", conv_history,
+        yield (_pairs_to_msgs(chat_pairs), history_rows, "", demo_link_hidden, run_demo_hidden, conv_history,
             empty_radio, "—",
             gr.update(visible=False),
             gr.update(value=None, visible=False),
@@ -387,7 +439,7 @@ def _make_handler():
         preview_acc_upd = gr.update(visible=bool(preview_path))
         preview_img_upd = gr.update(value=preview_path, visible=bool(preview_path))
 
-        yield (chat_history, history_rows, "", "", conv_history,
+        yield (_pairs_to_msgs(chat_pairs), history_rows, "", demo_link_hidden, run_demo_hidden, conv_history,
             empty_radio, "—",
             preview_acc_upd,
             preview_img_upd,
@@ -448,7 +500,7 @@ def _make_handler():
             if opts:
                 resp += "Options:\n" + "\n".join(f"• {o}" for o in opts) + "\n\n"
             resp += f"_{ctx}_"
-            chat_history[-1][1] = resp
+            chat_pairs[-1][1] = resp
 
             status_done = gr.update(value="ℹ️ More info needed.", visible=True)
             enable_inputs = (
@@ -456,7 +508,7 @@ def _make_handler():
                 gr.update(interactive=True),
                 gr.update(interactive=True),
             )
-            yield (chat_history, history_rows, "", "", conv_history,
+            yield (_pairs_to_msgs(chat_pairs), history_rows, "", demo_link_hidden, run_demo_hidden, conv_history,
                 empty_radio, "—",
                 preview_acc_upd, preview_img_upd,
                 [],                                      # excluded_names
@@ -474,7 +526,7 @@ def _make_handler():
             demo = top.get("demo_link", "")
 
             table_block = f"\n\n**Top candidates** (up to {os.getenv('NUM_CHOICES', '3')}):\n\n" + md_table
-            chat_history[-1][1] = (
+            chat_pairs[-1][1] = (
                 f"I recommend **{top['name']}** ({float(top.get('accuracy',0.0)):.1f}% match)\n\n"
                 f"_{top.get('why','')}_" + table_block
             )
@@ -492,12 +544,15 @@ def _make_handler():
             choices_acc_upd = gr.update(visible=True, open=True)
 
             status_done = gr.update(value="✅ Ready.", visible=True)
+            # Show demo controls once a tool is found
+            demo_link_upd = gr.update(value=demo, visible=True)
+            run_demo_upd = gr.update(visible=True)
             enable_inputs = (
                 gr.update(interactive=True),
                 gr.update(interactive=True),
                 gr.update(interactive=True),
             )
-            yield (chat_history, history_rows, top["name"], demo, conv_history,
+            yield (_pairs_to_msgs(chat_pairs), history_rows, top["name"], demo_link_upd, run_demo_upd, conv_history,
                 radio_update, md_cards,
                 preview_acc_upd, preview_img_upd,
                 names,                                   # excluded_names populated for legacy refine
@@ -511,7 +566,7 @@ def _make_handler():
         # 6) no suitable tools (terminal)
         reason = result.get("reason")
         reason_line = f"**Reason:** `{reason}`\n\n" if reason else ""
-        chat_history[-1][1] = (
+        chat_pairs[-1][1] = (
             "❌ No suitable tools found.\n\n"
             + reason_line
             + result.get("explanation", "")
@@ -529,10 +584,11 @@ def _make_handler():
         )
 
         yield (
-            chat_history,
+            _pairs_to_msgs(chat_pairs),
             history_rows,
             "",                  # chosen_tool
-            "",                  # demo_link
+            demo_link_hidden,     # demo_link hidden
+            run_demo_hidden,      # run_demo_btn hidden
             conv_history,
             radio_update,        # choices_radio
             choices_md_upd,      # choices_md
@@ -576,9 +632,12 @@ def create_interface():
 
                 # Collapsed, hidden-by-default preview
                 with gr.Accordion("Preview", open=False, visible=False) as preview_acc:
-                    preview_img = gr.Image(label="", interactive=False, value=None, visible=True)
+                    preview_img = gr.Image(label="", interactive=False, value=None, visible=True, type="filepath")
+                with gr.Accordion("Demo result", open=False, visible=False) as demo_result_acc:
+                    demo_result_img = gr.Image(label="", interactive=False, value=None, visible=True)
+                    demo_result_file = gr.File(label="Download result file", visible=False)
 
-                chatbot = gr.Chatbot(label="Conversation", type="tuples")
+                chatbot = gr.Chatbot(label="Conversation", type="messages")
 
                 with gr.Row():
                     msg = gr.Textbox(
@@ -595,11 +654,14 @@ def create_interface():
             # RIGHT
             with gr.Column(scale=5):
                 chosen_tool = gr.Markdown(label="Selected Tool")
+                # Hide demo controls until a tool is found
                 demo_link = gr.Textbox(
                     label="Demo link",
                     show_copy_button=True,
                     interactive=False,
+                    visible=False,
                 )
+                run_demo_btn = gr.Button("Run demo on preview", variant="secondary", visible=False)
 
                 with gr.Accordion("Top choices (details)", open=False, visible=False) as choices_acc:
                     choices_radio = gr.Radio(
@@ -629,6 +691,7 @@ def create_interface():
                 history_df,     # table
                 chosen_tool,
                 demo_link,
+                run_demo_btn,
                 conversation_history,
                 choices_radio,  # updated via gr.update(choices=..., value=...)
                 choices_md,     # detailed markdown cards
@@ -651,7 +714,7 @@ def create_interface():
             inputs=[msg, chatbot, files, history_df, conversation_history,
                     banlist_state, last_task_state, last_suggestions_state],
             outputs=[
-                chatbot, history_df, chosen_tool, demo_link, conversation_history,
+        chatbot, history_df, chosen_tool, demo_link, run_demo_btn, conversation_history,
                 choices_radio, choices_md,
                 preview_acc, preview_img,
                 excluded_names,
@@ -661,6 +724,41 @@ def create_interface():
                 last_choices_state,
             ],
         ).then(_clear_textbox, inputs=None, outputs=[msg])
+
+        def _run_selected_demo(selected_name: str, demo_url: str, uploaded_files):
+            # Use the original uploaded file(s) instead of preview; prefer .tif/.tiff if present
+            if not selected_name:
+                return gr.update(visible=False), gr.update(visible=False, value=None), gr.update(value=None, visible=False), gr.update(value="⚠️ Select a tool first.", visible=True)
+            paths = _coerce_gradio_files_to_paths(uploaded_files)
+            if not paths:
+                return gr.update(visible=False), gr.update(visible=False, value=None), gr.update(value=None, visible=False), gr.update(value="⚠️ Please upload an image first.", visible=True)
+            # prefer tif/tiff if available (per remote app constraints), else first file
+            pick = None
+            for p in paths:
+                ext = os.path.splitext(p)[1].lower()
+                if ext in (".tif", ".tiff"):
+                    pick = p
+                    break   
+            if not pick:
+                pick = paths[0]
+            try:
+                log.info("Run demo: tool=%s, path=%s, url=%s", selected_name, pick, demo_url)
+                out = tool_run_example(RunExampleInput(tool_name=selected_name, image_path=pick, endpoint_url=demo_url or None))
+                if out.ran and (out.result_preview or out.result_image):
+                    preview = out.result_preview or out.result_image
+                    file_upd = gr.update(value=out.result_origin, visible=bool(out.result_origin))
+                    return gr.update(visible=True, open=True), gr.update(value=preview, visible=True), file_upd, gr.update(value="✅ Demo ran.", visible=True)
+                note = out.notes or ""
+                txt = f"ℹ️ Ran, no image returned. {note}" if out.ran else f"❌ Failed. {note}"
+                return gr.update(visible=False), gr.update(value=None, visible=False), gr.update(visible=False, value=None), gr.update(value=txt, visible=True)
+            except Exception as e:
+                return gr.update(visible=False), gr.update(value=None, visible=False), gr.update(visible=False, value=None), gr.update(value=f"❌ Error: {e}", visible=True)
+
+        run_demo_btn.click(
+            _run_selected_demo,
+            inputs=[choices_radio, demo_link, files],
+            outputs=[demo_result_acc, demo_result_img, demo_result_file, status_md],
+        )
 
         choices_radio.change(
             _on_pick_tool,
@@ -673,12 +771,16 @@ def create_interface():
             lambda: (
                 [],  # chatbot
                 "",  # chosen_tool
-                "",  # demo_link
+                gr.update(value="", visible=False),  # demo_link hidden
+                gr.update(visible=False),             # run_demo_btn hidden
                 [],  # conversation_history
                 gr.update(choices=[], value=None),   # choices_radio reset
                 "—",                                 # choices_md reset
                 gr.update(visible=False),            # preview accordion hidden
                 gr.update(value=None, visible=False),# preview img hidden
+                gr.update(visible=False),            # demo result accordion hidden
+                gr.update(value=None, visible=False),# demo result img hidden
+                gr.update(value=None, visible=False),# demo result file hidden
                 [],                                  # excluded_names reset
                 gr.update(value=None, visible=False),# status hidden
                 gr.update(interactive=True),         # msg enabled
@@ -692,9 +794,10 @@ def create_interface():
             ),
             inputs=None,
             outputs=[
-                chatbot, chosen_tool, demo_link, conversation_history,
+                chatbot, chosen_tool, demo_link, run_demo_btn, conversation_history,
                 choices_radio, choices_md,
                 preview_acc, preview_img,
+                demo_result_acc, demo_result_img, demo_result_file,
                 excluded_names,
                 status_md, msg, submit, files,
                 banlist_state, last_task_state, last_suggestions_state,
