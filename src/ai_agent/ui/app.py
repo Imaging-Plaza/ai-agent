@@ -674,8 +674,8 @@ def create_interface():
                 chatbot,        # streams
                 history_df,     # table
                 chosen_tool,
-        demo_link,
-        run_demo_btn,
+                demo_link,
+                run_demo_btn,
                 conversation_history,
                 choices_radio,  # updated via gr.update(choices=..., value=...)
                 choices_md,     # detailed markdown cards
