@@ -52,7 +52,7 @@ import json
 import gradio as gr
 from pandas import DataFrame
 
-from retriever.embedders import SoftwareDoc
+from retriever.software_doc import SoftwareDoc
 from api.pipeline import RAGImagingPipeline
 from agent.agent import run_agent
 
@@ -112,12 +112,28 @@ _DOC_BY_NAME: Dict[str, SoftwareDoc] = {}
 def get_pipeline() -> RAGImagingPipeline:
     global _pipe, _DOCS, _DOC_BY_NAME
     if _pipe is None:
-        _DOCS = _load_catalog(CATALOG_PATH)
-        _DOC_BY_NAME = {d.name: d for d in _DOCS if getattr(d, "name", None)}
-        log.info("Loaded %d tools from %s", len(_DOCS), CATALOG_PATH)
-        _pipe = RAGImagingPipeline(docs=_DOCS, index_dir=INDEX_DIR)
+        _pipe = RAGImagingPipeline(index_dir=INDEX_DIR)
+        try:
+            _DOCS = list(_pipe.index.docs.values())
+            _DOC_BY_NAME = {d.name: d for d in _DOCS if getattr(d, "name", None)}
+            log.info("Loaded %d tools from FAISS meta in %s", len(_DOCS), INDEX_DIR)
+        except Exception:
+            _DOCS, _DOC_BY_NAME = [], {}
+            log.exception("Failed to load docs from FAISS sidecar")
         log.info("Pipeline ready")
     return _pipe
+
+def refresh_ui_docs_from_index():
+    global _pipe, _DOCS, _DOC_BY_NAME
+    if _pipe is None:
+        return
+    try:
+        _DOCS = list(_pipe.index.docs.values())
+        _DOC_BY_NAME = {d.name: d for d in _DOCS if getattr(d, "name", None)}
+        log.info("UI docs refreshed from FAISS: %d tools", len(_DOCS))
+    except Exception:
+        _DOCS, _DOC_BY_NAME = [], {}
+        log.exception("Failed to refresh UI docs from FAISS")
 
 # --- helpers ------------------------------------------------------------------
 def _coerce_gradio_files_to_paths(fobjs) -> List[str]:

@@ -9,13 +9,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import re
 from utils.tags import strip_tags, parse_exclusions, has_no_rerank, has_refine
 
-from retriever.embedders import (
-    LocalBGEEmbedder,
-    VectorIndex,
-    IndexItem,
-    CrossEncoderReranker,
-    SoftwareDoc,
-)
+from retriever.reranker import CrossEncoderReranker
+from retriever.software_doc import SoftwareDoc
+from retriever.text_embedder import LocalBGEEmbedder
+from retriever.vector_index import VectorIndex
 from generator.generator import VLMToolSelector
 from generator.schema import CandidateDoc, NoToolReason
 from utils.file_validator import FileValidator
@@ -28,11 +25,7 @@ log = logging.getLogger("pipeline")
 
 
 class RAGImagingPipeline:
-    def __init__(
-        self,
-        docs: List[SoftwareDoc],
-        index_dir: Optional[str] = None,
-    ):
+    def __init__(self, index_dir: Optional[str] = None):
         self.index_dir = Path(index_dir or os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
@@ -46,24 +39,21 @@ class RAGImagingPipeline:
             logging.getLogger("api").exception("Preview cleanup at init failed; continuing")
 
         self.index = self._load_or_build_index()
-        if docs:
-            stats = self.index.sync_with_catalog([IndexItem(id=d.name, doc=d) for d in docs])
-            if any(stats.values()):
-                self.index.save(self.index_dir)
 
     def _load_or_build_index(self) -> VectorIndex:
         try:
-            idx = VectorIndex.load(self.index_dir, self.embedder)
-            return idx
+            return VectorIndex.load(self.index_dir, self.embedder)
         except Exception:
             return VectorIndex(self.embedder)
 
-    def refresh_catalog(self, docs: List[SoftwareDoc]) -> Dict[str, int]:
-        items = [IndexItem(id=d.name, doc=d) for d in docs]
-        stats = self.index.sync_with_catalog(items)
-        if any(stats.values()):
-            self.index.save(self.index_dir)
-        return stats
+    def reload_index(self) -> bool:
+        try:
+            new_idx = VectorIndex.load(self.index_dir, self.embedder)
+            self.index = new_idx
+            return True
+        except Exception:
+            logging.getLogger("api").exception("reload_index failed")
+            return False
 
     def _apply_reranker(self, query: str, hits: List[dict], top_k: int) -> List[dict]:
         if not hits:

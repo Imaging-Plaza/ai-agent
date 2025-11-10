@@ -13,7 +13,7 @@ The system follows a two-stage pipeline:
 ### Key Components
 
 - **`api/pipeline.RAGImagingPipeline`**: Main orchestrator. Handles file validation, metadata extraction, retrieval, and VLM selection.
-- **`retriever/embedders.py`**: FAISS vector index with BGE-M3 + CrossEncoder reranker for candidate retrieval.
+- **`retriever/text_embedder.py`**, **`retriever/vector_index.py`**, **`retriever/reranker.py`**, **`retriever/software_doc.py`**: Embedding, FAISS indexing, reranking, and catalog schema for retrieval.
 - **`generator/generator.VLMToolSelector`**: Vision-language model that selects best tools from candidates.
 - **`utils/image_meta.py`**: Robust metadata extraction for DICOM, NIfTI, TIFF stacks with medical imaging focus.
 - **`utils/tags.py`**: Control tags system for query refinement (`[EXCLUDE:tool1|tool2]`, `[NO_RERANK]`, `[REFINE]`).

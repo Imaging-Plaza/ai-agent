@@ -27,7 +27,7 @@ load_dotenv(find_dotenv(), override=False)
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from retriever.embedders import SoftwareDoc
+from retriever.software_doc import SoftwareDoc
 
 # --------------------------------------------------------------------------------------
 # Dummy / test doubles for heavy components
@@ -251,9 +251,10 @@ def test_pipeline_against_sheet_with_urls(tmp_path: Path, monkeypatch, subtests,
     """
 
     # Patch heavy components
-    import retriever.embedders as emb
-    monkeypatch.setattr(emb, "LocalBGEEmbedder", DummyEmbedder, raising=True)
-    monkeypatch.setattr(emb, "CrossEncoderReranker", DummyReranker, raising=True)
+    import retriever.text_embedder as text_embedder
+    import retriever.reranker as reranker
+    monkeypatch.setattr(text_embedder, "LocalBGEEmbedder", DummyEmbedder, raising=True)
+    monkeypatch.setattr(reranker, "CrossEncoderReranker", DummyReranker, raising=True)
 
     # Toggle FORCE_VLM env to exercise both paths (if the pipeline uses it)
     monkeypatch.setenv("FORCE_VLM", "1" if force_vlm else "0")
@@ -262,7 +263,7 @@ def test_pipeline_against_sheet_with_urls(tmp_path: Path, monkeypatch, subtests,
     docs = _load_catalog_docs()
     from api.pipeline import RAGImagingPipeline
 
-    pipe = RAGImagingPipeline(docs=docs)
+    pipe = RAGImagingPipeline()
 
     # For determinism in this unit test, we also disable the (patched) reranker.
     pipe.reranker = None

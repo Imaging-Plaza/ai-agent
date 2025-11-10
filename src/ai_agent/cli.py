@@ -1,23 +1,105 @@
 # src/ai_agent/cli.py
+from __future__ import annotations
+
 import argparse
+import os
 import sys
+import threading
+import time
+from dotenv import load_dotenv
+import logging
 
+from ai_agent.catalog.sync import sync_once
+from ai_agent.ui.app import get_pipeline, refresh_ui_docs_from_index
+
+# load env variables and logger
+load_dotenv()
+log = logging.getLogger("ai_agent.cli")
+
+# --------------------------- catalog background refresher ---------------------------
+def _background_refresh():
+    """If SYNC_EVERY_HOURS > 0, refresh in the background while UI runs."""
+    hours = float(os.getenv("SYNC_EVERY_HOURS", "0") or 0)
+
+    if hours <= 0:
+        log.info("[auto-refresh] disabled")
+        return
+
+    def _loop():
+        while True:
+            try:
+                res = sync_once()
+                log.info("[auto-refresh] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
+
+                pipe = get_pipeline()
+
+                if res.get("changed"):
+                    ok = pipe.reload_index()
+                    if ok:
+                        log.info("[auto-refresh] reloaded FAISS index")
+                        refresh_ui_docs_from_index()
+                    else:
+                        log.warning("[auto-refresh] reload failed; serving previous index")
+                else:
+                    log.info("[auto-refresh] catalog unchanged; FAISS not touched")
+            except Exception:
+                log.exception("[auto-refresh] error")
+            try:
+                time.sleep(max(60.0, hours * 3600.0))
+            except Exception:
+                time.sleep(3600.0)
+
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+
+# --------------------------- custom tasks ---------------------------
 def run_ui():
-    from ai_agent.ui.app import launch
-    launch()
+    try:
+        res = sync_once()
+        log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
 
+        pipe = get_pipeline()
+
+        if res.get("changed"):
+            ok = pipe.reload_index()
+            if ok:
+                log.info("[startup-refresh] reloaded FAISS index")
+                refresh_ui_docs_from_index()
+            else:
+                log.warning("[startup-refresh] reload failed; serving previous index")
+        else:
+            log.info("[startup-refresh] catalog unchanged; keeping existing FAISS index")
+    except Exception:
+        log.exception("[startup-sync] failed")
+
+    _background_refresh()
+
+    try:
+        from ai_agent.ui.app import launch
+        launch()
+    except Exception:
+        log.exception("[ui-launch] failed")
+        raise
+
+
+def run_sync():
+    try:
+        r = sync_once()
+        log.info("[sync] %s → %s", r.get("count", "?"), r.get("jsonl_path"))
+    except Exception:
+        log.exception("[sync] failed")
+        raise
+
+# --------------------------- main entry ---------------------------
 def main():
-    parser = argparse.ArgumentParser(description="AI Agent CLI")
-    # default command is 'ui' (only option for now)
-    parser.add_argument(
-        "mode",
-        choices=["ui"],
-        help="Mode to run (currently only 'ui' is supported)."
-    )
-    args = parser.parse_args()
+    p = argparse.ArgumentParser(description="AI Agent CLI")
+    p.add_argument("mode", choices=["ui", "sync"], help="'ui' launches the app (auto-syncs first); 'sync' runs one refresh.")
+    args = p.parse_args()
 
     if args.mode == "ui":
         run_ui()
+    elif args.mode == "sync":
+        run_sync()
     else:
         sys.exit(f"Unsupported mode: {args.mode}")
 

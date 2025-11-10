@@ -20,7 +20,9 @@ dependencies = [
   "nibabel",
   "tifffile",
   "pydicom",
-  "imageio"
+  "imageio",
+  "rdflib",
+  "sparqlwrapper",
 ]
 
 [project.scripts]
