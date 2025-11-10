@@ -12,7 +12,7 @@ from utils.tags import strip_tags, parse_exclusions, has_no_rerank, has_refine
 from retriever.reranker import CrossEncoderReranker
 from retriever.software_doc import SoftwareDoc
 from retriever.text_embedder import LocalBGEEmbedder
-from retriever.vector_index import IndexItem, VectorIndex
+from retriever.vector_index import VectorIndex
 from generator.generator import VLMToolSelector
 from generator.schema import CandidateDoc, NoToolReason
 from utils.file_validator import FileValidator
