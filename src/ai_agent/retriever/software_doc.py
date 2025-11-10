@@ -141,21 +141,22 @@ class SoftwareDoc(BaseModel):
                     if s and s not in mod_extra:
                         mod_extra.append(s)
 
-        fm = it.get("datasetFormat")
-        if fm is not None:
-            vals = fm if isinstance(fm, list) else [fm]
-            for v in vals:
-                s = str(v or "").strip().lower()
-                if not s:
-                    continue
-                # accept mime types, dotted or bare extensions
-                s = s.split("/")[-1]
-                if s.startswith("."):
-                    s = s[1:]
-                if s:
-                    tok = f"format:{s}"
-                    if tok not in fmt_tokens:
-                        fmt_tokens.append(tok)
+            # datasetFormat
+            fm = it.get("datasetFormat")
+            if fm is not None:
+                vals = fm if isinstance(fm, list) else [fm]
+                for v in vals:
+                    s = str(v or "").strip().lower()
+                    if not s:
+                        continue
+                    # accept mime types, dotted or bare extensions
+                    s = s.split("/")[-1]
+                    if s.startswith("."):
+                        s = s[1:]
+                    if s:
+                        tok = f"format:{s}"
+                        if tok not in fmt_tokens:
+                            fmt_tokens.append(tok)
 
         # populate only if missing/empty at top-level
         if not data.get("dims") and dims_collected:
