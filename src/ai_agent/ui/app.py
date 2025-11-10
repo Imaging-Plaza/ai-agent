@@ -279,7 +279,7 @@ def _make_handler():
             history_rows = history_rows.values.tolist()
         history_rows = history_rows or []
         # Accept both old pair format and new messages format from Chatbot
-        if chat_history and isinstance(chat_history, list) and chat_history and isinstance(chat_history[0], dict):
+        if chat_history and isinstance(chat_history, list) and isinstance(chat_history[0], dict):
             chat_pairs = _msgs_to_pairs(chat_history)
         else:
             chat_pairs = chat_history or []
