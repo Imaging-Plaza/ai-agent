@@ -712,17 +712,17 @@ def create_interface():
         def _run_selected_demo(selected_name: str, demo_url: str, uploaded_files):
             # Use the original uploaded file(s) instead of preview; prefer .tif/.tiff if present
             if not selected_name:
-                return gr.update(visible=False), gr.update(value=None, visible=False), gr.update(value="⚠️ Select a tool first.", visible=True)
+                return gr.update(visible=False), gr.update(visible=False, value=None), gr.update(value=None, visible=False), gr.update(value="⚠️ Select a tool first.", visible=True)
             paths = _coerce_gradio_files_to_paths(uploaded_files)
             if not paths:
-                return gr.update(visible=False), gr.update(value=None, visible=False), gr.update(value="⚠️ Please upload an image first.", visible=True)
+                return gr.update(visible=False), gr.update(visible=False, value=None), gr.update(value=None, visible=False), gr.update(value="⚠️ Please upload an image first.", visible=True)
             # prefer tif/tiff if available (per remote app constraints), else first file
             pick = None
             for p in paths:
                 ext = os.path.splitext(p)[1].lower()
                 if ext in (".tif", ".tiff"):
                     pick = p
-                    break
+                    break   
             if not pick:
                 pick = paths[0]
             try:
