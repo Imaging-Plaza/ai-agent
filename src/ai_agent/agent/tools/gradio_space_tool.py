@@ -131,7 +131,6 @@ def tool_run_example(inp: RunExampleInput) -> RunExampleOutput:
             payload = [""]
         try:
             # Prefer keyword expected by docs ('file_obj'), then fallback to positional
-            res = None
             try:
                 res = client.predict(file_obj=payload[0], api_name=api_name)
             except Exception as e_kw:
