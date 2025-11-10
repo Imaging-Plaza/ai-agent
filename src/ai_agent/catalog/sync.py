@@ -123,16 +123,7 @@ def _read_docs(jsonl_path: Path) -> list[SoftwareDoc]:
             return ""
         return str(v).strip()
 
-    def _tail_token(v):
-        s = _first_str(v).rstrip("/#")
-        if not s:
-            return ""
-        if "#" in s:
-            s = s.rsplit("#", 1)[-1]
-        if "/" in s:
-            s = s.rsplit("/", 1)[-1]
-        return s
-
+# (lines 126–135 removed: unused _tail_token function)
     docs: list[SoftwareDoc] = []
     total = 0
     made = 0
