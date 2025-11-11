@@ -22,15 +22,7 @@ def _best_runnable_link(doc: SoftwareDoc) -> Optional[str]:
         return 100.0  # neutral base
 
     def extract_url(item) -> Optional[str]:
-        if isinstance(item, str):
-            u = item.strip()
-            return u or None
-        if isinstance(item, dict):
-            for k in ("url", "href", "link", "contentUrl"):
-                u = item.get(k)
-                if isinstance(u, str) and u.strip():
-                    return u.strip()
-        return None
+        return item.get("url")[0].strip()
 
     def host_bonus(u: str) -> float:
         lu = u.lower()
