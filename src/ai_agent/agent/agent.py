@@ -42,9 +42,11 @@ agent = Agent(
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("search_tools", cap=1)  # <= per-tool quota here
 async def search_tools(ctx: RunContext[AgentState], query: str, excluded: List[str] | None = None, top_k: int = 12, original_formats: List[str] | None = None):
-    out = tool_search_tools(SearchToolsInput(query=query, excluded=excluded or [], top_k=top_k, original_formats=original_formats or []))
+    # Merge explicit excluded param with state's excluded_tools
+    all_excluded = list(set((excluded or []) + ctx.deps.excluded_tools))
+    out = tool_search_tools(SearchToolsInput(query=query, excluded=all_excluded, top_k=top_k, original_formats=original_formats or []))
     payload = [c.model_dump(mode="python") for c in out.candidates]
-    ctx.deps.tool_calls.append({"tool": "search_tools", "query": query, "count": len(payload), "original_formats": original_formats or []})
+    ctx.deps.tool_calls.append({"tool": "search_tools", "query": query, "count": len(payload), "original_formats": original_formats or [], "excluded": all_excluded})
     return payload
 
 @agent.tool(retries=2, prepare=cap_prepare)
@@ -137,7 +139,7 @@ def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] 
 
     # Intercept tool usage by patching agent? Simpler: rely on return types (pydantic-ai tracks internally, we record manually not available yet) -> for Phase 1 we skip deep logging.
 
-    deps = AgentState()
+    deps = AgentState(excluded_tools=excluded or [])
     # Provide hidden metadata context lines (non-user-visible) below a delimiter
     hidden_meta = ""
     if original_formats:

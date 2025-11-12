@@ -58,52 +58,12 @@ from agent.agent import run_agent
 from agent.tools.gradio_space_tool import tool_run_example, RunExampleInput
 
 from utils.file_validator import FileValidator
-from utils.tags import strip_tags, parse_exclusions, is_refine_intent, strip_refine_keywords
+from utils.tags import strip_tags, parse_exclusions
 from utils.previews import _build_preview_for_vlm
 from utils.image_analyzer import _to_supported_png_dataurl
 
 # --- config -------------------------------------------------------------------
-CATALOG_PATH = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
 INDEX_DIR = os.getenv("RAG_INDEX_DIR", "artifacts/rag_index")
-USE_AGENT = str(os.getenv("USE_AGENT", "0")).lower() in ("1", "true", "yes", "on")
-
-# --- catalog loader (supports JSON or JSONL) ----------------------------------
-def _load_catalog(path: str) -> List[SoftwareDoc]:
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(
-            f"Software catalog not found at {p.resolve()}.\n"
-            "Set SOFTWARE_CATALOG or create data/sample.jsonl"
-        )
-
-    text = p.read_text(encoding="utf-8").strip()
-    docs: List[SoftwareDoc] = []
-
-    # Try full JSON array/object first
-    try:
-        obj = json.loads(text)
-        obj = [obj] if isinstance(obj, dict) else obj
-        for o in obj:
-            docs.append(SoftwareDoc.model_validate(o))
-        return docs
-    except Exception:
-        pass
-
-    # Fallback: JSONL
-    for i, raw in enumerate(text.splitlines(), 1):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            o = json.loads(line)
-            docs.append(SoftwareDoc.model_validate(o))
-        except Exception as e:
-            snippet = (line[:160] + "…") if len(line) > 160 else line
-            raise ValueError(f"Invalid catalog JSON on line {i}:\n{snippet}\n\nError: {e}")
-
-    if not docs:
-        raise ValueError("Catalog is empty.")
-    return docs
 
 # --- pipeline singleton + in-memory doc index --------------------------------
 _pipe: Optional[RAGImagingPipeline] = None
@@ -287,9 +247,7 @@ def _make_handler():
                     files,
                     history_rows,
                     conv_history,
-                    banlist_state,
-                    last_task_state,
-                    last_suggestions_state):
+                    banlist_state):
         # normalize inputs
         if isinstance(history_rows, DataFrame):
             history_rows = history_rows.values.tolist()
@@ -301,12 +259,9 @@ def _make_handler():
             chat_pairs = chat_history or []
         conv_history = conv_history or []
         banlist = set(banlist_state or set())
-        base_task = (last_task_state or "").strip()
-        prev_suggestions = list(last_suggestions_state or [])
 
         empty_radio = gr.update(choices=[], value=None)
         status_idle = gr.update(value=None, visible=False)
-
         choices_acc_hidden = gr.update(visible=False, open=False)
         empty_choices_map = {}
 
@@ -314,7 +269,7 @@ def _make_handler():
         demo_link_hidden = gr.update(value="", visible=False)
         run_demo_hidden = gr.update(visible=False)
 
-        # Allow control-tag-only refine messages to proceed (don't treat as empty)
+        # Check if user provided any input
         raw_message = (message or "")
         has_any_text = bool(raw_message.strip())
         has_files    = bool(files)
@@ -325,51 +280,26 @@ def _make_handler():
                 empty_radio, "—",
                 gr.update(visible=False),              # preview accordion hidden
                 gr.update(value=None, visible=False),  # preview image hidden
-                [],                                    # excluded_names
                 status_idle,                           # status hidden
                 gr.update(interactive=True),           # msg enabled
                 gr.update(interactive=True),           # submit enabled
                 gr.update(interactive=True),           # files enabled
-                banlist, base_task, prev_suggestions,
+                gr.update(interactive=True),           # clear enabled
+                banlist,
                 choices_acc_hidden,                    # choices accordion hidden
                 empty_choices_map)                     # last choices map reset
-
             return
 
-        # Visible user text (no control tags)
+        # Clean message (remove control tags for display)
         visible_msg = strip_tags(raw_message)
         if not visible_msg:
-            # If message had only control tags, show a friendly stub
-            excluded = parse_exclusions(raw_message)
-            suffix = f" (excluding: {', '.join(excluded)})" if excluded else ""
-            visible_msg = f"Find alternatives{suffix}"
+            visible_msg = "Find tools"
 
-        # Determine refine intent + exclusions
-        intent_refine = is_refine_intent(raw_message) or is_refine_intent(visible_msg)
+        # Parse any explicit exclusions from tags like [EXCLUDE:tool1|tool2]
         new_exclusions = set(parse_exclusions(raw_message))
         banlist |= new_exclusions
-        # If refine but user didn’t name exclusions, auto-exclude the last shown tools
-        if intent_refine and not new_exclusions:
-            banlist |= set(prev_suggestions)
 
-        # Build effective task to send to the pipeline
-        # - If refine: keep the previous base task, only append new constraints (strip refine keywords)
-        # - Else: message becomes the new base task
-        constraint_text = strip_refine_keywords(visible_msg)
-        if intent_refine:
-            if not base_task:
-                effective_task = constraint_text or visible_msg
-                base_task = effective_task
-            else:
-                if constraint_text and constraint_text.lower() not in ("find alternatives",):
-                    effective_task = f"{base_task}\n{constraint_text}".strip()
-                else:
-                    effective_task = base_task
-        else:
-            effective_task = visible_msg
-            base_task = effective_task  # update base task on normal turns
-
-        # Disable inputs and show the user line immediately
+        # Disable inputs while processing
         disable_inputs = (
             gr.update(interactive=False),  # msg
             gr.update(interactive=False),  # submit
@@ -384,10 +314,9 @@ def _make_handler():
             empty_radio, "—",
             gr.update(visible=False),
             gr.update(value=None, visible=False),
-            [],                                    # excluded_names
             status,
             *disable_inputs,
-            banlist, base_task, prev_suggestions,
+            banlist,
             choices_acc_hidden,                     
             empty_choices_map)
 
@@ -404,17 +333,15 @@ def _make_handler():
                 gr.update(interactive=True),  # files
                 gr.update(interactive=True),  # clear button
             )
-            yield (_pairs_to_msgs(chat_pairs), history_rows, "", "", conv_history,
+            yield (_pairs_to_msgs(chat_pairs), history_rows, "", demo_link_hidden, run_demo_hidden, conv_history,
                 empty_radio, "—",
                 gr.update(visible=False),
                 gr.update(value=None, visible=False),
-                [],                                    # excluded_names
                 status_done,
                 *enable_inputs,
-                banlist, base_task, prev_suggestions,
+                banlist,
                 choices_acc_hidden,                     
                 empty_choices_map)                      
-
             return
 
         # 2) build preview (collapsed & only visible if present)
@@ -423,13 +350,11 @@ def _make_handler():
             empty_radio, "—",
             gr.update(visible=False),
             gr.update(value=None, visible=False),
-            [],                                    # excluded_names
             status,
             *disable_inputs,
-            banlist, base_task, prev_suggestions,
+            banlist,
             choices_acc_hidden,                     
             empty_choices_map)
-
 
         preview_path = None
         meta_text = None
@@ -445,45 +370,41 @@ def _make_handler():
             empty_radio, "—",
             preview_acc_upd,
             preview_img_upd,
-            [],                                        # excluded_names
-            gr.update(value="📚 Reranking candidates…", visible=True),
+            gr.update(value="📚 Running agent…", visible=True),
             *disable_inputs,
-            banlist, base_task, prev_suggestions,
+            banlist,
             choices_acc_hidden,                         
             empty_choices_map)
 
-        # 3) run pipeline (pass merged persistent bans every time)
-        if USE_AGENT:
-            # Agent path
-            log.info("Using agent for task: %s", effective_task)
-            data_url = None
-            if preview_path:
-                try:
-                    data_url = _to_supported_png_dataurl(preview_path)
-                except Exception:
-                    data_url = None
-            # Inject OriginalFormats line if we have uploaded paths so agent/search tool can add format tokens
-            original_formats = []
-            if paths:
-                for pth in paths:
-                    ext = os.path.splitext(pth)[1].lower().lstrip('.')
-                    if ext == 'gz' and pth.lower().endswith('.nii.gz'):
-                        ext = 'nii.gz'
-                    if ext and ext not in original_formats:
-                        original_formats.append(ext)
-            agent_sel = run_agent(effective_task, image_data_url=data_url, excluded=list(banlist), 
-                                 original_formats=original_formats, image_meta=meta_text, 
-                                 conversation_history=conv_history)
-            result = agent_sel.to_legacy_dict()
-            log.info("Agent tool calls: %s", result["tool_calls"])
-        else:
-            pipeline = get_pipeline()
-            result = pipeline.recommend_and_link(
-                image_paths=paths,
-                user_task=effective_task,
-                conversation_history=conv_history,
-                persisted_exclusions=list(banlist),
-            )
+        # 3) run agent with conversation history
+        log.info("Running agent for task: %s", visible_msg)
+        data_url = None
+        if preview_path:
+            try:
+                data_url = _to_supported_png_dataurl(preview_path)
+            except Exception:
+                data_url = None
+        
+        # Extract original file formats
+        original_formats = []
+        if paths:
+            for pth in paths:
+                ext = os.path.splitext(pth)[1].lower().lstrip('.')
+                if ext == 'gz' and pth.lower().endswith('.nii.gz'):
+                    ext = 'nii.gz'
+                if ext and ext not in original_formats:
+                    original_formats.append(ext)
+        
+        agent_sel = run_agent(
+            visible_msg, 
+            image_data_url=data_url, 
+            excluded=list(banlist), 
+            original_formats=original_formats, 
+            image_meta=meta_text, 
+            conversation_history=conv_history
+        )
+        result = agent_sel.to_legacy_dict()
+        log.info("Agent tool calls: %s", result["tool_calls"])
 
         # helpers
         def _choices_render(choices):
@@ -519,10 +440,9 @@ def _make_handler():
             yield (_pairs_to_msgs(chat_pairs), history_rows, "", demo_link_hidden, run_demo_hidden, conv_history,
                 empty_radio, "—",
                 preview_acc_upd, preview_img_upd,
-                [],                                      # excluded_names
                 status_done,
                 *enable_inputs,
-                banlist, base_task, prev_suggestions,
+                banlist,
                 choices_acc_hidden,                       
                 empty_choices_map)                        
             return
@@ -543,17 +463,21 @@ def _make_handler():
             # Update conversation history
             conv_history = conv_history + [f"Assistant: {resp}"]
 
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            history_rows = history_rows + [[ts, effective_task[:80], top["name"], "yes" if demo else "no"]]
+            # Only log to history table if this is a primary request (files provided OR first request)
+            # Follow-up requests like "another tool" don't create new history rows
+            is_primary_request = bool(paths) or len(banlist) == len(result["choices"])
+            if is_primary_request:
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                history_rows = history_rows + [[ts, visible_msg[:80], top["name"], "yes" if demo else "no"]]
 
             radio_update = gr.update(choices=names, value=names[0] if names else None)
-
-            # Update persistent states for next round
-            prev_suggestions = names  # last_suggestions
-            # (banlist already includes any explicit excludes; we do NOT auto-ban here)
-
             choices_map = {c["name"]: c for c in result["choices"]}
             choices_acc_upd = gr.update(visible=True, open=True)
+
+            # Add ALL recommended tools to banlist so follow-up "another tool" requests exclude them
+            for choice in result["choices"]:
+                if choice.get("name"):
+                    banlist.add(choice["name"])
 
             status_done = gr.update(value="✅ Ready.", visible=True)
             # Show demo controls once a tool is found
@@ -568,10 +492,9 @@ def _make_handler():
             yield (_pairs_to_msgs(chat_pairs), history_rows, top["name"], demo_link_upd, run_demo_upd, conv_history,
                 radio_update, md_cards,
                 preview_acc_upd, preview_img_upd,
-                names,                                   # excluded_names populated for legacy refine
                 status_done,
                 *enable_inputs,
-                banlist, base_task, prev_suggestions,
+                banlist,
                 choices_acc_upd,                         # show accordion
                 choices_map)                             # keep choices mapping
             return
@@ -612,10 +535,9 @@ def _make_handler():
             choices_md_upd,      # choices_md
             preview_acc_upd,     # preview accordion (unchanged)
             preview_img_upd,     # preview image (unchanged)
-            [],                  # excluded_names state reset
             status_done,
             *enable_inputs,
-            banlist, base_task, prev_suggestions,
+            banlist,
             choices_acc_hidden,  # hide accordion
             empty_choices_map    # reset choices mapping
         )
@@ -627,10 +549,7 @@ def _make_handler():
 def create_interface():
     with gr.Blocks(title="Imaging Tool Finder", theme=gr.themes.Soft()) as demo:
         conversation_history = gr.State([])
-        excluded_names = gr.State([])   # keep latest recommended names for refine
         banlist_state = gr.State(set())          # persistent set of banned tool names
-        last_task_state = gr.State("")           # persistent "base task" text
-        last_suggestions_state = gr.State([])    # last proposed tool names to auto-ban on refine
         last_choices_state = gr.State({})        
 
         gr.Markdown(
@@ -703,8 +622,7 @@ def create_interface():
         # Send
         submit.click(
             handle_message,
-            inputs=[msg, chatbot, files, history_df, conversation_history,
-                    banlist_state, last_task_state, last_suggestions_state],
+            inputs=[msg, chatbot, files, history_df, conversation_history, banlist_state],
             outputs=[
                 chatbot,        # streams
                 history_df,     # table
@@ -716,13 +634,12 @@ def create_interface():
                 choices_md,     # detailed markdown cards
                 preview_acc,    # accordion visibility
                 preview_img,    # preview image
-                excluded_names, # keep names for refine (legacy right panel)
                 status_md,      # status banner (loading / done)
                 msg,            # disable / enable while working
                 submit,         # disable / enable while working
                 files,          # disable / enable while working
                 clear,          # disable / enable while working
-                banlist_state, last_task_state, last_suggestions_state,
+                banlist_state,
                 choices_acc,          # show/hide top choices accordion
                 last_choices_state,   # keep latest choices mapping
             ],
@@ -731,15 +648,13 @@ def create_interface():
 
         msg.submit(
             handle_message,
-            inputs=[msg, chatbot, files, history_df, conversation_history,
-                    banlist_state, last_task_state, last_suggestions_state],
+            inputs=[msg, chatbot, files, history_df, conversation_history, banlist_state],
             outputs=[
                 chatbot, history_df, chosen_tool, demo_link, run_demo_btn, conversation_history,
                 choices_radio, choices_md,
                 preview_acc, preview_img,
-                excluded_names,
                 status_md, msg, submit, files, clear,
-                banlist_state, last_task_state, last_suggestions_state,
+                banlist_state,
                 choices_acc,
                 last_choices_state,
             ],
@@ -802,15 +717,12 @@ def create_interface():
                 gr.update(visible=False),            # demo result accordion hidden
                 gr.update(value=None, visible=False),# demo result img hidden
                 gr.update(value=None, visible=False),# demo result file hidden
-                [],                                  # excluded_names reset
                 gr.update(value=None, visible=False),# status hidden
                 gr.update(interactive=True),         # msg enabled
                 gr.update(interactive=True),         # submit enabled
                 gr.update(value=None, interactive=True), # files cleared & enabled
                 gr.update(interactive=True),         # clear button enabled
                 set(),                               # banlist_state reset
-                "",                                  # last_task_state reset
-                [],                                  # last_suggestions_state reset
                 gr.update(visible=False, open=False),# hide choices accordion
                 {},                                  # clear choices mapping
             )
@@ -823,9 +735,8 @@ def create_interface():
                 choices_radio, choices_md,
                 preview_acc, preview_img,
                 demo_result_acc, demo_result_img, demo_result_file,
-                excluded_names,
                 status_md, msg, submit, files, clear,
-                banlist_state, last_task_state, last_suggestions_state,
+                banlist_state,
                 choices_acc, last_choices_state,
             ],
         )
