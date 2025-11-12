@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
+- Automatic fallback to GitHub API when DeepWiki is unavailable or times out, ensuring robust repository information retrieval for both indexed and newly-created repositories.
+
+### Changed
+- Updated `pydantic-ai` dependency to include MCP support via `pydantic-ai[mcp]` extra.
+- Enhanced `RepoSummaryOutput` schema to include `source` field indicating whether data came from "deepwiki" or "github_api".
+- Repository info tool logs now track data source (DeepWiki vs GitHub API) for observability.
+
 ## [0.1.3] - 2025-10-22
 
 ### Added

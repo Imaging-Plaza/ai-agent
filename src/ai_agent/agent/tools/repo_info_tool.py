@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import fnmatch
 import os
@@ -11,6 +12,11 @@ from urllib.parse import urlparse
 import requests
 from pydantic import BaseModel
 
+from .deepwiki_tool import get_wiki_contents, DeepWikiInput
+
+import logging
+log = logging.getLogger("agent.repo_info")
+
 # ----------------------------- Public I/O models ------------------------------
 
 class RepoSummaryInput(BaseModel):
@@ -21,6 +27,7 @@ class RepoSummaryOutput(BaseModel):
     truncated: bool
     ref: Optional[str] = None
     summary: str
+    source: str = "github_api"  # "deepwiki" or "github_api"
 
 # ------------------------------ GitHub fetcher --------------------------------
 
@@ -500,14 +507,39 @@ def build_markdown_summary(repo: RepoSnapshot, repo_url: str) -> str:
 
 # ----------------------------- Tool entry point -------------------------------
 
-def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
+async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
     """
-    Summarize a GitHub repo conservatively (verbatim + provenance):
-      - Fetches README/docs/examples/requirements/pyproject via GitHub REST API.
-      - Builds a single Markdown string with quoted commands/snippets & sources.
-      - No inferred tasks/modalities/formats → avoids misleading the agent.
+    Summarize a GitHub repository using DeepWiki MCP (if available) or GitHub API fallback.
+    
+    Try DeepWiki first for fast, indexed docs. Falls back to GitHub API on any error.
     """
+    # Try DeepWiki first
+    try:
+        log.info(f"Attempting DeepWiki lookup for {input.url}")
+        deepwiki_result = await get_wiki_contents(DeepWikiInput(url=input.url))
+        
+        if deepwiki_result.success and deepwiki_result.contents:
+            log.info("DeepWiki lookup succeeded")
+            summary = f"# Repository Documentation (via DeepWiki)\n\n{deepwiki_result.contents}"
+            return RepoSummaryOutput(
+                truncated=False,
+                ref=None,
+                summary=summary,
+                source="deepwiki"
+            )
+        else:
+            log.warning(f"DeepWiki lookup failed: {deepwiki_result.error}")
+    except Exception as e:
+        log.warning(f"DeepWiki error (falling back to GitHub API): {e}")
+    
+    # Fallback to GitHub API
+    log.info(f"Using GitHub API fallback for {input.url}")
     token = os.getenv("GITHUB_TOKEN")
     snap = fetch_repo_snapshot_via_api(input.url, token=token)
     summary = build_markdown_summary(snap, input.url)
-    return RepoSummaryOutput(truncated=snap.truncated, ref=snap.ref, summary=summary)
+    return RepoSummaryOutput(
+        truncated=snap.truncated,
+        ref=snap.ref,
+        summary=summary,
+        source="github_api"
+    )

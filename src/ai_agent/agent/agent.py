@@ -80,7 +80,7 @@ async def rerank(ctx: RunContext[AgentState], query: str, candidate_names: List[
 #     })
 #     return out.model_dump(mode="python")
 
-@agent.tool(retries=0, prepare=cap_prepare)
+@agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("repo_info", cap=3)
 async def repo_info(ctx: RunContext[AgentState], url: str):
     norm_url = coerce_github_url_or_none(url)
@@ -95,8 +95,13 @@ async def repo_info(ctx: RunContext[AgentState], url: str):
         return payload
 
     try:
-        out = tool_repo_summary(RepoSummaryInput(url=norm_url))
-        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "truncated": out.truncated})
+        out = await tool_repo_summary(RepoSummaryInput(url=norm_url))
+        ctx.deps.tool_calls.append({
+            "tool": "repo_info",
+            "url": norm_url,
+            "truncated": out.truncated,
+            "source": out.source
+        })
         return out.model_dump(mode="python")
     except Exception as e:
         ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "error": str(e)})

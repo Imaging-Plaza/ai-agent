@@ -11,7 +11,7 @@ dependencies = [
   "pydantic>=2",
   "sentence-transformers",
   "openai>=1.30.0",
-  "pydantic-ai",
+  "pydantic-ai[mcp]",
   "requests",
   "python-dotenv",
   "gradio==5.42.0",
