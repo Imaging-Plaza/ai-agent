@@ -24,7 +24,3 @@ def parse_exclusions(text: str) -> List[str]:
 
 def has_no_rerank(text: str) -> bool:
     return "[NO_RERANK]" in (text or "")
-
-def has_refine(text: str) -> bool:
-    """Check if text contains [REFINE] tag. Kept for backward compatibility."""
-    return "[REFINE]" in (text or "")

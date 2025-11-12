@@ -47,7 +47,6 @@ log.info("Starting Gradio UI")
 # --- imports that rely on sys.path -------------------------------------------
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
-import json
 
 import gradio as gr
 from pandas import DataFrame

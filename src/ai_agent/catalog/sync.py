@@ -123,7 +123,6 @@ def _read_docs(jsonl_path: Path) -> list[SoftwareDoc]:
             return ""
         return str(v).strip()
 
-# (lines 126–135 removed: unused _tail_token function)
     docs: list[SoftwareDoc] = []
     total = 0
     made = 0
