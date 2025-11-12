@@ -374,6 +374,7 @@ def _make_handler():
             gr.update(interactive=False),  # msg
             gr.update(interactive=False),  # submit
             gr.update(interactive=False),  # files
+            gr.update(interactive=False),  # clear button
         )
 
         chat_pairs = chat_pairs + [[visible_msg, None]]
@@ -388,7 +389,7 @@ def _make_handler():
             *disable_inputs,
             banlist, base_task, prev_suggestions,
             choices_acc_hidden,                     
-            empty_choices_map)                      
+            empty_choices_map)
 
         # 1) file validation
         paths = _coerce_gradio_files_to_paths(files)
@@ -398,9 +399,10 @@ def _make_handler():
             status_done = gr.update(value="⚠️ File validation failed.", visible=True)
             # re-enable inputs
             enable_inputs = (
-                gr.update(interactive=True),
-                gr.update(interactive=True),
-                gr.update(interactive=True),
+                gr.update(interactive=True),  # msg
+                gr.update(interactive=True),  # submit
+                gr.update(interactive=True),  # files
+                gr.update(interactive=True),  # clear button
             )
             yield (_pairs_to_msgs(chat_pairs), history_rows, "", "", conv_history,
                 empty_radio, "—",
@@ -426,7 +428,7 @@ def _make_handler():
             *disable_inputs,
             banlist, base_task, prev_suggestions,
             choices_acc_hidden,                     
-            empty_choices_map)                      
+            empty_choices_map)
 
 
         preview_path = None
@@ -448,7 +450,7 @@ def _make_handler():
             *disable_inputs,
             banlist, base_task, prev_suggestions,
             choices_acc_hidden,                         
-            empty_choices_map)                          
+            empty_choices_map)
 
         # 3) run pipeline (pass merged persistent bans every time)
         if USE_AGENT:
@@ -469,7 +471,9 @@ def _make_handler():
                         ext = 'nii.gz'
                     if ext and ext not in original_formats:
                         original_formats.append(ext)
-            agent_sel = run_agent(effective_task, image_data_url=data_url, excluded=list(banlist), original_formats=original_formats, image_meta=meta_text)
+            agent_sel = run_agent(effective_task, image_data_url=data_url, excluded=list(banlist), 
+                                 original_formats=original_formats, image_meta=meta_text, 
+                                 conversation_history=conv_history)
             result = agent_sel.to_legacy_dict()
             log.info("Agent tool calls: %s", result["tool_calls"])
         else:
@@ -501,12 +505,16 @@ def _make_handler():
                 resp += "Options:\n" + "\n".join(f"• {o}" for o in opts) + "\n\n"
             resp += f"_{ctx}_"
             chat_pairs[-1][1] = resp
+            
+            # Update conversation history
+            conv_history = conv_history + [f"Assistant: {resp}"]
 
             status_done = gr.update(value="ℹ️ More info needed.", visible=True)
             enable_inputs = (
-                gr.update(interactive=True),
-                gr.update(interactive=True),
-                gr.update(interactive=True),
+                gr.update(interactive=True),  # msg
+                gr.update(interactive=True),  # submit
+                gr.update(interactive=True),  # files
+                gr.update(interactive=True),  # clear button
             )
             yield (_pairs_to_msgs(chat_pairs), history_rows, "", demo_link_hidden, run_demo_hidden, conv_history,
                 empty_radio, "—",
@@ -526,10 +534,14 @@ def _make_handler():
             demo = top.get("demo_link", "")
 
             table_block = f"\n\n**Top candidates** (up to {os.getenv('NUM_CHOICES', '3')}):\n\n" + md_table
-            chat_pairs[-1][1] = (
+            resp = (
                 f"I recommend **{top['name']}** ({float(top.get('accuracy',0.0)):.1f}% match)\n\n"
                 f"_{top.get('why','')}_" + table_block
             )
+            chat_pairs[-1][1] = resp
+            
+            # Update conversation history
+            conv_history = conv_history + [f"Assistant: {resp}"]
 
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             history_rows = history_rows + [[ts, effective_task[:80], top["name"], "yes" if demo else "no"]]
@@ -548,9 +560,10 @@ def _make_handler():
             demo_link_upd = gr.update(value=demo, visible=True)
             run_demo_upd = gr.update(visible=True)
             enable_inputs = (
-                gr.update(interactive=True),
-                gr.update(interactive=True),
-                gr.update(interactive=True),
+                gr.update(interactive=True),  # msg
+                gr.update(interactive=True),  # submit
+                gr.update(interactive=True),  # files
+                gr.update(interactive=True),  # clear button
             )
             yield (_pairs_to_msgs(chat_pairs), history_rows, top["name"], demo_link_upd, run_demo_upd, conv_history,
                 radio_update, md_cards,
@@ -566,11 +579,15 @@ def _make_handler():
         # 6) no suitable tools (terminal)
         reason = result.get("reason")
         reason_line = f"**Reason:** `{reason}`\n\n" if reason else ""
-        chat_pairs[-1][1] = (
+        resp = (
             "❌ No suitable tools found.\n\n"
             + reason_line
             + result.get("explanation", "")
         )
+        chat_pairs[-1][1] = resp
+        
+        # Update conversation history
+        conv_history = conv_history + [f"Assistant: {resp}"]
 
         # Clear the choices UI 
         radio_update   = gr.update(choices=[], value=None)  # clear radio
@@ -581,6 +598,7 @@ def _make_handler():
             gr.update(interactive=True),  # message textbox
             gr.update(interactive=True),  # Send
             gr.update(interactive=True),  # Files
+            gr.update(interactive=True),  # Clear button
         )
 
         yield (
@@ -601,6 +619,7 @@ def _make_handler():
             choices_acc_hidden,  # hide accordion
             empty_choices_map    # reset choices mapping
         )
+    
     return handle_message
 
 
@@ -702,6 +721,7 @@ def create_interface():
                 msg,            # disable / enable while working
                 submit,         # disable / enable while working
                 files,          # disable / enable while working
+                clear,          # disable / enable while working
                 banlist_state, last_task_state, last_suggestions_state,
                 choices_acc,          # show/hide top choices accordion
                 last_choices_state,   # keep latest choices mapping
@@ -714,11 +734,11 @@ def create_interface():
             inputs=[msg, chatbot, files, history_df, conversation_history,
                     banlist_state, last_task_state, last_suggestions_state],
             outputs=[
-        chatbot, history_df, chosen_tool, demo_link, run_demo_btn, conversation_history,
+                chatbot, history_df, chosen_tool, demo_link, run_demo_btn, conversation_history,
                 choices_radio, choices_md,
                 preview_acc, preview_img,
                 excluded_names,
-                status_md, msg, submit, files,
+                status_md, msg, submit, files, clear,
                 banlist_state, last_task_state, last_suggestions_state,
                 choices_acc,
                 last_choices_state,
@@ -767,8 +787,9 @@ def create_interface():
         )
 
         # Clear ALL (chat, history, selections, preview, status) and re-enable inputs
-        clear.click(
-            lambda: (
+        def clear_all():
+            # Return reset state
+            return (
                 [],  # chatbot
                 "",  # chosen_tool
                 gr.update(value="", visible=False),  # demo_link hidden
@@ -786,12 +807,16 @@ def create_interface():
                 gr.update(interactive=True),         # msg enabled
                 gr.update(interactive=True),         # submit enabled
                 gr.update(value=None, interactive=True), # files cleared & enabled
+                gr.update(interactive=True),         # clear button enabled
                 set(),                               # banlist_state reset
                 "",                                  # last_task_state reset
                 [],                                  # last_suggestions_state reset
                 gr.update(visible=False, open=False),# hide choices accordion
                 {},                                  # clear choices mapping
-            ),
+            )
+        
+        clear.click(
+            clear_all,
             inputs=None,
             outputs=[
                 chatbot, chosen_tool, demo_link, run_demo_btn, conversation_history,
@@ -799,7 +824,7 @@ def create_interface():
                 preview_acc, preview_img,
                 demo_result_acc, demo_result_img, demo_result_file,
                 excluded_names,
-                status_md, msg, submit, files,
+                status_md, msg, submit, files, clear,
                 banlist_state, last_task_state, last_suggestions_state,
                 choices_acc, last_choices_state,
             ],

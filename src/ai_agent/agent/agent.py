@@ -125,7 +125,8 @@ async def resolve_demo_link(ctx: RunContext[AgentState], tool_name: str):
 # Runner wrapper ---------------------------------------------------------------
 
 def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] | None = None,
-              original_formats: List[str] | None = None, image_meta: str | None = None) -> AgentToolSelection:
+              original_formats: List[str] | None = None, image_meta: str | None = None, 
+              conversation_history: List[str] | None = None) -> AgentToolSelection:
     """Execute the agent. We inline the image as extra context in user message (multimodal reasoning)."""
     extra_context = ""
     if image_data_url:
@@ -145,7 +146,15 @@ def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] 
         # collapse newlines to avoid confusing the model with too many lines
         short_meta = " ".join(x.strip() for x in image_meta.splitlines() if x.strip())
         hidden_meta += "\n(Image Metadata: " + short_meta[:500] + ("…" if len(short_meta) > 500 else "") + ")"
-    prompt = task + extra_context + hidden_meta
+    
+    # Build prompt with conversation history if this is a follow-up
+    if conversation_history and len(conversation_history) > 0:
+        # Format previous conversation for context
+        history_text = "\n".join(conversation_history)
+        prompt = f"Previous conversation:\n{history_text}\n\nCurrent request: {task}{extra_context}{hidden_meta}"
+    else:
+        prompt = task + extra_context + hidden_meta
+    
     result = agent.run_sync(prompt, deps=deps, output_type=ToolSelection, usage_limits=UsageLimits(tool_calls_limit=10)).output
 
     # Convert tool call dicts into ToolRunLog entries
