@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 import functools
 from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Set, Dict
+from typing import List, Optional, Any, Set, Dict, Tuple
+from urllib.parse import urlparse
 
 
 # Agent state to track tool usage ------------------------------------------------
@@ -76,3 +78,68 @@ async def cap_prepare(ctx: RunContext["AgentState"], tool_def: ToolDefinition) -
     if tool_def.name in ctx.deps.disabled_tools:
         return None
     return tool_def
+
+_OWNER_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+def _coerce_owner_repo_ref(input_str: str) -> Tuple[str, str, Optional[str]]:
+    """
+    Accepts:
+      - https://github.com/owner/repo[.git][/tree/<ref>|#<ref>...]
+      - http(s)://www.github.com/owner/repo...
+      - github.com/owner/repo...
+      - owner/repo
+    Returns (owner, repo, ref|None) or raises ValueError with a helpful message.
+    """
+    s = (input_str or "").strip()
+
+    # Short form: owner/repo
+    if _OWNER_REPO_RE.match(s):
+        owner, repo = s.split("/", 1)
+        repo = repo.removesuffix(".git")
+        return owner, repo, None
+
+    # Missing scheme but github domain
+    if s.startswith("github.com/") or s.startswith("www.github.com/"):
+        s = "https://" + s.lstrip("www.")
+
+    # Full URL?
+    try:
+        u = urlparse(s)
+    except Exception:
+        u = None
+
+    if u and u.netloc.lower() in {"github.com", "www.github.com"}:
+        parts = [p for p in u.path.strip("/").split("/") if p]
+        if len(parts) >= 2:
+            owner, repo = parts[0], parts[1].removesuffix(".git")
+            ref = None
+            # /tree/<ref> pattern
+            if len(parts) >= 4 and parts[2] == "tree":
+                ref = "/".join(parts[3:])
+            # fragment as ref (e.g., #main)
+            if u.fragment:
+                ref = u.fragment
+            return owner, repo, ref
+
+    # As a last chance, try to extract owner/repo from a github-looking string
+    m = re.search(r"github\.com[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)", s, re.I)
+    if m:
+        owner, repo = m.group(1), m.group(2).removesuffix(".git")
+        return owner, repo, None
+
+    raise ValueError(
+        "[BAD_REPO_URL] Provide a GitHub repo as 'owner/repo' or a GitHub URL, "
+        f"got: {input_str!r}"
+    )
+
+def coerce_github_url_or_none(s: str) -> str | None:
+    """
+    Returns a canonical GitHub URL ('https://github.com/owner/repo' or with #ref)
+    if input is a valid GitHub repo URL or 'owner/repo'. Otherwise returns None.
+    """
+    try:
+        owner, repo, ref = _coerce_owner_repo_ref(s)
+        base = f"https://github.com/{owner}/{repo}"
+        return f"{base}#{ref}" if ref else base
+    except Exception:
+        return None

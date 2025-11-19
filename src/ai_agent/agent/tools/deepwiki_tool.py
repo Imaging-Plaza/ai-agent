@@ -8,6 +8,8 @@ from typing import Optional
 from pydantic import BaseModel
 from pydantic_ai.mcp import MCPServerSSE
 
+from .utils import _clip
+
 log = logging.getLogger("agent.deepwiki")
 
 # DeepWiki MCP server endpoint (SSE transport)
@@ -29,6 +31,7 @@ class DeepWikiContentsOutput(BaseModel):
     success: bool
     contents: Optional[str] = None
     error: Optional[str] = None
+    truncated: bool = False
 
 
 def _normalize_github_url(url: str) -> str:
@@ -68,13 +71,6 @@ async def get_wiki_contents(input: DeepWikiInput) -> DeepWikiContentsOutput:
     to keep LLM token usage under control.
     """
     repo = _normalize_github_url(input.url)
-
-    def _clip(s: str) -> str:
-        if not s:
-            return s
-        if len(s) <= MAX_CHARS:
-            return s
-        return s[:MAX_CHARS] + "\n\n...[truncated for token budget]..."
 
     try:
         server = MCPServerSSE(DEEPWIKI_SSE_URL)
@@ -128,8 +124,12 @@ async def get_wiki_contents(input: DeepWikiInput) -> DeepWikiContentsOutput:
                         text = "\n".join(parts)
 
             if text and text.strip():
-                print(text.strip()[:500])  # Log first 500 chars
-                return DeepWikiContentsOutput(success=True, contents=_clip(text.strip()))
+                clipped_text, truncated = _clip(text.strip())
+                return DeepWikiContentsOutput(
+                    success=True,
+                    contents=clipped_text,
+                    truncated=truncated,
+                )
 
             return DeepWikiContentsOutput(success=False, error="No content returned from DeepWiki")
 

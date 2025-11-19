@@ -9,6 +9,7 @@ from api.pipeline import RAGImagingPipeline
 
 _PIPE: Optional[RAGImagingPipeline] = None
 _DOCS: List[SoftwareDoc] = []
+MAX_CHARS = 20000
 
 def get_pipeline() -> RAGImagingPipeline:
     global _PIPE, _DOCS
@@ -37,3 +38,10 @@ def get_pipeline() -> RAGImagingPipeline:
         _DOCS = docs
         _PIPE = RAGImagingPipeline()
     return _PIPE
+
+def _clip(s: str) -> str:
+        if not s:
+            return s, False
+        if len(s) <= MAX_CHARS:
+            return s, False
+        return s[:MAX_CHARS] + "\n\n...[truncated for token budget]...", True
