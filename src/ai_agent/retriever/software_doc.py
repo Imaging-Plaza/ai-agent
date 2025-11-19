@@ -269,8 +269,6 @@ class SoftwareDoc(BaseModel):
             if not vals:
                 return None
             pick = vals[0]
-            if __name__ and "programming_language" in cls.__fields__:
-                pass
             return cls._canon_lang(pick) if "programming_language" in cls.__fields__ else pick
         if isinstance(v, str):
             return cls._canon_lang(v) if "programming_language" in cls.__fields__ else v

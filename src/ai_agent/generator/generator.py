@@ -1,6 +1,6 @@
 # generator/generator.py
 from __future__ import annotations
-import json, os, logging, re
+import json, os, logging
 from typing import List, Optional, Dict, Any
 from openai import OpenAI
 from datetime import datetime

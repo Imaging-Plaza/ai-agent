@@ -22,7 +22,12 @@ def _best_runnable_link(doc: SoftwareDoc) -> Optional[str]:
         return 100.0  # neutral base
 
     def extract_url(item) -> Optional[str]:
-        return item.get("url")[0].strip()
+        url = item.get("url")
+        if isinstance(url, list) and url:
+            return url[0].strip()
+        elif isinstance(url, str):
+            return url.strip()
+        return None
 
     def host_bonus(u: str) -> float:
         lu = u.lower()
