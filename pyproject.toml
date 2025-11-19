@@ -23,6 +23,7 @@ dependencies = [
   "imageio",
   "rdflib",
   "sparqlwrapper",
+  "pyyaml",
 ]
 
 [project.scripts]

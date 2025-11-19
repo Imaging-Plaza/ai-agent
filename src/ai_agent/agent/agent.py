@@ -10,6 +10,7 @@ from generator.prompts import AGENT_SYSTEM_PROMPT
 from generator.schema import ToolSelection
 from api.pipeline import RAGImagingPipeline
 from utils.utils import _best_runnable_link
+from utils.config import get_config
 from .models import AgentToolSelection, ToolRunLog
 from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput, coerce_github_url_or_none
 from .tools.rerank_tool import tool_rerank, RerankInput
@@ -22,12 +23,23 @@ log = logging.getLogger("agent.core")
 
 # Agent model ---------------------------------------------------------------
 
-MODEL_NAME = (
-    os.getenv("OPENAI_MODEL")
-    or "gpt-4o-mini"
-)
+config = get_config()
+agent_model_config = config.agent_model
 
-openai_model = OpenAIModel(MODEL_NAME)
+try:
+    api_key = agent_model_config.get_api_key()
+except ValueError as e:
+    log.error(f"Failed to get API key for agent model: {e}")
+    raise
+
+# Set custom base URL if specified
+if agent_model_config.base_url:
+    os.environ["OPENAI_BASE_URL"] = agent_model_config.base_url
+    log.info(f"Using custom OpenAI base URL: {agent_model_config.base_url}")
+
+# Create OpenAIModel
+log.info(f"Initializing agent model: {agent_model_config.name}")
+openai_model = OpenAIModel(agent_model_config.name)
 
 # Agent definition -------------------------------------------------------------
 

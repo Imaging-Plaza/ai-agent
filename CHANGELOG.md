@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
+- **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection) and image analysis independently.
+- **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
+
+### Changed
+- **Model Initialization**: Agent now uses configuration from `config.yaml`.
+- **API Client Creation**: OpenAI clients now support custom `base_url` for alternative API endpoints (EPFL, custom deployments).
+- **Dependency**: Added `pyyaml` to `pyproject.toml` dependencies.
+- **.env.dist**: Updated with documentation about new config.yaml system and backward compatibility notes.
+
+### Removed
+- **VLMToolSelector**: Deleted unused `generator/generator.py` containing VLMToolSelector class. The pydantic-ai agent handles all tool selection directly.
+
 ### Changed
 - **UI State Management Simplified**: Removed complex refine intent detection system. Agent now naturally handles requests for alternatives via conversation history without hard-coded heuristics.
 - **UI Handler Simplified**: Reduced `handle_message()` parameters from 8 to 6, removing `last_task_state`, `last_suggestions_state`, and `excluded_names` state tracking.
