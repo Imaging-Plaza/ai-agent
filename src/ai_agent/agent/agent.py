@@ -3,8 +3,9 @@ from __future__ import annotations
 import os, logging
 from typing import List
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.usage import UsageLimits
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from generator.prompts import AGENT_SYSTEM_PROMPT
 from generator.schema import ToolSelection
@@ -32,14 +33,21 @@ except ValueError as e:
     log.error(f"Failed to get API key for agent model: {e}")
     raise
 
-# Set custom base URL if specified
-if agent_model_config.base_url:
-    os.environ["OPENAI_BASE_URL"] = agent_model_config.base_url
-    log.info(f"Using custom OpenAI base URL: {agent_model_config.base_url}")
-
-# Create OpenAIModel
 log.info(f"Initializing agent model: {agent_model_config.name}")
-openai_model = OpenAIModel(agent_model_config.name)
+
+if agent_model_config.base_url:
+    log.info(f"Using custom OpenAI base URL: {agent_model_config.base_url}")
+    provider = OpenAIProvider(
+        base_url=agent_model_config.base_url,
+        api_key=api_key,
+    )
+else:
+    provider = OpenAIProvider(api_key=api_key)
+
+openai_model = OpenAIChatModel(
+    model_name=agent_model_config.name,
+    provider=provider,
+)
 
 # Agent definition -------------------------------------------------------------
 
