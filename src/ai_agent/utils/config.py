@@ -37,9 +37,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     Load agent model configuration from config.yaml.
     
     Args:
-        config_path: Path to config.yaml file. If None, looks for:
-                    1. CONFIG_PATH env var
-                    2. config.yaml in project root
+        config_path: Path to config.yaml file. If None, looks for CONFIG_PATH env var
     
     Returns:
         AppConfig instance with agent model configuration
