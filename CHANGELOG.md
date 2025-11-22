@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
-- **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection) and image analysis independently.
+- **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection).
 - **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
 
 ### Changed
