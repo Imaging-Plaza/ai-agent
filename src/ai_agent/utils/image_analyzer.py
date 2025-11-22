@@ -2,16 +2,12 @@ from __future__ import annotations
 
 import base64
 import io
-import json
 import logging
-import os
-from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 import numpy as np
 from PIL import Image
 import nibabel as nib
-from openai import OpenAI
 
 log = logging.getLogger("perception.vlm")
 
@@ -93,97 +89,3 @@ def _to_supported_png_dataurl(image_path: str) -> Optional[str]:
 
     b64 = base64.b64encode(png).decode("utf-8")
     return f"data:image/png;base64,{b64}"
-
-
-def analyze_image_with_text(image_path: str, user_task: str) -> Dict[str, Any]:
-    """
-    Uses a VLM (OpenAI) to extract cues from the image *and* the user's text.
-    Returns a dict like:
-      {"modality":"CT","dims":"3D","anatomy":"lung","suspected_task":"segmentation","keywords":[...]}
-
-    If no OPENAI_API_KEY or conversion fails, returns {} so pipeline can proceed.
-    """
-    if not os.getenv("OPENAI_API_KEY"):
-        log.info("OPENAI_API_KEY not set; skipping VLM analysis.")
-        return {}
-
-    # Convert to PNG data URL supported by the API
-    data_url = _to_supported_png_dataurl(image_path)
-    if not data_url:
-        # Don’t block the pipeline if we cannot convert (e.g., missing libs)
-        log.warning("VLM: unsupported image format; skipping image cues.")
-        return {}
-
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    log.info("VLM model=%s", model_name)
-
-    system = (
-        "You are a medical+imaging assistant. "
-        "Given an image and a short task description, infer concise retrieval cues. "
-        "Respond as a compact JSON object with keys: "
-        "modality (CT/MRI/XR/US/natural/other), "
-        "dims (2D/3D/unknown), anatomy (one word or ''), suspected_task "
-        "(segmentation/deblurring/registration/classification/other), and keywords (3-8 short nouns)."
-    )
-    user = f"Task: {user_task}\nReturn JSON only."
-
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": [
-            {"type": "text", "text": user},
-            {"type": "image_url", "image_url": {"url": data_url}},
-        ]},
-    ]
-
-    _save_prompt(kind="vlm_cues", model=model_name, system=system, user_text=user, data_url=data_url)
-
-    try:
-        resp = client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            response_format={"type": "json_object"},
-            temperature=0.0,
-        )
-        text = resp.choices[0].message.content
-        cues = json.loads(text)
-        out = {
-            "modality": (cues.get("modality") or "").upper(),
-            "dims": (cues.get("dims") or "").upper(),
-            "anatomy": (cues.get("anatomy") or "").lower(),
-            "suspected_task": (cues.get("suspected_task") or "").lower(),
-            "keywords": cues.get("keywords") or [],
-        }
-        return out
-    except Exception as e:
-        log.warning("VLM analysis failed: %s", e)
-        return {}
-
-
-def _save_prompt(kind: str, model: str, system: str, user_text: str,
-                 data_url: Optional[str]) -> Optional[str]:
-    if str(os.getenv("LOG_PROMPTS", "")).lower() not in ("1", "true", "yes", "on"):
-        return None
-    Path("logs").mkdir(exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    txt_path = Path("logs") / f"{kind}_{ts}.txt"
-    png_path = None
-    if data_url and data_url.startswith("data:image/png;base64,"):
-        try:
-            b64 = data_url.split(",", 1)[1]
-            img_bytes = base64.b64decode(b64)
-            png_path = Path("logs") / f"{kind}_{ts}.png"
-            png_path.write_bytes(img_bytes)
-        except Exception:
-            png_path = None
-    with txt_path.open("w", encoding="utf-8") as f:
-        f.write(f"MODEL: {model}\n\n")
-        f.write("--- SYSTEM ---\n")
-        f.write(system.strip() + "\n\n")
-        f.write("--- USER (text) ---\n")
-        f.write(user_text.strip() + "\n\n")
-        if png_path:
-            f.write(f"--- IMAGE ---\nSaved PNG: {png_path}\n")
-        elif data_url:
-            f.write(f"--- IMAGE ---\n(data-url length: {len(data_url)})\n")
-    return str(txt_path)
