@@ -2,14 +2,12 @@
 
 # Default config
 # agent_model:
-#   name: "gpt-4o-mini"                     # Model name
+#   name: "gpt-4o"                     # Model name
 #   base_url: null                          # null for default OpenAI endpoint
 #   api_key_env: "OPENAI_API_KEY"          # Environment variable containing API key
-#   temperature: 0.0                        # Generation temperature
 
 # Using EPFL's inference server
 agent_model:
   name: "openai/gpt-oss-120b"
   base_url: "https://inference.rcp.epfl.ch/v1"
   api_key_env: "EPFL_API_KEY"           # Set EPFL_API_KEY in .env
-  temperature: 0.0

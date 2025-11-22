@@ -17,7 +17,6 @@ class ModelConfig(BaseModel):
     name: str = Field(..., description="Model name (e.g., 'gpt-4o', 'mistralai/Mistral-Small-3.2-24B-Instruct-2506')")
     base_url: Optional[str] = Field(None, description="API base URL (None for default OpenAI endpoint)")
     api_key_env: str = Field("OPENAI_API_KEY", description="Environment variable name for API key")
-    temperature: float = Field(0.0, description="Model temperature for generation")
     
     def get_api_key(self) -> str:
         """Get API key from environment variable."""
@@ -64,7 +63,6 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
             name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             base_url=None,
             api_key_env="OPENAI_API_KEY",
-            temperature=0.0,
         )
     )
 
