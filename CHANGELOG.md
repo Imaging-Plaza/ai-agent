@@ -4,7 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **New chat-based interface** (`ai_agent chat`) with conversational AI assistant
+  - Chatbot component with rich media rendering (images, files, JSON, code blocks)
+  - Inline file upload support for PNG, JPG, WEBP, TIFF, DICOM, NIfTI, CSV, JSON, XML, MP3, MP4
+  - File previews with format-specific icons rendered in chat messages
+  - Tool recommendation cards with detailed metadata (modality, dimensions, license, tags)
+  - Demo execution as conversational flow - assistant asks "Would you like me to run the demo?"
+  - Tool execution traces displayed as collapsible `<details>` sections after responses
+  - Debug sidebar showing conversation state, excluded tools, and preview images
+  - Full conversation context maintained across multi-turn interactions
+  - Affirmative response detection for demo confirmations (yes, sure, ok, etc.)
+- `respond(message, files, state) -> (reply, media, state)` core interface function
+  - Encapsulates all agent logic in testable, UI-independent function
+  - State management via `ChatState` dataclass with serialization
+  - `ChatMessage` dataclass for rich reply composition with markdown, images, files, traces
+- `chat_interface.py` module with agent response logic
+- `chat_app.py` Gradio app implementing the chat UI
+
 ### Changed
+- CLI now supports `ai_agent chat`
 - **UI State Management Simplified**: Removed complex refine intent detection system. Agent now naturally handles requests for alternatives via conversation history without hard-coded heuristics.
 - **UI Handler Simplified**: Reduced `handle_message()` parameters from 8 to 6, removing `last_task_state`, `last_suggestions_state`, and `excluded_names` state tracking.
 - **Agent-Only Path**: Removed `USE_AGENT` conditional (always uses Pydantic AI agent). Deleted dead code path for non-agent pipeline invocation.
