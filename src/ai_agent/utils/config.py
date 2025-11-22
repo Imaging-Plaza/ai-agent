@@ -48,11 +48,15 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     
     # Load model from YAML if file exists
     if config_path and Path(config_path).exists():
-        log.info(f"Loading model config from: {config_path}")
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-            if "agent_model" in data:
-                return AppConfig(agent_model=ModelConfig(**data["agent_model"]))
+        try:
+            log.info(f"Loading model config from: {config_path}")
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if "agent_model" in data:
+                    return AppConfig(agent_model=ModelConfig(**data["agent_model"]))
+        except (yaml.YAMLError, ValueError) as e:
+            log.error(f"Failed to load config from {config_path}: {e}")
+            log.warning("Falling back to default configuration")
     
     # Fall back to default model
     log.warning("No config.yaml found or no agent_model defined, using default model from environment")
