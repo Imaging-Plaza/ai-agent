@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import asyncio
 import logging
 from typing import Optional
@@ -9,6 +8,7 @@ from pydantic import BaseModel
 from pydantic_ai.mcp import MCPServerSSE
 
 from .utils import _clip
+from ..utils import _coerce_owner_repo_ref
 
 log = logging.getLogger("agent.deepwiki")
 
@@ -16,7 +16,7 @@ log = logging.getLogger("agent.deepwiki")
 DEEPWIKI_SSE_URL = "https://mcp.deepwiki.com/sse"
 
 # Timeout for DeepWiki operations (seconds)
-DEEPWIKI_TIMEOUT = 30
+DEEPWIKI_TIMEOUT = 60
 
 MAX_CHARS = 20000
 
@@ -34,94 +34,26 @@ class DeepWikiContentsOutput(BaseModel):
     truncated: bool = False
 
 
-def _normalize_github_url(url: str) -> str:
-    """
-    Normalize GitHub URL to owner/repo format expected by DeepWiki.
-    
-    Examples:
-        - https://github.com/owner/repo -> owner/repo
-        - owner/repo -> owner/repo
-    """
-    url = url.strip()
-    
-    # Remove protocol and www
-    for prefix in ["https://", "http://", "www."]:
-        if url.startswith(prefix):
-            url = url[len(prefix):]
-    
-    # Remove github.com/ prefix
-    if url.startswith("github.com/"):
-        url = url[len("github.com/"):]
-    
-    # Remove .git suffix
-    if url.endswith(".git"):
-        url = url[:-4]
-    
-    # Remove trailing slashes and any path components beyond owner/repo
-    parts = [p for p in url.split("/") if p]
-    if len(parts) >= 2:
-        return f"{parts[0]}/{parts[1]}"
-    
-    return url
-
-
 async def get_wiki_contents(input: DeepWikiInput) -> DeepWikiContentsOutput:
     """
     Fetch repo docs from DeepWiki MCP (SSE) and return a clipped string
     to keep LLM token usage under control.
     """
-    repo = _normalize_github_url(input.url)
+    owner, repo, _ = _coerce_owner_repo_ref(input.url)
+    repo = f"{owner}/{repo}"
 
     try:
         server = MCPServerSSE(DEEPWIKI_SSE_URL)
 
         async with server:
-            # Sanity: tool exists
-            tools = await server.list_tools()
-            if not any(getattr(t, "name", "") == "read_wiki_contents" for t in tools):
-                return DeepWikiContentsOutput(
-                    success=False,
-                    error="read_wiki_contents tool not found on DeepWiki server",
-                )
-
             result = await asyncio.wait_for(
                 server.direct_call_tool("read_wiki_contents", {"repoName": repo}),
                 timeout=DEEPWIKI_TIMEOUT,
             )
 
-            # Normalize result into a text blob
             text = None
-            if isinstance(result, str):
-                text = result
-            elif isinstance(result, list):
+            if isinstance(result, list):
                 text = "\n".join([p for p in result if isinstance(p, str)]) or None
-            elif isinstance(result, dict):
-                for key in ("text", "content", "markdown"):
-                    v = result.get(key)
-                    if isinstance(v, str):
-                        text = v
-                        break
-                    if isinstance(v, list):
-                        parts = []
-                        for item in v:
-                            if isinstance(item, str):
-                                parts.append(item)
-                            elif isinstance(item, dict) and isinstance(item.get("text"), str):
-                                parts.append(item["text"])
-                        if parts:
-                            text = "\n".join(parts)
-                            break
-            if text is None:
-                # Fallback for SDK-like objects
-                content_attr = getattr(result, "content", None)
-                if content_attr:
-                    parts = []
-                    for item in content_attr:
-                        t = getattr(item, "text", None)
-                        if isinstance(t, str):
-                            parts.append(t)
-                    if parts:
-                        text = "\n".join(parts)
 
             if text and text.strip():
                 clipped_text, truncated = _clip(text.strip())
