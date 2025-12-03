@@ -8,8 +8,8 @@ import logging
 import time
 import tifffile as tiff
 from typing import List, Optional, Tuple
-from utils.image_meta import summarize_image_metadata
-from utils.image_io import load_any
+from ai_agent.utils.image_meta import summarize_image_metadata
+from ai_agent.utils.image_io import load_any
 
 log = logging.getLogger("pipeline")
 

@@ -1,4 +1,4 @@
-from retriever.software_doc import SoftwareDoc
+from ai_agent.retriever.software_doc import SoftwareDoc
 from typing import Optional, List, Any
 
 def _best_runnable_link(doc: SoftwareDoc) -> Optional[str]:

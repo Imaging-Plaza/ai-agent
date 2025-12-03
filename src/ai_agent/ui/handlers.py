@@ -1,16 +1,6 @@
-from __future__ import annotations
-
-import os
-import sys
-import json
 import logging
-from typing import List, Dict, Any, Tuple, Optional
-from dataclasses import dataclass, field
-
-# Ensure ai_agent is in path
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+import os
+from typing import List, Dict, Any, Tuple
 
 from ai_agent.agent.agent import run_agent
 from ai_agent.agent.tools.gradio_space_tool import tool_run_example, RunExampleInput
@@ -21,177 +11,11 @@ from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.utils.image_analyzer import _to_supported_png_dataurl
 from ai_agent.utils.utils import _coerce_files_to_paths, _is_affirmative
 
-log = logging.getLogger("chat_interface")
+from .state import ChatState, ChatMessage
+from .formatters import format_tool_card
 
+log = logging.getLogger("chat_handlers")
 
-# ============================================================================
-# State Management
-# ============================================================================
-
-@dataclass
-class ChatState:
-    """Encapsulates all conversation state for the agent."""
-    conversation_history: List[str] = field(default_factory=list)
-    banlist: set = field(default_factory=set)
-    last_choices: Dict[str, Any] = field(default_factory=dict)
-    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
-    pending_demo_tool: Optional[str] = None
-    pending_demo_url: Optional[str] = None
-    last_preview_path: Optional[str] = None
-    last_files: List[str] = field(default_factory=list)
-    last_image_meta: Optional[str] = None
-    
-    def to_dict(self) -> dict:
-        """Serialize state for Gradio State component."""
-        return {
-            "conversation_history": self.conversation_history,
-            "banlist": list(self.banlist),
-            "last_choices": self.last_choices,
-            "tool_calls": self.tool_calls,
-            "pending_demo_tool": self.pending_demo_tool,
-            "pending_demo_url": self.pending_demo_url,
-            "last_preview_path": self.last_preview_path,
-            "last_files": self.last_files,
-            "last_image_meta": self.last_image_meta,
-        }
-    
-    @staticmethod
-    def from_dict(d: dict) -> 'ChatState':
-        """Deserialize state from Gradio State component."""
-        if not d:
-            return ChatState()
-        return ChatState(
-            conversation_history=d.get("conversation_history", []),
-            banlist=set(d.get("banlist", [])),
-            last_choices=d.get("last_choices", {}),
-            tool_calls=d.get("tool_calls", []),
-            pending_demo_tool=d.get("pending_demo_tool"),
-            pending_demo_url=d.get("pending_demo_url"),
-            last_preview_path=d.get("last_preview_path"),
-            last_files=d.get("last_files", []),
-            last_image_meta=d.get("last_image_meta"),
-        )
-
-
-# ============================================================================
-# Media Rendering Helpers
-# ============================================================================
-
-@dataclass
-class ChatMessage:
-    """Represents a rich message in the chat."""
-    text: str = ""
-    images: List[str] = field(default_factory=list)  # file paths
-    files: List[Tuple[str, str]] = field(default_factory=list)  # (path, label)
-    json_data: Optional[Dict[str, Any]] = None
-    code_blocks: List[Tuple[str, str]] = field(default_factory=list)  # (lang, code)
-    tool_traces: List[Dict[str, Any]] = field(default_factory=list)
-    
-    def to_markdown(self) -> str:
-        """Convert message to markdown with media."""
-        parts = []
-        
-        if self.text:
-            parts.append(self.text)
-        
-        # Render file links
-        for file_path, label in self.files:
-            if os.path.exists(file_path):
-                parts.append(f"\n📎 [{label}]({file_path})")
-        
-        # Render JSON in code block
-        if self.json_data:
-            json_str = json.dumps(self.json_data, indent=2)
-            parts.append(f"\n```json\n{json_str}\n```")
-        
-        # Render code blocks
-        for lang, code in self.code_blocks:
-            parts.append(f"\n```{lang}\n{code}\n```")
-        
-        return "\n".join(parts)
-
-
-def format_tool_card(doc: SoftwareDoc, accuracy: float, why: str, rank: int) -> str:
-    """Format a tool recommendation as a rich card."""
-    modality = ", ".join(doc.modality) if getattr(doc, "modality", None) else ""
-    dims = " / ".join(f"{x}D" for x in (getattr(doc, "dims", None) or []))
-    license_ = getattr(doc, "license", "") or ""
-    
-    tags = []
-    if getattr(doc, "tasks", None):
-        tags.extend(doc.tasks)
-    if getattr(doc, "keywords", None):
-        tags.extend(doc.keywords)
-    tags_str = ", ".join(sorted(set(t for t in tags if t)))[:160]
-    
-    desc = getattr(doc, "description", "") or ""
-    short_desc = (desc[:200] + "…") if len(desc) > 200 else desc
-    
-    card = f"### {rank}. {doc.name} — {accuracy:.1f}% match\n\n"
-    
-    meta_parts = []
-    if modality: meta_parts.append(f"**Modality:** {modality}")
-    if dims: meta_parts.append(f"**Dimensions:** {dims}")
-    if license_: meta_parts.append(f"**License:** {license_}")
-    if meta_parts:
-        card += " • ".join(meta_parts) + "\n\n"
-    
-    if short_desc:
-        card += f"_{short_desc}_\n\n"
-    
-    if why:
-        card += f"**Why:** {why}\n\n"
-    
-    if tags_str:
-        card += f"**Tags:** `{tags_str}`\n\n"
-    
-    return card
-
-
-def format_file_preview(file_path: str) -> Tuple[str, Optional[str]]:
-    """
-    Create a preview for uploaded files.
-    Returns (description_text, preview_image_path)
-    """
-    ext = os.path.splitext(file_path)[1].lower().lstrip('.')
-    basename = os.path.basename(file_path)
-    
-    # Image formats - can be displayed directly
-    if ext in ('png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'):
-        return f"📷 {basename}", file_path
-    
-    # TIFF might be multi-page
-    if ext in ('tif', 'tiff'):
-        return f"🖼️ {basename} (TIFF stack)", file_path
-    
-    # Volume formats
-    if ext in ('nii', 'dcm') or file_path.endswith('.nii.gz'):
-        return f"🧠 {basename} (medical volume)", None
-    
-    # Data formats
-    if ext == 'csv':
-        return f"📊 {basename} (CSV data)", None
-    
-    if ext in ('json', 'jsonl'):
-        return f"📋 {basename} (JSON)", None
-    
-    if ext == 'xml':
-        return f"📄 {basename} (XML)", None
-    
-    # Media formats
-    if ext in ('mp3', 'wav', 'ogg'):
-        return f"🎵 {basename} (audio)", None
-    
-    if ext in ('mp4', 'avi', 'mov', 'webm'):
-        return f"🎬 {basename} (video)", None
-    
-    # Generic file
-    return f"📎 {basename}", None
-
-
-# ============================================================================
-# Core respond() function
-# ============================================================================
 
 def respond(
     message: str,
@@ -231,7 +55,7 @@ def respond(
     state.conversation_history.append(f"User: {clean_message}")
     
     # ========================================================================
-    # Check for demo confirmation (follow-up to tool recommendation)
+    # Check for demo confirmation
     # ========================================================================
     if state.pending_demo_tool and _is_affirmative(message):
         log.info("User confirmed demo run for %s", state.pending_demo_tool)

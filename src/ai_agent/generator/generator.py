@@ -7,9 +7,9 @@ from datetime import datetime
 from pathlib import Path
 import base64
 
-from generator.schema import CandidateDoc, ToolSelection
-from generator.prompts import SELECTOR_SYSTEM
-from utils.image_analyzer import _to_supported_png_dataurl as to_data_url
+from ai_agent.generator.schema import CandidateDoc, ToolSelection
+from ai_agent.generator.prompts import SELECTOR_SYSTEM
+from ai_agent.utils.image_analyzer import _to_supported_png_dataurl as to_data_url
 
 
 # -------- VLM selector --------

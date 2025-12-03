@@ -4,8 +4,8 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import os, re, logging
 from .utils import get_pipeline
-from utils.utils import _best_runnable_link
-from utils.previews import _build_preview_for_vlm
+from ai_agent.utils.utils import _best_runnable_link
+from ai_agent.utils.previews import _build_preview_for_vlm
 from gradio_client import Client, handle_file
 import tempfile
 from pathlib import Path

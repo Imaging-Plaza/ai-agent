@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional, Any, Dict
 from pydantic import BaseModel, Field
 
-from generator.schema import ToolChoice, ToolSelection, Conversation, ConversationStatus, CandidateDoc
+from ai_agent.generator.schema import ToolChoice, ToolSelection, Conversation, ConversationStatus, CandidateDoc
 
 class ToolRunLog(BaseModel):
     tool: str

@@ -1,104 +1,28 @@
-from __future__ import annotations
-
-import os
-import sys
 import logging
+import os
+import json
 from typing import List, Dict
-
-# Ensure ai_agent is in path
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-# Set up logging
-from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv(), override=False)
-
-import logging.handlers
-from datetime import datetime
-
-LOG_DIR = os.getenv("LOG_DIR", "logs")
-os.makedirs(LOG_DIR, exist_ok=True)
-
-debug_on = str(os.getenv("DEBUG", "0")).lower() in ("1", "true", "yes", "on")
-console_level = os.getenv("LOGLEVEL_CONSOLE", "INFO").upper()
-file_level = os.getenv("LOGLEVEL_FILE", "DEBUG" if debug_on else "INFO").upper()
-file_log_enabled = str(os.getenv("FILE_LOG", "1")).lower() in ("1", "true", "yes", "on")
-
-fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
-root = logging.getLogger()
-root.handlers.clear()
-root.setLevel(logging.DEBUG)
-
-ch = logging.StreamHandler(sys.stdout)
-ch.setLevel(console_level)
-ch.setFormatter(fmt)
-root.addHandler(ch)
-
-if file_log_enabled:
-    logfile = os.path.join(LOG_DIR, f"app_{datetime.now():%Y%m%d}.log")
-    fh = logging.handlers.TimedRotatingFileHandler(
-        logfile, when="midnight", backupCount=14, encoding="utf-8"
-    )
-    fh.setLevel(file_level)
-    fh.setFormatter(fmt)
-    root.addHandler(fh)
-
-log = logging.getLogger("chat_app")
-log.info("Starting Chat-based Gradio UI")
 
 import gradio as gr
 
-from ai_agent.api.pipeline import RAGImagingPipeline
+from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.retriever.software_doc import SoftwareDoc
-from ai_agent.ui.chat_interface import respond
 
-# ============================================================================
-# Initialize pipeline and doc index
-# ============================================================================
+from .handlers import respond
 
-INDEX_DIR = os.getenv("RAG_INDEX_DIR", "artifacts/rag_index")
-
-_pipe: RAGImagingPipeline | None = None
-_DOCS: List[SoftwareDoc] = []
-_DOC_BY_NAME: Dict[str, SoftwareDoc] = {}
-
-def get_pipeline() -> RAGImagingPipeline:
-    global _pipe, _DOCS, _DOC_BY_NAME
-    if _pipe is None:
-        _pipe = RAGImagingPipeline(index_dir=INDEX_DIR)
-        try:
-            _DOCS = list(_pipe.index.docs.values())
-            _DOC_BY_NAME = {d.name: d for d in _DOCS if getattr(d, "name", None)}
-            log.info("Loaded %d tools from index", len(_DOCS))
-        except Exception:
-            _DOCS, _DOC_BY_NAME = [], {}
-            log.exception("Failed to load docs from index")
-        log.info("Pipeline ready")
-    return _pipe
-
-# Initialize pipeline at startup
-get_pipeline()
-
-def refresh_ui_docs_from_index():
-    global _pipe, _DOCS, _DOC_BY_NAME
-    if _pipe is None:
-        return
-    try:
-        _DOCS = list(_pipe.index.docs.values())
-        _DOC_BY_NAME = {d.name: d for d in _DOCS if getattr(d, "name", None)}
-        log.info("UI docs refreshed from FAISS: %d tools", len(_DOCS))
-    except Exception:
-        _DOCS, _DOC_BY_NAME = [], {}
-        log.exception("Failed to refresh UI docs from FAISS")
+log = logging.getLogger("chat_components")
 
 
-# ============================================================================
-# Gradio interface
-# ============================================================================
-
-def create_chat_interface():
-    """Create the chat-based Gradio interface."""
+def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
+    """
+    Create the chat-based Gradio interface.
+    
+    Args:
+        doc_index: Mapping of tool name -> SoftwareDoc for formatting
+    
+    Returns:
+        Gradio Blocks interface
+    """
     
     with gr.Blocks(
         title="Imaging Assistant",
@@ -154,7 +78,6 @@ def create_chat_interface():
             # RIGHT: Dev / Conversation State section
             # ================================================================
             with gr.Column(scale=3, visible=True):
-                # Use the JSON label as the title to avoid extra vertical gap
                 state_display = gr.JSON(
                     label="🔧 Conversation State",
                     value={},
@@ -163,13 +86,11 @@ def create_chat_interface():
                     max_height=1000,
                 )
         
-        # Hidden state
         chat_state = gr.State({})
         
         # ====================================================================
-        # Chat handler
+        # Event Handlers
         # ====================================================================
-        
         def handle_chat(message: str, history: List[dict], files: List, state_dict: dict):
             """
             Handle chat message with streaming response.
@@ -209,7 +130,6 @@ def create_chat_interface():
                 
                 if file_paths:
                     # Build preview
-                    from ai_agent.utils.previews import _build_preview_for_vlm
                     try:
                         preview_path, meta_text = _build_preview_for_vlm(file_paths)
                         if preview_path:
@@ -241,7 +161,7 @@ def create_chat_interface():
                     message=message or "",
                     files=files or [],
                     state_dict=state_dict,
-                    doc_index=_DOC_BY_NAME,
+                    doc_index=doc_index,
                 )
                 
                 # Remove thinking indicator
@@ -259,7 +179,6 @@ def create_chat_interface():
                 
                 # Add JSON
                 if reply.json_data:
-                    import json
                     text_content += (
                         "\n\n```json\n"
                         + json.dumps(reply.json_data, indent=2)
@@ -302,10 +221,11 @@ def create_chat_interface():
                 history.append(error_msg)
                 yield history, state_dict, gr.update()
         
-        # ====================================================================
-        # Event handlers
-        # ====================================================================
+        def clear_chat():
+            """Reset everything."""
+            return [], {}, gr.update(value={})
         
+        # Wire up events
         submit_btn.click(
             handle_chat,
             inputs=[msg_input, chatbot, file_input, chat_state],
@@ -326,10 +246,6 @@ def create_chat_interface():
             outputs=[msg_input, file_input],
         )
         
-        def clear_chat():
-            """Reset everything."""
-            return [], {}, gr.update(value={})
-        
         clear_btn.click(
             clear_chat,
             inputs=None,
@@ -337,51 +253,3 @@ def create_chat_interface():
         )
     
     return demo
-
-# ============================================================================
-# Launch
-# ============================================================================
-
-def _bind_host() -> str:
-    if os.getenv("BIND_HOST"):
-        return os.getenv("BIND_HOST")
-    in_docker = os.path.exists("/.dockerenv")
-    return "0.0.0.0" if in_docker else "127.0.0.1"
-
-
-def launch():
-    """Launch the chat interface."""
-    host = _bind_host()
-    preferred = int(os.getenv("PORT", "7860"))
-    max_tries = int(os.getenv("PORT_TRIES", "10"))
-    allow_fallback = str(os.getenv("ALLOW_PORT_FALLBACK", "1")).lower() in ("1", "true", "yes", "on")
-    
-    ui = create_chat_interface()
-    
-    last_err = None
-    for attempt in range(max_tries if allow_fallback else 1):
-        port = preferred + attempt
-        try:
-            ui.queue(max_size=10).launch(
-                server_name=host,
-                server_port=port,
-                inbrowser=False,
-                show_error=True,
-                share=bool(os.getenv("SHARE", False)),
-            )
-            if attempt > 0:
-                log.info("Launched on fallback port %d (preferred %d was busy)", port, preferred)
-            return
-        except OSError as e:
-            last_err = e
-            busy = "Cannot find empty port" in str(e)
-            if not busy or attempt == (max_tries - 1) or not allow_fallback:
-                raise
-            log.warning("Port %d busy; trying %d", port, port + 1)
-    
-    if last_err:
-        raise last_err
-
-
-if __name__ == "__main__":
-    launch()

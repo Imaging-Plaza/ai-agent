@@ -6,10 +6,10 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.usage import UsageLimits
 
-from generator.prompts import AGENT_SYSTEM_PROMPT
-from generator.schema import ToolSelection
-from api.pipeline import RAGImagingPipeline
-from utils.utils import _best_runnable_link
+from ai_agent.generator.prompts import AGENT_SYSTEM_PROMPT
+from ai_agent.generator.schema import ToolSelection
+from ai_agent.api.pipeline import RAGImagingPipeline
+from ai_agent.utils.utils import _best_runnable_link
 from .models import AgentToolSelection, ToolRunLog
 from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput, coerce_github_url_or_none
 from .tools.rerank_tool import tool_rerank, RerankInput
