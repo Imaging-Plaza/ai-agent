@@ -24,16 +24,91 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         Gradio Blocks interface
     """
     
+    # Custom CSS for Imaging Plaza theme
+    custom_css = """
+    /* Imaging Plaza EPFL Green Theme */
+    :root {
+        --imaging-green: #00A991;
+        --imaging-green-dark: #008875;
+        --imaging-green-light: #E6F7F4;
+    }
+    
+    .main-header {
+        background: linear-gradient(135deg, var(--imaging-green) 0%, var(--imaging-green-dark) 100%);
+        padding: 1.5rem 2rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .logo-container {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .logo-image {
+        width: 48px;
+        height: 48px;
+        background: white;
+        border-radius: 8px;
+        padding: 8px;
+    }
+    
+    .header-title {
+        color: white;
+        font-size: 1.8rem;
+        font-weight: 600;
+        margin: 0;
+    }
+    
+    .header-subtitle {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.95rem;
+        margin: 0;
+    }
+    
+    button.primary {
+        background: var(--imaging-green) !important;
+        border-color: var(--imaging-green) !important;
+    }
+    
+    button.primary:hover {
+        background: var(--imaging-green-dark) !important;
+        border-color: var(--imaging-green-dark) !important;
+    }
+    
+    .panel-border {
+        border: 2px solid var(--imaging-green-light);
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    """
+    
     with gr.Blocks(
-        title="Imaging Assistant",
-        theme=gr.themes.Soft(),
+        title="Imaging Plaza - AI Assistant",
+        theme=gr.themes.Soft(
+            primary_hue="green",
+            secondary_hue="teal",
+        ),
+        css=custom_css,
         fill_height=True,
     ) as demo:
-        gr.Markdown(
-            "# 🤖 Imaging Software Assistant\n"
-            "Chat with me to find the right imaging tools! Upload files and describe your task.\n\n"
-            "_I can recommend tools, run demos, and help you with medical/scientific imaging workflows._"
-        )
+        # Header with logo
+        with gr.Row(elem_classes="main-header"):
+            gr.HTML("""
+                <div class="logo-container">
+                    <img src="https://imaging-plaza.epfl.ch/logos/imaging_plaza_white.svg" 
+                         alt="Imaging Plaza Logo" 
+                         style="height: 48px; width: auto;" />
+                    <div>
+                        <h1 class="header-title">AI Assistant</h1>
+                        <p class="header-subtitle">Find the right imaging tools for your research</p>
+                    </div>
+                </div>
+            """)
         
         with gr.Row(equal_height=True):
             # ================================================================
@@ -41,7 +116,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
             # ================================================================
             with gr.Column(scale=7):
                 chatbot = gr.Chatbot(
-                    label="Chat",
+                    label="💬 Chat",
                     type="messages",
                     height=600,
                     show_copy_button=True,
@@ -75,7 +150,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     clear_btn = gr.Button("Clear chat", scale=1)
             
             # ================================================================
-            # RIGHT: Dev / Conversation State section
+            # RIGHT: Conversation State section
             # ================================================================
             with gr.Column(scale=3, visible=True):
                 state_display = gr.JSON(

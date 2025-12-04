@@ -21,12 +21,18 @@ All notable changes to this project will be documented in this file.
   - `ChatMessage` dataclass for rich reply composition with markdown, images, files, traces
 - `chat_interface.py` module with agent response logic
 - `chat_app.py` Gradio app implementing the chat UI
+- **Imaging Plaza branding**: Custom CSS theme with Plaza green colors (#00A991)
+- **Logo integration**: Official Imaging Plaza white logo displayed in header
+- **Redesigned layout**: Reorganized UI with header banner, left chat panel, and right sidebar for files and state
 
 ### Changed
 - CLI now supports `ai_agent chat`
 - **UI State Management Simplified**: Removed complex refine intent detection system. Agent now naturally handles requests for alternatives via conversation history without hard-coded heuristics.
 - **UI Handler Simplified**: Reduced `handle_message()` parameters from 8 to 6, removing `last_task_state`, `last_suggestions_state`, and `excluded_names` state tracking.
 - **Agent-Only Path**: Removed `USE_AGENT` conditional (always uses Pydantic AI agent). Deleted dead code path for non-agent pipeline invocation.
+- **UI redesign**: File upload moved to dedicated right panel for cleaner workflow
+- **Visual hierarchy**: Header with gradient green banner and logo
+- **Button styling**: Primary actions use Imaging Plaza green theme colors
 
 ### Removed
 - **Dead Functions**: Removed `is_refine_intent()` and `strip_refine_keywords()` from `utils/tags.py` along with `_REFINE_KEYWORDS` constant.
