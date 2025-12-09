@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Updated `pydantic-ai` dependency to include MCP support via `pydantic-ai[mcp]` extra.
-- Enhanced `RepoSummaryOutput` schema to include `source` field indicating whether data came from "deepwiki" or "github_api".
+- Enhanced `RepoSummaryOutput` schema to include `source` field indicating whether data came from "deepwiki" or "repocards".
 - Repository info tool logs now track data source (DeepWiki vs GitHub API) for observability.
 
 ## [0.1.3] - 2025-10-22

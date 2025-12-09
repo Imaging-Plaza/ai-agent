@@ -22,7 +22,7 @@ class RepoSummaryOutput(BaseModel):
     truncated: bool
     ref: Optional[str] = None
     summary: str
-    source: str = "github_api"  # "deepwiki" or "github_api"
+    source: str = "deepwiki"  # "deepwiki" or "repocards"
 
 # ----------------------------- Tool entry point -------------------------------
 
@@ -58,5 +58,5 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
         truncated=truncated,
         ref=None,
         summary=summary,
-        source="github_api"
+        source="repocards"
     )
