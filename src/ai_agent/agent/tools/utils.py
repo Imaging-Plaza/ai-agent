@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import os, json
 
 from retriever.software_doc import SoftwareDoc
@@ -39,7 +39,7 @@ def get_pipeline() -> RAGImagingPipeline:
         _PIPE = RAGImagingPipeline()
     return _PIPE
 
-def _clip(s: str) -> str:
+def _clip(s: str) -> Tuple[str, bool]:
         if not s:
             return s, False
         if len(s) <= MAX_CHARS:
