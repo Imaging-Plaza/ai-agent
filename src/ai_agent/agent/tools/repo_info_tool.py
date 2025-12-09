@@ -53,10 +53,19 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
     
     # Fallback to repocards
     log.info(f"Using repocards fallback for {input.url}")
-    summary, truncated = _clip(repocards.get_repo_info(input.url, github_token=os.getenv("GITHUB_TOKEN")))
-    return RepoSummaryOutput(
-        truncated=truncated,
-        ref=None,
-        summary=summary,
-        source="repocards"
+    try:
+        summary, truncated = _clip(repocards.get_repo_info(input.url, github_token=os.getenv("GITHUB_TOKEN")))
+        return RepoSummaryOutput(
+            truncated=truncated,
+            ref=None,
+            summary=summary,
+            source="repocards"
+        )
+    except Exception as e:
+        log.error(f"Repocards fallback also failed: {e}")
+        return RepoSummaryOutput(
+            truncated=False,
+            ref=None,
+            summary=f"# Error\n\nFailed to fetch repository information: {str(e)}",
+            source="error"
     )

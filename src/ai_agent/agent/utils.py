@@ -5,7 +5,7 @@ import functools
 from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Set, Dict, Tuple
+from typing import List, Optional, Set, Dict, Tuple
 from urllib.parse import urlparse
 
 

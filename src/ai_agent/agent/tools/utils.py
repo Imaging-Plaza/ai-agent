@@ -40,8 +40,8 @@ def get_pipeline() -> RAGImagingPipeline:
     return _PIPE
 
 def _clip(s: str) -> Tuple[str, bool]:
-        if not s:
-            return s, False
-        if len(s) <= MAX_CHARS:
-            return s, False
-        return s[:MAX_CHARS] + "\n\n...[truncated for token budget]...", True
+    if not s:
+        return s, False
+    if len(s) <= MAX_CHARS:
+        return s, False
+    return s[:MAX_CHARS] + "\n\n...[truncated for token budget]...", True
