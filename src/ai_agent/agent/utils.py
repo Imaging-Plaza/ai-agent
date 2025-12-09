@@ -101,7 +101,7 @@ def _coerce_owner_repo_ref(input_str: str) -> Tuple[str, str, Optional[str]]:
 
     # Missing scheme but github domain
     if s.startswith("github.com/") or s.startswith("www.github.com/"):
-        s = "https://" + s.lstrip("www.")
+        s = "https://" + s.removeprefix("www.")
 
     # Full URL?
     try:
