@@ -28,9 +28,9 @@ class RepoSummaryOutput(BaseModel):
 
 async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
     """
-    Summarize a GitHub repository using DeepWiki MCP (if available) or GitHub API fallback.
+    Summarize a GitHub repository using DeepWiki MCP (if available) or repocards fallback.
     
-    Try DeepWiki first for fast, indexed docs. Falls back to GitHub API on any error.
+    Try DeepWiki first for fast, indexed docs. Falls back to repocards on any error.
     """
     # Try DeepWiki first
     try:
