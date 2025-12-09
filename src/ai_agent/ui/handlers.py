@@ -22,6 +22,9 @@ def respond(
     files: List[Any],
     state_dict: dict,
     doc_index: Dict[str, SoftwareDoc],
+    model: str = None,
+    top_k: int = None,
+    num_choices: int = None,
 ) -> Tuple[ChatMessage, ChatState]:
     """
     Main agent response function.
@@ -31,6 +34,9 @@ def respond(
         files: List of uploaded files (paths or file objects)
         state_dict: Serialized ChatState
         doc_index: Mapping of tool name -> SoftwareDoc
+        model: OpenAI model to use (optional)
+        top_k: Number of candidates to retrieve (optional)
+        num_choices: Number of tools to recommend (optional)
     
     Returns:
         (ChatMessage with reply + media, updated ChatState)
@@ -183,6 +189,9 @@ def respond(
         original_formats=original_formats,
         image_meta=state.last_image_meta,
         conversation_history=state.conversation_history,
+        model=model,
+        top_k=top_k,
+        num_choices=num_choices,
     )
     
     result_dict = agent_result.to_legacy_dict()

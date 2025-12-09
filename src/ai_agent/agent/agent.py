@@ -126,9 +126,17 @@ async def resolve_demo_link(ctx: RunContext[AgentState], tool_name: str):
 
 # Runner wrapper ---------------------------------------------------------------
 
-def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] | None = None,
-              original_formats: List[str] | None = None, image_meta: str | None = None, 
-              conversation_history: List[str] | None = None) -> AgentToolSelection:
+def run_agent(
+    task: str,
+    image_data_url: str | None = None,
+    excluded: List[str] | None = None,
+    original_formats: List[str] | None = None,
+    image_meta: str | None = None,
+    conversation_history: List[str] | None = None,
+    model: str | None = None,
+    top_k: int | None = None,
+    num_choices: int | None = None,
+) -> AgentToolSelection:
     """Execute the agent. We inline the image as extra context in user message (multimodal reasoning)."""
     extra_context = ""
     if image_data_url:
@@ -136,8 +144,6 @@ def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] 
         extra_context = "\nPreview image provided (rendered PNG). DO NOT infer original format from this preview; rely on 'OriginalFormats:' line if present."
 
     tool_logs: List[ToolRunLog] = []
-
-    # Intercept tool usage by patching agent? Simpler: rely on return types (pydantic-ai tracks internally, we record manually not available yet) -> for Phase 1 we skip deep logging.
 
     deps = AgentState(excluded_tools=excluded or [])
     # Provide hidden metadata context lines (non-user-visible) below a delimiter
@@ -148,6 +154,10 @@ def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] 
         # collapse newlines to avoid confusing the model with too many lines
         short_meta = " ".join(x.strip() for x in image_meta.splitlines() if x.strip())
         hidden_meta += "\n(Image Metadata: " + short_meta[:500] + ("…" if len(short_meta) > 500 else "") + ")"
+    
+    # Add top_k hint if specified (for UI settings)
+    if top_k is not None:
+        hidden_meta += f"\n(Search top_k: {top_k})"
     
     # Build prompt with conversation history if this is a follow-up
     if conversation_history and len(conversation_history) > 0:

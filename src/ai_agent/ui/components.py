@@ -9,6 +9,7 @@ from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.retriever.software_doc import SoftwareDoc
 
 from .handlers import respond
+from .visualizations import create_tool_usage_chart, create_tool_timeline, create_disabled_tools_display
 
 log = logging.getLogger("chat_components")
 
@@ -110,6 +111,32 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 </div>
             """)
         
+        # Settings section (collapsed by default)
+        with gr.Accordion("⚙️ Settings", open=False):
+            with gr.Row():
+                model_dropdown = gr.Dropdown(
+                    choices=["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+                    value=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                    label="Model",
+                    info="OpenAI model for agent reasoning",
+                )
+                top_k_slider = gr.Slider(
+                    minimum=5,
+                    maximum=20,
+                    value=int(os.getenv("TOP_K", "12")),
+                    step=1,
+                    label="Top K Candidates",
+                    info="Number of tools to retrieve",
+                )
+                num_choices_slider = gr.Slider(
+                    minimum=1,
+                    maximum=5,
+                    value=int(os.getenv("NUM_CHOICES", "3")),
+                    step=1,
+                    label="Number of Recommendations",
+                    info="Tools to recommend to user",
+                )
+        
         with gr.Row(equal_height=True):
             # ================================================================
             # LEFT: Chat section
@@ -150,23 +177,41 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     clear_btn = gr.Button("Clear chat", scale=1)
             
             # ================================================================
-            # RIGHT: Conversation State section
+            # RIGHT: Analytics and State section
             # ================================================================
             with gr.Column(scale=3, visible=True):
-                state_display = gr.JSON(
-                    label="🔧 Conversation State",
-                    value={},
-                    show_label=True,
-                    height=600,
-                    max_height=1000,
+                # Tool usage visualizations
+                gr.Markdown("### 📊 Tool Usage Statistics")
+                
+                tool_usage_plot = gr.Plot(
+                    label="Tool Call Frequency",
+                    show_label=False,
                 )
+                
+                tool_timeline_plot = gr.Plot(
+                    label="Tool Call Timeline",
+                    show_label=False,
+                )
+                
+                disabled_tools_text = gr.Markdown(
+                    value="✅ No tools disabled",
+                    label="Disabled Tools",
+                )
+                
+                # Collapsible state display
+                with gr.Accordion("🔧 Raw Conversation State", open=False):
+                    state_display = gr.JSON(
+                        value={},
+                        show_label=False,
+                    )
         
         chat_state = gr.State({})
         
         # ====================================================================
         # Event Handlers
         # ====================================================================
-        def handle_chat(message: str, history: List[dict], files: List, state_dict: dict):
+        def handle_chat(message: str, history: List[dict], files: List, state_dict: dict,
+                       model: str, top_k: int, num_choices: int):
             """
             Handle chat message with streaming response.
             Yields updated history and state after each step.
@@ -192,7 +237,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     user_msg["content"] = file_list
             
             history.append(user_msg)
-            yield history, state_dict, gr.update()
+            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update()
             
             # If files were uploaded, build and show preview immediately
             if files:
@@ -221,22 +266,25 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                                     "content": {"path": preview_path},
                                 }
                             )
-                            yield history, state_dict, gr.update()
+                            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update()
                     except Exception as e:
                         log.warning("Preview generation failed: %r", e)
             
             # Show "thinking" indicator for agent processing
             thinking_msg = {"role": "assistant", "content": "🤔 Finding tools..."}
             history.append(thinking_msg)
-            yield history, state_dict, gr.update()
+            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update()
             
-            # Call respond function
+            # Call respond function with settings
             try:
                 reply, new_state = respond(
                     message=message or "",
                     files=files or [],
                     state_dict=state_dict,
                     doc_index=doc_index,
+                    model=model,
+                    top_k=int(top_k),
+                    num_choices=int(num_choices),
                 )
                 
                 # Remove thinking indicator
@@ -277,9 +325,17 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 # Update state displays
                 state_dict_updated = new_state.to_dict()
                 
+                # Generate visualizations
+                usage_chart = create_tool_usage_chart(state_dict_updated.get("tool_calls", []))
+                timeline_chart = create_tool_timeline(state_dict_updated.get("tool_calls", []))
+                disabled_text = create_disabled_tools_display(state_dict_updated.get("tool_calls", []))
+                
                 yield (
                     history,
                     state_dict_updated,
+                    gr.update(value=usage_chart),
+                    gr.update(value=timeline_chart),
+                    gr.update(value=disabled_text),
                     gr.update(value=state_dict_updated),
                 )
             
@@ -294,17 +350,19 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     ),
                 }
                 history.append(error_msg)
-                yield history, state_dict, gr.update()
+                yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update()
         
         def clear_chat():
             """Reset everything."""
-            return [], {}, gr.update(value={})
+            empty_chart = create_tool_usage_chart([])
+            empty_timeline = create_tool_timeline([])
+            return [], {}, empty_chart, empty_timeline, "✅ No tools disabled", gr.update(value={})
         
         # Wire up events
         submit_btn.click(
             handle_chat,
-            inputs=[msg_input, chatbot, file_input, chat_state],
-            outputs=[chatbot, chat_state, state_display],
+            inputs=[msg_input, chatbot, file_input, chat_state, model_dropdown, top_k_slider, num_choices_slider],
+            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display],
         ).then(
             lambda: ("", None),  # Clear inputs
             inputs=None,
@@ -313,8 +371,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         
         msg_input.submit(
             handle_chat,
-            inputs=[msg_input, chatbot, file_input, chat_state],
-            outputs=[chatbot, chat_state, state_display],
+            inputs=[msg_input, chatbot, file_input, chat_state, model_dropdown, top_k_slider, num_choices_slider],
+            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display],
         ).then(
             lambda: ("", None),  # Clear inputs
             inputs=None,
@@ -324,7 +382,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         clear_btn.click(
             clear_chat,
             inputs=None,
-            outputs=[chatbot, chat_state, state_display],
+            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display],
         )
     
     return demo

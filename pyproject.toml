@@ -23,6 +23,7 @@ dependencies = [
   "imageio",
   "rdflib",
   "sparqlwrapper",
+  "plotly",
 ]
 
 [project.scripts]
