@@ -18,7 +18,6 @@ DEEPWIKI_SSE_URL = "https://mcp.deepwiki.com/sse"
 # Timeout for DeepWiki operations (seconds)
 DEEPWIKI_TIMEOUT = 60
 
-MAX_CHARS = 20000
 
 
 class DeepWikiInput(BaseModel):
