@@ -3,13 +3,15 @@ from __future__ import annotations
 import os, logging
 from typing import List
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.usage import UsageLimits
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from generator.prompts import AGENT_SYSTEM_PROMPT
 from generator.schema import ToolSelection
 from api.pipeline import RAGImagingPipeline
 from utils.utils import _best_runnable_link
+from utils.config import get_config
 from .models import AgentToolSelection, ToolRunLog
 from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
 from .tools.rerank_tool import tool_rerank, RerankInput
@@ -22,12 +24,30 @@ log = logging.getLogger("agent.core")
 
 # Agent model ---------------------------------------------------------------
 
-MODEL_NAME = (
-    os.getenv("OPENAI_MODEL")
-    or "gpt-4o-mini"
-)
+config = get_config()
+agent_model_config = config.agent_model
 
-openai_model = OpenAIModel(MODEL_NAME)
+try:
+    api_key = agent_model_config.get_api_key()
+except ValueError as e:
+    log.error(f"Failed to get API key for agent model: {e}")
+    raise
+
+log.info(f"Initializing agent model: {agent_model_config.name}")
+
+if agent_model_config.base_url:
+    log.info(f"Using custom OpenAI base URL: {agent_model_config.base_url}")
+    provider = OpenAIProvider(
+        base_url=agent_model_config.base_url,
+        api_key=api_key,
+    )
+else:
+    provider = OpenAIProvider(api_key=api_key)
+
+openai_model = OpenAIChatModel(
+    model_name=agent_model_config.name,
+    provider=provider,
+)
 
 # Agent definition -------------------------------------------------------------
 
@@ -42,9 +62,11 @@ agent = Agent(
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("search_tools", cap=1)  # <= per-tool quota here
 async def search_tools(ctx: RunContext[AgentState], query: str, excluded: List[str] | None = None, top_k: int = 12, original_formats: List[str] | None = None):
-    out = tool_search_tools(SearchToolsInput(query=query, excluded=excluded or [], top_k=top_k, original_formats=original_formats or []))
+    # Merge explicit excluded param with state's excluded_tools
+    all_excluded = list(set((excluded or []) + ctx.deps.excluded_tools))
+    out = tool_search_tools(SearchToolsInput(query=query, excluded=all_excluded, top_k=top_k, original_formats=original_formats or []))
     payload = [c.model_dump(mode="python") for c in out.candidates]
-    ctx.deps.tool_calls.append({"tool": "search_tools", "query": query, "count": len(payload), "original_formats": original_formats or []})
+    ctx.deps.tool_calls.append({"tool": "search_tools", "query": query, "count": len(payload), "original_formats": original_formats or [], "excluded": all_excluded})
     return payload
 
 @agent.tool(retries=2, prepare=cap_prepare)
@@ -130,7 +152,8 @@ async def resolve_demo_link(ctx: RunContext[AgentState], tool_name: str):
 # Runner wrapper ---------------------------------------------------------------
 
 def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] | None = None,
-              original_formats: List[str] | None = None, image_meta: str | None = None) -> AgentToolSelection:
+              original_formats: List[str] | None = None, image_meta: str | None = None, 
+              conversation_history: List[str] | None = None) -> AgentToolSelection:
     """Execute the agent. We inline the image as extra context in user message (multimodal reasoning)."""
     extra_context = ""
     if image_data_url:
@@ -141,7 +164,7 @@ def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] 
 
     # Intercept tool usage by patching agent? Simpler: rely on return types (pydantic-ai tracks internally, we record manually not available yet) -> for Phase 1 we skip deep logging.
 
-    deps = AgentState()
+    deps = AgentState(excluded_tools=excluded or [])
     # Provide hidden metadata context lines (non-user-visible) below a delimiter
     hidden_meta = ""
     if original_formats:
@@ -150,7 +173,15 @@ def run_agent(task: str, image_data_url: str | None = None, excluded: List[str] 
         # collapse newlines to avoid confusing the model with too many lines
         short_meta = " ".join(x.strip() for x in image_meta.splitlines() if x.strip())
         hidden_meta += "\n(Image Metadata: " + short_meta[:500] + ("…" if len(short_meta) > 500 else "") + ")"
-    prompt = task + extra_context + hidden_meta
+    
+    # Build prompt with conversation history if this is a follow-up
+    if conversation_history and len(conversation_history) > 0:
+        # Format previous conversation for context
+        history_text = "\n".join(conversation_history)
+        prompt = f"Previous conversation:\n{history_text}\n\nCurrent request: {task}{extra_context}{hidden_meta}"
+    else:
+        prompt = task + extra_context + hidden_meta
+    
     result = agent.run_sync(prompt, deps=deps, output_type=ToolSelection, usage_limits=UsageLimits(tool_calls_limit=10)).output
 
     # Convert tool call dicts into ToolRunLog entries

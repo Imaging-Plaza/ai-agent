@@ -16,6 +16,7 @@ class AgentState(BaseModel):
     tool_calls: List[dict] = []  # (kept as-is to not modify existing working field)
     tool_counts: Dict[str, int] = Field(default_factory=dict)
     disabled_tools: Set[str] = Field(default_factory=set)
+    excluded_tools: List[str] = Field(default_factory=list)  # Tools to exclude from search
 
 # Quota decorator + prepare hook -----------------------------------------------
 
