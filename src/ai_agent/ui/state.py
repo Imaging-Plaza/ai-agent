@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 
@@ -69,7 +70,6 @@ class ChatMessage:
         
         # Render file links
         for file_path, label in self.files:
-            import os
             if os.path.exists(file_path):
                 parts.append(f"\n📎 [{label}]({file_path})")
         

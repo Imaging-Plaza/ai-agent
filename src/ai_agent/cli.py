@@ -65,6 +65,7 @@ def run_chat():
             ok = pipe.reload_index()
             if ok:
                 log.info("[startup-refresh] reloaded FAISS index")
+                refresh_ui_docs_from_index()
             else:
                 log.warning("[startup-refresh] reload failed; serving previous index")
         else:

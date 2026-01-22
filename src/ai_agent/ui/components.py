@@ -288,7 +288,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 )
                 
                 # Remove thinking indicator
-                history.pop()
+                if history and history[-1] == thinking_msg:
+                    history.pop()
                 
                 # Add assistant response with rich media
                 # Build text content first

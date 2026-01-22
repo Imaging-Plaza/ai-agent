@@ -168,8 +168,12 @@ def respond(
     if state.last_preview_path:
         try:
             data_url = _to_supported_png_dataurl(state.last_preview_path)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(
+                "Failed to build PNG data URL from preview %r: %r",
+                state.last_preview_path,
+                e,
+            )
     
     # Extract original formats
     original_formats = []
