@@ -341,7 +341,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
             
             except Exception as e:
                 log.exception("Error in chat handler")
-                history.pop()  # Remove thinking indicator
+                if history:
+                    history.pop()  # Remove thinking indicator
                 error_msg = {
                     "role": "assistant",
                     "content": (
