@@ -1,5 +1,29 @@
 from ai_agent.retriever.software_doc import SoftwareDoc
 from typing import Optional, List, Any
+import re
+
+# Constants for affirmative detection
+_MULTI_WORD_AFFIRMATIVES = [
+    "go ahead", "do it", "run it", "sounds good", "looks good"
+]
+
+_SINGLE_WORD_AFFIRMATIVES = [
+    "yes", "y", "yeah", "yep", "yup", "sure", "ok", "okay", 
+    "fine", "alright", "right", "correct", "affirmative"
+]
+
+_EMOJI_AFFIRMATIVES = ["👍", "✅", "✓"]
+
+_NEGATION_WORDS = {"no", "not", "don't", "dont", "never", "nothing"}
+
+# Thresholds for context-based detection
+_PHRASE_LENGTH_MULTIPLIER = 3  # Max text length = phrase length * multiplier
+_SHORT_MESSAGE_THRESHOLD = 30  # Character threshold for "short message"
+
+# Pre-compile regex pattern for negation detection
+_NEGATION_PATTERN = re.compile(
+    r'\b(' + '|'.join(re.escape(w) for w in _NEGATION_WORDS) + r')\b'
+)
 
 def _best_runnable_link(doc: SoftwareDoc) -> Optional[str]:
     """Return the most user-friendly runnable link.
@@ -84,10 +108,38 @@ def _coerce_files_to_paths(files: List[Any]) -> List[str]:
 
 
 def _is_affirmative(text: str) -> bool:
-    """Check if user message is affirmative (yes, ok, sure, etc.)."""
+    """Check if user message is affirmative (yes, ok, sure, etc.).
+    
+    Uses word boundary matching and context checking to avoid false positives.
+    """
     text_lower = text.lower().strip()
-    affirmatives = {
-        "yes", "y", "yeah", "yep", "sure", "ok", "okay", "fine",
-        "go ahead", "do it", "run it", "please", "👍", "✅"
-    }
-    return any(aff in text_lower for aff in affirmatives)
+    
+    if not text_lower:
+        return False
+    
+    # Check emojis
+    for emoji in _EMOJI_AFFIRMATIVES:
+        if emoji in text:
+            return True
+    
+    # With negation, only match if entire message is exactly one affirmative word
+    has_negation = _NEGATION_PATTERN.search(text_lower) is not None
+    if has_negation:
+        stripped = re.sub(r'[.,!?\s]+$', '', text_lower)
+        if stripped in _SINGLE_WORD_AFFIRMATIVES:
+            return True
+        return False
+    
+    # Check multi-word phrases (reject if text is much longer than phrase)
+    for phrase in _MULTI_WORD_AFFIRMATIVES:
+        if re.search(r'\b' + re.escape(phrase) + r'\b', text_lower):
+            if len(text_lower) <= len(phrase) * _PHRASE_LENGTH_MULTIPLIER:
+                return True
+    
+    # Check single words (reject if message is long)
+    for word in _SINGLE_WORD_AFFIRMATIVES:
+        if re.search(r'\b' + re.escape(word) + r'\b', text_lower):
+            if len(text_lower) <= _SHORT_MESSAGE_THRESHOLD:
+                return True
+    
+    return False
