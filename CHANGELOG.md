@@ -27,6 +27,19 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - CLI now supports `ai_agent chat`
+- **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
+- Automatic fallback to `repocards` library (replacing previous direct GitHub API implementation) when DeepWiki is unavailable or times out, ensuring robust repository information retrieval for both indexed and newly-created repositories.
+- Updated `pydantic-ai` dependency to include MCP support via `pydantic-ai[mcp]` extra.
+- Enhanced `RepoSummaryOutput` schema to include `source` field indicating whether data came from "deepwiki" or "repocards".
+- Repository info tool logs now track data source (DeepWiki vs repocards) for observability.
+- Replaced previous direct GitHub API implementation with `repocards` library as the fallback mechanism for repository information retrieval.
+- **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
+- **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection).
+- **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
+- **Model Initialization**: Agent now uses configuration from `config.yaml`.
+- **API Client Creation**: OpenAI clients now support custom `base_url` for alternative API endpoints (EPFL, custom deployments).
+- **Dependency**: Added `pyyaml` to `pyproject.toml` dependencies.
+- **.env.dist**: Updated with documentation about new config.yaml system and backward compatibility notes.
 - **UI State Management Simplified**: Removed complex refine intent detection system. Agent now naturally handles requests for alternatives via conversation history without hard-coded heuristics.
 - **UI Handler Simplified**: Reduced `handle_message()` parameters from 8 to 6, removing `last_task_state`, `last_suggestions_state`, and `excluded_names` state tracking.
 - **Agent-Only Path**: Removed `USE_AGENT` conditional (always uses Pydantic AI agent). Deleted dead code path for non-agent pipeline invocation.
@@ -35,6 +48,7 @@ All notable changes to this project will be documented in this file.
 - **Button styling**: Primary actions use Imaging Plaza green theme colors
 
 ### Removed
+- **VLMToolSelector**: Deleted unused `generator/generator.py` containing VLMToolSelector class. The pydantic-ai agent handles all tool selection directly.
 - **Dead Functions**: Removed `is_refine_intent()` and `strip_refine_keywords()` from `utils/tags.py` along with `_REFINE_KEYWORDS` constant.
 - **Legacy UI Code**: Removed `_load_catalog()` function (unused), complex refine intent detection logic (~60 lines), and base_task/prev_suggestions tracking.
 - **Pipeline Simplification**: Removed `force_clarification` logic and `has_refine` import from `api/pipeline.py` (legacy code path never invoked by agent).

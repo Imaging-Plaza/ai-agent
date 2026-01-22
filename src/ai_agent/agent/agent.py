@@ -4,31 +4,51 @@ import os, logging
 from datetime import datetime
 from typing import List
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.usage import UsageLimits
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from ai_agent.generator.prompts import AGENT_SYSTEM_PROMPT
 from ai_agent.generator.schema import ToolSelection
 from ai_agent.api.pipeline import RAGImagingPipeline
 from ai_agent.utils.utils import _best_runnable_link
+from ai_agent.utils.config import get_config
 from .models import AgentToolSelection, ToolRunLog
-from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput, coerce_github_url_or_none
+from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
 from .tools.rerank_tool import tool_rerank, RerankInput
 from .tools.search_tool import tool_search_tools, SearchToolsInput
 from .tools.gradio_space_tool import tool_run_example, RunExampleInput
-from .utils import AgentState, limit_tool_calls, cap_prepare
+from .utils import AgentState, limit_tool_calls, cap_prepare, coerce_github_url_or_none
 
 log = logging.getLogger("agent.core")
 
 
 # Agent model ---------------------------------------------------------------
 
-MODEL_NAME = (
-    os.getenv("OPENAI_MODEL")
-    or "gpt-4o-mini"
-)
+config = get_config()
+agent_model_config = config.agent_model
 
-openai_model = OpenAIModel(MODEL_NAME)
+try:
+    api_key = agent_model_config.get_api_key()
+except ValueError as e:
+    log.error(f"Failed to get API key for agent model: {e}")
+    raise
+
+log.info(f"Initializing agent model: {agent_model_config.name}")
+
+if agent_model_config.base_url:
+    log.info(f"Using custom OpenAI base URL: {agent_model_config.base_url}")
+    provider = OpenAIProvider(
+        base_url=agent_model_config.base_url,
+        api_key=api_key,
+    )
+else:
+    provider = OpenAIProvider(api_key=api_key)
+
+openai_model = OpenAIChatModel(
+    model_name=agent_model_config.name,
+    provider=provider,
+)
 
 # Agent definition -------------------------------------------------------------
 
@@ -84,7 +104,7 @@ async def rerank(ctx: RunContext[AgentState], query: str, candidate_names: List[
 #     return out.model_dump(mode="python")
 
 @agent.tool(retries=0, prepare=cap_prepare)
-@limit_tool_calls("repo_info", cap=3)
+@limit_tool_calls("repo_info", cap=6)
 async def repo_info(ctx: RunContext[AgentState], url: str):
     norm_url = coerce_github_url_or_none(url)
     if not norm_url:
@@ -98,8 +118,14 @@ async def repo_info(ctx: RunContext[AgentState], url: str):
         return payload
 
     try:
-        out = tool_repo_summary(RepoSummaryInput(url=norm_url))
-        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "truncated": out.truncated, "timestamp": datetime.now().isoformat()})
+        out = await tool_repo_summary(RepoSummaryInput(url=norm_url))
+        ctx.deps.tool_calls.append({
+            "tool": "repo_info",
+            "url": norm_url,
+            "truncated": out.truncated,
+            "source": out.source,
+            "timestamp": datetime.now().isoformat()
+        })
         return out.model_dump(mode="python")
     except Exception as e:
         ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "error": str(e), "timestamp": datetime.now().isoformat()})
