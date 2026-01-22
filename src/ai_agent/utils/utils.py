@@ -1,5 +1,6 @@
 from ai_agent.retriever.software_doc import SoftwareDoc
 from typing import Optional, List, Any
+import re
 
 def _best_runnable_link(doc: SoftwareDoc) -> Optional[str]:
     """Return the most user-friendly runnable link.
@@ -84,10 +85,64 @@ def _coerce_files_to_paths(files: List[Any]) -> List[str]:
 
 
 def _is_affirmative(text: str) -> bool:
-    """Check if user message is affirmative (yes, ok, sure, etc.)."""
+    """Check if user message is affirmative (yes, ok, sure, etc.).
+    
+    Uses word boundary matching and context checking to avoid false positives.
+    Only matches when affirmative words appear as the primary intent, not as
+    part of a longer sentence with different meaning.
+    """
     text_lower = text.lower().strip()
-    affirmatives = {
-        "yes", "y", "yeah", "yep", "sure", "ok", "okay", "fine",
-        "go ahead", "do it", "run it", "please", "👍", "✅"
-    }
-    return any(aff in text_lower for aff in affirmatives)
+    
+    # Empty or very short messages are not affirmative
+    if not text_lower:
+        return False
+    
+    # Multi-word phrases to check as complete phrases
+    multi_word_affirmatives = [
+        "go ahead", "do it", "run it", "sounds good", "looks good"
+    ]
+    
+    # Single word affirmatives (will use word boundary matching)
+    single_word_affirmatives = [
+        "yes", "y", "yeah", "yep", "yup", "sure", "ok", "okay", 
+        "fine", "alright", "right", "correct", "affirmative"
+    ]
+    
+    # Emoji affirmatives (exact match)
+    emoji_affirmatives = ["👍", "✅", "✓"]
+    
+    # Check emojis first (exact substring match)
+    for emoji in emoji_affirmatives:
+        if emoji in text:  # Don't lowercase for emojis
+            return True
+    
+    # Negation words that indicate negative context
+    negation_words = ["no", "not", "don't", "dont", "never", "nothing"]
+    has_negation = any(re.search(r'\b' + re.escape(neg) + r'\b', text_lower) for neg in negation_words)
+    
+    # If there's negation, be more conservative - only match if it's a short, standalone affirmative
+    if has_negation:
+        # Check if it's EXACTLY one of the single word affirmatives (possibly with punctuation)
+        stripped = text_lower.strip('.,!? ')
+        if stripped in single_word_affirmatives:
+            return True
+        return False
+    
+    # Check multi-word phrases with word boundaries
+    for phrase in multi_word_affirmatives:
+        if re.search(r'\b' + re.escape(phrase) + r'\b', text_lower):
+            # Make sure the phrase is the main content, not buried in a long sentence
+            # If the text is much longer than the phrase, it's probably not affirmative
+            if len(text_lower) <= len(phrase) * 3:
+                return True
+    
+    # Check single words with word boundaries
+    for word in single_word_affirmatives:
+        if re.search(r'\b' + re.escape(word) + r'\b', text_lower):
+            # For single words, be even more conservative about sentence length
+            # Short messages with affirmative words are likely affirmative
+            # Long messages with affirmative words are likely not
+            if len(text_lower) <= 30:  # Threshold for "short message"
+                return True
+    
+    return False
