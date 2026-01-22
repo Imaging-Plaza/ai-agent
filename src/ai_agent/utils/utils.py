@@ -111,49 +111,34 @@ def _is_affirmative(text: str) -> bool:
     """Check if user message is affirmative (yes, ok, sure, etc.).
     
     Uses word boundary matching and context checking to avoid false positives.
-    Only matches when affirmative words appear as the primary intent, not as
-    part of a longer sentence with different meaning.
     """
     text_lower = text.lower().strip()
     
-    # Empty or very short messages are not affirmative
     if not text_lower:
         return False
     
-    # Check emojis first (exact substring match)
+    # Check emojis
     for emoji in _EMOJI_AFFIRMATIVES:
-        if emoji in text:  # Don't lowercase for emojis
+        if emoji in text:
             return True
     
-    # Check for negation context using pre-compiled pattern
+    # With negation, only match if entire message is exactly one affirmative word
     has_negation = _NEGATION_PATTERN.search(text_lower) is not None
-    
-    # If there's negation, be very conservative to avoid false positives
-    # Only match if the ENTIRE message (after stripping trailing punctuation) is
-    # exactly one affirmative word. This prevents "not okay", "don't do it" from matching
-    # while still allowing rare edge cases like the user typing just "yes!" after saying 
-    # "I'm not sure..." in a previous message.
     if has_negation:
-        # Remove only trailing punctuation and whitespace (not from middle of text)
         stripped = re.sub(r'[.,!?\s]+$', '', text_lower)
         if stripped in _SINGLE_WORD_AFFIRMATIVES:
             return True
         return False
     
-    # Check multi-word phrases with word boundaries
+    # Check multi-word phrases (reject if text is much longer than phrase)
     for phrase in _MULTI_WORD_AFFIRMATIVES:
         if re.search(r'\b' + re.escape(phrase) + r'\b', text_lower):
-            # Make sure the phrase is the main content, not buried in a long sentence
-            # If the text is much longer than the phrase, it's probably not affirmative
             if len(text_lower) <= len(phrase) * _PHRASE_LENGTH_MULTIPLIER:
                 return True
     
-    # Check single words with word boundaries
+    # Check single words (reject if message is long)
     for word in _SINGLE_WORD_AFFIRMATIVES:
         if re.search(r'\b' + re.escape(word) + r'\b', text_lower):
-            # For single words, be even more conservative about sentence length
-            # Short messages with affirmative words are likely affirmative
-            # Long messages with affirmative words are likely not
             if len(text_lower) <= _SHORT_MESSAGE_THRESHOLD:
                 return True
     
