@@ -13,11 +13,11 @@ from api.pipeline import RAGImagingPipeline
 from utils.utils import _best_runnable_link
 from utils.config import get_config
 from .models import AgentToolSelection, ToolRunLog
-from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput, coerce_github_url_or_none
+from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
 from .tools.rerank_tool import tool_rerank, RerankInput
 from .tools.search_tool import tool_search_tools, SearchToolsInput
 from .tools.gradio_space_tool import tool_run_example, RunExampleInput
-from .utils import AgentState, limit_tool_calls, cap_prepare
+from .utils import AgentState, limit_tool_calls, cap_prepare, coerce_github_url_or_none
 
 log = logging.getLogger("agent.core")
 
@@ -103,7 +103,7 @@ async def rerank(ctx: RunContext[AgentState], query: str, candidate_names: List[
 #     return out.model_dump(mode="python")
 
 @agent.tool(retries=0, prepare=cap_prepare)
-@limit_tool_calls("repo_info", cap=3)
+@limit_tool_calls("repo_info", cap=6)
 async def repo_info(ctx: RunContext[AgentState], url: str):
     norm_url = coerce_github_url_or_none(url)
     if not norm_url:
@@ -117,8 +117,13 @@ async def repo_info(ctx: RunContext[AgentState], url: str):
         return payload
 
     try:
-        out = tool_repo_summary(RepoSummaryInput(url=norm_url))
-        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "truncated": out.truncated})
+        out = await tool_repo_summary(RepoSummaryInput(url=norm_url))
+        ctx.deps.tool_calls.append({
+            "tool": "repo_info",
+            "url": norm_url,
+            "truncated": out.truncated,
+            "source": out.source
+        })
         return out.model_dump(mode="python")
     except Exception as e:
         ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "error": str(e)})

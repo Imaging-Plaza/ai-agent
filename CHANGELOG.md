@@ -5,11 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
+- Automatic fallback to `repocards` library (replacing previous direct GitHub API implementation) when DeepWiki is unavailable or times out, ensuring robust repository information retrieval for both indexed and newly-created repositories.
+
+### Changed
+- Updated `pydantic-ai` dependency to include MCP support via `pydantic-ai[mcp]` extra.
+- Enhanced `RepoSummaryOutput` schema to include `source` field indicating whether data came from "deepwiki" or "repocards".
+- Repository info tool logs now track data source (DeepWiki vs repocards) for observability.
+- Replaced previous direct GitHub API implementation with `repocards` library as the fallback mechanism for repository information retrieval.
 - **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
 - **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection).
 - **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
-
-### Changed
 - **Model Initialization**: Agent now uses configuration from `config.yaml`.
 - **API Client Creation**: OpenAI clients now support custom `base_url` for alternative API endpoints (EPFL, custom deployments).
 - **Dependency**: Added `pyyaml` to `pyproject.toml` dependencies.
