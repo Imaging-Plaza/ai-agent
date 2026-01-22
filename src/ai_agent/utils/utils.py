@@ -128,10 +128,14 @@ def _is_affirmative(text: str) -> bool:
     # Check for negation context using pre-compiled pattern
     has_negation = _NEGATION_PATTERN.search(text_lower) is not None
     
-    # If there's negation, be more conservative - only match if it's a short, standalone affirmative
+    # If there's negation, be very conservative to avoid false positives
+    # Only match if the ENTIRE message (after stripping trailing punctuation) is
+    # exactly one affirmative word. This prevents "not okay", "don't do it" from matching
+    # while still allowing rare edge cases like the user typing just "yes!" after saying 
+    # "I'm not sure..." in a previous message.
     if has_negation:
-        # Check if it's EXACTLY one of the single word affirmatives (possibly with punctuation)
-        stripped = text_lower.strip('.,!? ')
+        # Remove only trailing punctuation and whitespace (not from middle of text)
+        stripped = re.sub(r'[.,!?\s]+$', '', text_lower)
         if stripped in _SINGLE_WORD_AFFIRMATIVES:
             return True
         return False
