@@ -19,8 +19,12 @@ All notable changes to this project will be documented in this file.
   - Encapsulates all agent logic in testable, UI-independent function
   - State management via `ChatState` dataclass with serialization
   - `ChatMessage` dataclass for rich reply composition with markdown, images, files, traces
-- `chat_interface.py` module with agent response logic
-- `chat_app.py` Gradio app implementing the chat UI
+- `handlers.py` module with agent response logic
+- `components.py` module for reusable chat UI components
+- `formatters.py` helpers for rich message and media formatting
+- `state.py` chat state models and serialization utilities
+- `visualizations.py` helpers for rendering previews, traces, and visual state
+- `app.py` Gradio app implementing the chat UI
 - **Imaging Plaza branding**: Custom CSS theme with Plaza green colors (#00A991)
 - **Logo integration**: Official Imaging Plaza white logo displayed in header
 - **Redesigned layout**: Reorganized UI with header banner, left chat panel, and right sidebar for files and state
