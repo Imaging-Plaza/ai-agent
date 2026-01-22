@@ -1,6 +1,7 @@
 import plotly.graph_objects as go
 from typing import List, Dict, Any
 from collections import Counter
+from datetime import datetime
 
 
 def create_tool_usage_chart(tool_calls: List[Dict[str, Any]]) -> go.Figure:
@@ -118,9 +119,14 @@ def create_tool_timeline(tool_calls: List[Dict[str, Any]]) -> go.Figure:
     # Extract tool names and create sequence
     tool_names = []
     statuses = []
+    timestamps = []
     for tc in tool_calls:
         tool = tc.get("tool", "unknown")
         tool_names.append(tool)
+        
+        # Capture timestamp if available
+        ts = tc.get("timestamp", "")
+        timestamps.append(ts)
         
         # Determine status
         if tc.get("blocked"):
@@ -147,6 +153,20 @@ def create_tool_timeline(tool_calls: List[Dict[str, Any]]) -> go.Figure:
     for status, color in color_map.items():
         indices = [i for i, s in enumerate(statuses) if s == status]
         if indices:
+            # Format timestamps for display
+            display_timestamps = []
+            for i in indices:
+                ts = timestamps[i]
+                if ts:
+                    try:
+                        # Parse ISO format and format as HH:MM:SS
+                        dt = datetime.fromisoformat(ts)
+                        display_timestamps.append(dt.strftime("%H:%M:%S"))
+                    except:
+                        display_timestamps.append(ts[:19])  # Fallback to raw string
+                else:
+                    display_timestamps.append("N/A")
+            
             fig.add_trace(go.Scatter(
                 x=[x_positions[i] for i in indices],
                 y=[tool_names[i] for i in indices],
@@ -157,7 +177,8 @@ def create_tool_timeline(tool_calls: List[Dict[str, Any]]) -> go.Figure:
                     color=color,
                     line=dict(width=1, color='white'),
                 ),
-                hovertemplate='<b>%{y}</b><br>Call #%{x}<extra></extra>',
+                customdata=display_timestamps,
+                hovertemplate='<b>%{y}</b><br>Call #%{x}<br>Time: %{customdata}<extra></extra>',
             ))
     
     fig.update_layout(

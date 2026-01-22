@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os, logging
+from datetime import datetime
 from typing import List
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
@@ -46,14 +47,14 @@ async def search_tools(ctx: RunContext[AgentState], query: str, excluded: List[s
     all_excluded = list(set((excluded or []) + ctx.deps.excluded_tools))
     out = tool_search_tools(SearchToolsInput(query=query, excluded=all_excluded, top_k=top_k, original_formats=original_formats or []))
     payload = [c.model_dump(mode="python") for c in out.candidates]
-    ctx.deps.tool_calls.append({"tool": "search_tools", "query": query, "count": len(payload), "original_formats": original_formats or [], "excluded": all_excluded})
+    ctx.deps.tool_calls.append({"tool": "search_tools", "query": query, "count": len(payload), "original_formats": original_formats or [], "excluded": all_excluded, "timestamp": datetime.now().isoformat()})
     return payload
 
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("rerank", cap=1)
 async def rerank(ctx: RunContext[AgentState], query: str, candidate_names: List[str], top_k: int = 5):
     out = tool_rerank(RerankInput(query=query, candidate_names=candidate_names, top_k=top_k))
-    ctx.deps.tool_calls.append({"tool": "rerank", "query": query, "used_model": out.used_model, "count": len(out.reranked)})
+    ctx.deps.tool_calls.append({"tool": "rerank", "query": query, "used_model": out.used_model, "count": len(out.reranked), "timestamp": datetime.now().isoformat()})
     return out.model_dump(mode="python")
 
 # @agent.tool(retries=2, prepare=cap_prepare)
@@ -93,15 +94,15 @@ async def repo_info(ctx: RunContext[AgentState], url: str):
             "hint": "Pass a GitHub repo URL or 'owner/repo' to repo_info(url).",
             "original": url,
         }
-        ctx.deps.tool_calls.append({"tool": "repo_info", "url": url, "skipped": True, "reason": "NON_GITHUB_URL"})
+        ctx.deps.tool_calls.append({"tool": "repo_info", "url": url, "skipped": True, "reason": "NON_GITHUB_URL", "timestamp": datetime.now().isoformat()})
         return payload
 
     try:
         out = tool_repo_summary(RepoSummaryInput(url=norm_url))
-        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "truncated": out.truncated})
+        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "truncated": out.truncated, "timestamp": datetime.now().isoformat()})
         return out.model_dump(mode="python")
     except Exception as e:
-        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "error": str(e)})
+        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "error": str(e), "timestamp": datetime.now().isoformat()})
         return {
             "invalid": True,
             "reason": "FETCH_FAILED",
@@ -121,7 +122,7 @@ async def resolve_demo_link(ctx: RunContext[AgentState], tool_name: str):
             link = _best_runnable_link(doc)
     except Exception:
         link = None
-    ctx.deps.tool_calls.append({"tool": "resolve_demo_link", "tool_name": tool_name, "demo_link": link})
+    ctx.deps.tool_calls.append({"tool": "resolve_demo_link", "tool_name": tool_name, "demo_link": link, "timestamp": datetime.now().isoformat()})
     return {"tool_name": tool_name, "demo_link": link}
 
 # Runner wrapper ---------------------------------------------------------------
@@ -171,7 +172,12 @@ def run_agent(
 
     # Convert tool call dicts into ToolRunLog entries
     for tc in deps.tool_calls:
-        tool_logs.append(ToolRunLog(tool=tc.get("tool"), inputs={k: v for k, v in tc.items() if k not in {"tool"}}, summary=str(tc)))
+        tool_logs.append(ToolRunLog(
+            tool=tc.get("tool"), 
+            inputs={k: v for k, v in tc.items() if k not in {"tool", "timestamp"}}, 
+            summary=str(tc),
+            timestamp=tc.get("timestamp")
+        ))
 
     # Post-run enrichment: pull demo links from resolve_demo_link tool calls
     demo_map = {}

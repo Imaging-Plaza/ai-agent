@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
 from ai_agent.agent.agent import run_agent
@@ -108,6 +109,7 @@ def respond(
                 "tool_name": state.pending_demo_tool,
                 "ran": demo_result.ran,
                 "endpoint_url": demo_result.endpoint_url,
+                "timestamp": datetime.now().isoformat(),
             })
         except Exception as e:
             log.exception("Demo execution failed")

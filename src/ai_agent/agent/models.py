@@ -10,6 +10,7 @@ class ToolRunLog(BaseModel):
     inputs: Dict[str, Any] = Field(default_factory=dict)
     summary: str
     error: Optional[str] = None
+    timestamp: Optional[str] = None
 
 class AgentToolSelection(ToolSelection):
     tool_calls: List[ToolRunLog] = Field(default_factory=list)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+from datetime import datetime
 from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 from pydantic import BaseModel, Field
@@ -51,7 +52,7 @@ def limit_tool_calls(tool_name: str, cap: int, count_on_success: bool = True):
                 # Disable for the remainder of the run and log a synthetic blocked entry.
                 ctx.deps.disabled_tools.add(name)
                 ctx.deps.tool_calls.append({
-                    "tool": name, "blocked": True, "reason": "quota", "cap": cap, "count": current
+                    "tool": name, "blocked": True, "reason": "quota", "cap": cap, "count": current, "timestamp": datetime.now().isoformat()
                 })
                 raise NonRetryableToolError(
                     f"{QUOTA_PREFIX} {name} usage limit reached (cap={cap}). "
