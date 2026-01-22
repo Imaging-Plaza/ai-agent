@@ -142,7 +142,6 @@ def create_tool_timeline(tool_calls: List[Dict[str, Any]]) -> go.Figure:
         "error": "#FF6B6B",
         "blocked": "#FFA500",
     }
-    colors = [color_map.get(s, "#CCCCCC") for s in statuses]
     
     # Create scatter plot as timeline
     x_positions = list(range(1, len(tool_names) + 1))
