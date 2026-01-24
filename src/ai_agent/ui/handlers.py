@@ -35,7 +35,7 @@ def respond(
         files: List of uploaded files (paths or file objects)
         state_dict: Serialized ChatState
         doc_index: Mapping of tool name -> SoftwareDoc
-        model: OpenAI model to use (optional)
+        model: Model display name (e.g., 'gpt-4o' or 'openai/gpt-oss-120b [EPFL]')
         top_k: Number of candidates to retrieve (optional)
         num_choices: Number of tools to recommend (optional)
     
@@ -188,17 +188,60 @@ def respond(
     log.info("Running agent: task=%s, formats=%s, excluded=%s", 
              clean_message, original_formats, list(state.banlist))
     
-    agent_result = run_agent(
-        clean_message,
-        image_data_url=data_url,
-        excluded=list(state.banlist),
-        original_formats=original_formats,
-        image_meta=state.last_image_meta,
-        conversation_history=state.conversation_history,
-        model=model,
-        top_k=top_k,
-        num_choices=num_choices,
-    )
+    # Parse model configuration if provided
+    model_name = None
+    base_url_override = None  # Use different variable name
+    if model:
+        # Import here to avoid circular dependency
+        from ai_agent.ui.components import get_model_config
+        model_config = get_model_config(model)
+        model_name = model_config.get("name")
+        base_url_override = model_config.get("base_url")  # Can be None for OpenAI
+        log.info(f"Model config: {model} -> name={model_name}, base_url={base_url_override}")
+    
+    try:
+        agent_result = run_agent(
+            clean_message,
+            image_data_url=data_url,
+            excluded=list(state.banlist),
+            original_formats=original_formats,
+            image_meta=state.last_image_meta,
+            conversation_history=state.conversation_history,
+            model=model_name,
+            base_url=base_url_override if model else None,  # Only override if model selected
+            top_k=top_k,
+            num_choices=num_choices,
+        )
+    except ValueError as e:
+        # Configuration error (missing API key, etc.)
+        error_msg = str(e)
+        log.error(f"Configuration error: {error_msg}")
+        reply.text = f"⚠️ **Configuration Error**\n\n{error_msg}\n\n"
+        if "EPFL_API_KEY" in error_msg:
+            reply.text += "💡 **Tip:** EPFL models require VPN connection and EPFL_API_KEY in your .env file.\n\n"
+            reply.text += "Try selecting an OpenAI model (gpt-4o-mini, gpt-4o) instead."
+        elif "OPENAI_API_KEY" in error_msg:
+            reply.text += "💡 **Tip:** Set OPENAI_API_KEY in your .env file to use OpenAI models."
+        state.conversation_history.append(f"Assistant: {reply.text}")
+        return reply, state
+    except Exception as e:
+        # Other errors (connection, API, etc.)
+        error_msg = str(e)
+        log.error(f"Agent execution error: {error_msg}", exc_info=True)
+        reply.text = f"❌ **Error**\n\n{error_msg}\n\n"
+        
+        # Provide helpful hints based on error type
+        if "key_model_access_denied" in error_msg or "key not allowed" in error_msg.lower():
+            reply.text += "💡 **Tip:** This API key doesn't have access to this model.\n\n"
+            if "gpt-4o" in error_msg or "gpt-3.5" in error_msg:
+                reply.text += "If using EPFL config, try selecting an EPFL model from the dropdown (e.g., 'openai/gpt-oss-120b [EPFL]')."
+            else:
+                reply.text += "If using OpenAI models, make sure you're using the correct API key."
+        elif "ConnectError" in error_msg or "Connection" in error_msg:
+            reply.text += "💡 **Tip:** Connection failed. If using EPFL models, ensure you're connected to EPFL VPN."
+        
+        state.conversation_history.append(f"Assistant: {reply.text}")
+        return reply, state
     
     result_dict = agent_result.to_legacy_dict()
     

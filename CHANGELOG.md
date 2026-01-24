@@ -59,6 +59,7 @@ All notable changes to this project will be documented in this file.
 - **Legacy Method**: Removed `recommend_and_link()` method from `api/pipeline.py` (~180 lines) - only used by outdated tests, replaced by agent-based approach.
 - **State Variables**: Removed 3 Gradio State objects: `last_task_state`, `last_suggestions_state`, `excluded_names`.
 - **Outdated Tests**: Removed `tests/full_test.py` which only tested the removed `recommend_and_link()` method.
+- CLI no more supports `ai_agent ui` command
 
 ### Fixed
 - **Conversation Context**: Agent now properly maintains conversation history, enabling natural understanding of follow-up requests like "show me alternatives".

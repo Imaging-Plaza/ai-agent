@@ -8,7 +8,7 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from ai_agent.generator.prompts import AGENT_SYSTEM_PROMPT
+from ai_agent.generator.prompts import get_agent_system_prompt
 from ai_agent.generator.schema import ToolSelection
 from ai_agent.api.pipeline import RAGImagingPipeline
 from ai_agent.utils.utils import _best_runnable_link
@@ -54,7 +54,7 @@ openai_model = OpenAIChatModel(
 
 agent = Agent(
     model=openai_model,
-    system_prompt=AGENT_SYSTEM_PROMPT,
+    system_prompt=get_agent_system_prompt(os.getenv("NUM_CHOICES", "3")),
     deps_type=AgentState,
 )
 
@@ -65,7 +65,9 @@ agent = Agent(
 async def search_tools(ctx: RunContext[AgentState], query: str, excluded: List[str] | None = None, top_k: int = 12, original_formats: List[str] | None = None):
     # Merge explicit excluded param with state's excluded_tools
     all_excluded = list(set((excluded or []) + ctx.deps.excluded_tools))
-    out = tool_search_tools(SearchToolsInput(query=query, excluded=all_excluded, top_k=top_k, original_formats=original_formats or []))
+    # Use override from context if available
+    effective_top_k = ctx.deps.override_top_k if ctx.deps.override_top_k is not None else top_k
+    out = tool_search_tools(SearchToolsInput(query=query, excluded=all_excluded, top_k=effective_top_k, original_formats=original_formats or []))
     payload = [c.model_dump(mode="python") for c in out.candidates]
     ctx.deps.tool_calls.append({"tool": "search_tools", "query": query, "count": len(payload), "original_formats": original_formats or [], "excluded": all_excluded, "timestamp": datetime.now().isoformat()})
     return payload
@@ -161,6 +163,7 @@ def run_agent(
     image_meta: str | None = None,
     conversation_history: List[str] | None = None,
     model: str | None = None,
+    base_url: str | None = None,
     top_k: int | None = None,
     num_choices: int | None = None,
 ) -> AgentToolSelection:
@@ -172,7 +175,15 @@ def run_agent(
 
     tool_logs: List[ToolRunLog] = []
 
-    deps = AgentState(excluded_tools=excluded or [])
+    # Create AgentState with runtime overrides
+    deps = AgentState(
+        excluded_tools=excluded or [],
+        override_model=model,
+        override_base_url=base_url,
+        override_top_k=top_k,
+        override_num_choices=num_choices,
+    )
+    
     # Provide hidden metadata context lines (non-user-visible) below a delimiter
     hidden_meta = ""
     if original_formats:
@@ -194,7 +205,95 @@ def run_agent(
     else:
         prompt = task + extra_context + hidden_meta
     
-    result = agent.run_sync(prompt, deps=deps, output_type=ToolSelection, usage_limits=UsageLimits(tool_calls_limit=10)).output
+    # Determine which agent instance to use
+    agent_instance = agent  # Default to global agent
+    effective_num_choices = num_choices if num_choices is not None else 3
+    effective_model = model if model else agent_model_config.name
+    effective_top_k = top_k if top_k is not None else 12
+    
+    # When model is provided from UI, base_url comes with it (can be None for OpenAI)
+    # When model is NOT provided, use config defaults
+    if model:
+        # Model selected from dropdown - base_url parameter is authoritative
+        if base_url and "inference.rcp.epfl.ch" in base_url:
+            # EPFL model selected
+            runtime_api_key = os.getenv("EPFL_API_KEY")
+            if not runtime_api_key:
+                raise ValueError("EPFL_API_KEY not found. Cannot use EPFL models without VPN and API key.")
+            effective_base_url = base_url
+            log.info("✓ Using EPFL_API_KEY for EPFL inference server")
+        else:
+            # OpenAI or other model selected (base_url=None means OpenAI)
+            runtime_api_key = os.getenv("OPENAI_API_KEY")
+            if not runtime_api_key:
+                raise ValueError("OPENAI_API_KEY not found. Cannot use OpenAI models.")
+            effective_base_url = base_url  # Will be None for OpenAI
+            log.info("✓ Using OPENAI_API_KEY for OpenAI endpoint")
+    else:
+        # No model override - use config defaults
+        effective_base_url = agent_model_config.base_url
+        if effective_base_url and "inference.rcp.epfl.ch" in effective_base_url:
+            runtime_api_key = os.getenv("EPFL_API_KEY")
+            if not runtime_api_key:
+                raise ValueError("EPFL_API_KEY not found")
+            log.info("✓ Using EPFL_API_KEY from config")
+        else:
+            runtime_api_key = os.getenv("OPENAI_API_KEY")
+            if not runtime_api_key:
+                raise ValueError("OPENAI_API_KEY not found")
+            log.info("✓ Using OPENAI_API_KEY from config")
+    
+    # Log runtime configuration
+    endpoint_display = effective_base_url if effective_base_url else "api.openai.com"
+    log.info(
+        f"🤖 Agent execution - Model: {effective_model}, endpoint: {endpoint_display}, "
+        f"top_k: {effective_top_k}, num_choices: {effective_num_choices}, excluded: {len(excluded or [])}"
+    )
+    
+    # Create dynamic agent:
+    needs_dynamic_agent = (
+        (model and model != agent_model_config.name) or
+        (base_url is not None and base_url != agent_model_config.base_url) or
+        (runtime_api_key != api_key)  # API key mismatch - need new agent!
+    )
+    
+    if needs_dynamic_agent:
+        log.info(f"📦 Creating runtime agent with model={effective_model}, endpoint={effective_base_url or 'api.openai.com'}")
+        
+        runtime_provider = OpenAIProvider(
+            base_url=effective_base_url,
+            api_key=runtime_api_key,
+        )
+        runtime_model = OpenAIChatModel(model_name=effective_model, provider=runtime_provider)
+        agent_instance = Agent(
+            model=runtime_model,
+            system_prompt=get_agent_system_prompt(effective_num_choices),
+            deps_type=AgentState,
+        )
+        # Register tools on the dynamic agent
+        agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
+        agent_instance.tool(rerank, retries=2, prepare=cap_prepare)
+        agent_instance.tool(repo_info, retries=0, prepare=cap_prepare)
+        agent_instance.tool(resolve_demo_link, retries=2, prepare=cap_prepare)
+    elif num_choices is not None and num_choices != 3:
+        # Model/base_url same but num_choices differs - create agent with updated prompt
+        log.info(f"📦 Creating runtime agent with num_choices={effective_num_choices} (model: {effective_model})")
+        agent_instance = Agent(
+            model=openai_model,
+            system_prompt=get_agent_system_prompt(effective_num_choices),
+            deps_type=AgentState,
+        )
+        # Register tools on the dynamic agent
+        agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
+        agent_instance.tool(rerank, retries=2, prepare=cap_prepare)
+        agent_instance.tool(repo_info, retries=0, prepare=cap_prepare)
+        agent_instance.tool(resolve_demo_link, retries=2, prepare=cap_prepare)
+    else:
+        log.info(f"♻️  Using global agent (model: {effective_model}, num_choices: {effective_num_choices})")
+    
+    log.debug(f"Prompt length: {len(prompt)} chars, has_image: {image_data_url is not None}")
+    result = agent_instance.run_sync(prompt, deps=deps, output_type=ToolSelection, usage_limits=UsageLimits(tool_calls_limit=10)).output
+    log.info(f"✅ Agent execution complete - choices returned: {len(result.choices)}")
 
     # Convert tool call dicts into ToolRunLog entries
     for tc in deps.tool_calls:

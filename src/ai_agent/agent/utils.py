@@ -18,6 +18,12 @@ class AgentState(BaseModel):
     tool_counts: Dict[str, int] = Field(default_factory=dict)
     disabled_tools: Set[str] = Field(default_factory=set)
     excluded_tools: List[str] = Field(default_factory=list)  # Tools to exclude from search
+    
+    # Runtime overrides (session-only, not persisted)
+    override_model: Optional[str] = None
+    override_base_url: Optional[str] = None
+    override_top_k: Optional[int] = None
+    override_num_choices: Optional[int] = None
 
 # Quota decorator + prepare hook -----------------------------------------------
 

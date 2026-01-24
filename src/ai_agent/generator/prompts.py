@@ -27,7 +27,7 @@ QUESTION FORMAT (when clarification is needed)
 - Also include a one-line context explaining why you need this info (≤ 15 words).
 
 SCORING WHEN CLEAR (no question)
-- Rank up to NUM_CHOICES tools that truly match.
+- Rank up to {num_choices} tools that truly match.
 - Accuracy (0–100) = Task match (40) + Input compatibility (30) + Features (30).
 - Consider format friction (e.g., TIF→NIfTI conversion) in “compatibility” (±5 points).
 - Prefer tools matching the file extension/modality and 2D/3D nature.
@@ -37,19 +37,19 @@ WHEN TO SAY “NO SUITABLE TOOL”
   and include a structured reason and explanation.
 
 OUTPUT (valid JSON):
-{
-  "conversation": {
+{{
+  "conversation": {{
     "status": "needs_clarification" | "complete",
     "question": "string, required if status=needs_clarification",
     "context": "string, explain why you need this information",
     "options": ["option1", "option2", ...]  // optional; 3–5 max if present
-  },
+  }},
   "choices": [
-    {"name": "tool-name", "rank": 1, "accuracy": 95.5, "why": "...", "demo_link": "optional"}
+    {{"name": "tool-name", "rank": 1, "accuracy": 95.5, "why": "...", "demo_link": "optional"}}
   ],
   "reason": "no_suitable_tool | no_modality_match | no_task_match | no_dimension_match",
   "explanation": "string (required if choices is empty)"
-}
+}}
 
 CONSISTENCY RULES
 - If you return choices = [], you MUST set conversation.status = "complete" and include a reason + explanation.
@@ -77,7 +77,7 @@ AGENT_SYSTEM_PROMPT = (
     + "\n1. If task ambiguous (operation OR target structure missing) -> immediately return clarification JSON (NO tool calls). Treat ultra-generic inputs like 'help', 'help me', 'suggest tools', 'what can you do', or empty/emoji-only as ambiguous. Do NOT guess a modality or claim PNG just from a preview."
     + "\n2. Otherwise: call search_tools(query) ONCE early (pass original_formats param if present; do NOT manufacture or over-weight formats — they are a soft compatibility hint)."
     + "\n3. If you have >=3 plausible candidates and high confidence, you MAY skip rerank; else call rerank(query,candidate_names)."
-    + "\n4. Mandatory repo verification before final output: After search_tools (and optional rerank), take the top K ≤ 3 candidates you plan to return and you MUST call repo_info(url) once for each. Use the repo URL from the candidate payload (field name repo_url; fallback keys: github, url, homepage). If a candidate has no repo URL, drop it rather than guessing. Only after repo_info confirms alignment with the requested task should you call resolve_demo_link(name). Do not return any candidate that wasn’t verified by repo_info. Call `repo_info(url)` **only** with a GitHub repo URL or `owner/repo`. If a candidate lacks that, **drop it** (don’t pass papers, docs, or homepages)."
+    + "\n4. Mandatory repo verification before final output: After search_tools (and optional rerank), take the top K ≤ {num_choices} candidates you plan to return and you MUST call repo_info(url) once for each. Use the repo URL from the candidate payload (field name repo_url; fallback keys: github, url, homepage). If a candidate has no repo URL, drop it rather than guessing. Only after repo_info confirms alignment with the requested task should you call resolve_demo_link(name). Do not return any candidate that wasn't verified by repo_info. Call `repo_info(url)` **only** with a GitHub repo URL or `owner/repo`. If a candidate lacks that, **drop it** (don't pass papers, docs, or homepages)."
     + "\n5. The preview you receive may be PNG even if the original file is TIFF/DICOM/NIfTI, etc. Use provided original_formats hint (if any) for compatibility scoring only; do NOT assume a TIFF implies microscopy (could still be CT exported). Ask for modality if unclear."
     + "\n6. FINAL RESPONSE: ONE JSON object only — no prose, no code fences. Include conversation + choices (rank, accuracy, why) OR clarification question."
     + "\n7. Accuracy scoring: task(40)+compat(30)+features(30); incorporate original formats & 2D/3D nature from metadata; penalize format conversions (−5) if heavy."
@@ -90,3 +90,13 @@ AGENT_SYSTEM_PROMPT = (
       - resolve_demo_link(tool_name="ToolName")
       """
 )
+
+
+def get_selector_system_prompt(num_choices: int = 3) -> str:
+    """Generate the system prompt with dynamic num_choices."""
+    return SELECTOR_SYSTEM.format(num_choices=num_choices)
+
+
+def get_agent_system_prompt(num_choices: int = 3) -> str:
+    """Generate the full agent system prompt with dynamic num_choices."""
+    return AGENT_SYSTEM_PROMPT.format(num_choices=num_choices)
