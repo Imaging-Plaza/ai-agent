@@ -5,10 +5,34 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
-- Automatic fallback to `repocards` library (replacing previous direct GitHub API implementation) when DeepWiki is unavailable or times out, ensuring robust repository information retrieval for both indexed and newly-created repositories.
+- **New chat-based interface** (`ai_agent chat`) with conversational AI assistant
+  - Chatbot component with rich media rendering (images, files, JSON, code blocks)
+  - Inline file upload support for PNG, JPG, WEBP, TIFF, DICOM, NIfTI, CSV, JSON, XML, MP3, MP4
+  - File previews with format-specific icons rendered in chat messages
+  - Tool recommendation cards with detailed metadata (modality, dimensions, license, tags)
+  - Demo execution as conversational flow - assistant asks "Would you like me to run the demo?"
+  - Tool execution traces displayed as collapsible `<details>` sections after responses
+  - Debug sidebar showing conversation state, excluded tools, and preview images
+  - Full conversation context maintained across multi-turn interactions
+  - Affirmative response detection for demo confirmations (yes, sure, ok, etc.)
+- `respond(message, files, state) -> (reply, media, state)` core interface function
+  - Encapsulates all agent logic in testable, UI-independent function
+  - State management via `ChatState` dataclass with serialization
+  - `ChatMessage` dataclass for rich reply composition with markdown, images, files, traces
+- `handlers.py` module with agent response logic
+- `components.py` module for reusable chat UI components
+- `formatters.py` helpers for rich message and media formatting
+- `state.py` chat state models and serialization utilities
+- `visualizations.py` helpers for rendering previews, traces, and visual state
+- `app.py` Gradio app implementing the chat UI
+- **Imaging Plaza branding**: Custom CSS theme with Plaza green colors (#00A991)
+- **Logo integration**: Official Imaging Plaza white logo displayed in header
+- **Redesigned layout**: Reorganized UI with header banner, left chat panel, and right sidebar for files and state
 
 ### Changed
+- CLI now supports `ai_agent chat`
+- **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
+- Automatic fallback to `repocards` library (replacing previous direct GitHub API implementation) when DeepWiki is unavailable or times out, ensuring robust repository information retrieval for both indexed and newly-created repositories.
 - Updated `pydantic-ai` dependency to include MCP support via `pydantic-ai[mcp]` extra.
 - Enhanced `RepoSummaryOutput` schema to include `source` field indicating whether data came from "deepwiki" or "repocards".
 - Repository info tool logs now track data source (DeepWiki vs repocards) for observability.
@@ -23,6 +47,9 @@ All notable changes to this project will be documented in this file.
 - **UI State Management Simplified**: Removed complex refine intent detection system. Agent now naturally handles requests for alternatives via conversation history without hard-coded heuristics.
 - **UI Handler Simplified**: Reduced `handle_message()` parameters from 8 to 6, removing `last_task_state`, `last_suggestions_state`, and `excluded_names` state tracking.
 - **Agent-Only Path**: Removed `USE_AGENT` conditional (always uses Pydantic AI agent). Deleted dead code path for non-agent pipeline invocation.
+- **UI redesign**: File upload moved to dedicated right panel for cleaner workflow
+- **Visual hierarchy**: Header with gradient green banner and logo
+- **Button styling**: Primary actions use Imaging Plaza green theme colors
 
 ### Removed
 - **VLMToolSelector**: Deleted unused `generator/generator.py` containing VLMToolSelector class. The pydantic-ai agent handles all tool selection directly.
@@ -32,6 +59,7 @@ All notable changes to this project will be documented in this file.
 - **Legacy Method**: Removed `recommend_and_link()` method from `api/pipeline.py` (~180 lines) - only used by outdated tests, replaced by agent-based approach.
 - **State Variables**: Removed 3 Gradio State objects: `last_task_state`, `last_suggestions_state`, `excluded_names`.
 - **Outdated Tests**: Removed `tests/full_test.py` which only tested the removed `recommend_and_link()` method.
+- CLI no more supports `ai_agent ui` command
 
 ### Fixed
 - **Conversation Context**: Agent now properly maintains conversation history, enabling natural understanding of follow-up requests like "show me alternatives".

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import functools
+from datetime import datetime
 from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 from pydantic import BaseModel, Field
@@ -17,6 +18,12 @@ class AgentState(BaseModel):
     tool_counts: Dict[str, int] = Field(default_factory=dict)
     disabled_tools: Set[str] = Field(default_factory=set)
     excluded_tools: List[str] = Field(default_factory=list)  # Tools to exclude from search
+    
+    # Runtime overrides (session-only, not persisted)
+    override_model: Optional[str] = None
+    override_base_url: Optional[str] = None
+    override_top_k: Optional[int] = None
+    override_num_choices: Optional[int] = None
 
 # Quota decorator + prepare hook -----------------------------------------------
 
@@ -53,7 +60,7 @@ def limit_tool_calls(tool_name: str, cap: int, count_on_success: bool = True):
                 # Disable for the remainder of the run and log a synthetic blocked entry.
                 ctx.deps.disabled_tools.add(name)
                 ctx.deps.tool_calls.append({
-                    "tool": name, "blocked": True, "reason": "quota", "cap": cap, "count": current
+                    "tool": name, "blocked": True, "reason": "quota", "cap": cap, "count": current, "timestamp": datetime.now().isoformat()
                 })
                 raise NonRetryableToolError(
                     f"{QUOTA_PREFIX} {name} usage limit reached (cap={cap}). "

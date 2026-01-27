@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import List, Optional, Any, Dict
 from pydantic import BaseModel, Field
 
-from generator.schema import ToolChoice, ToolSelection, Conversation, ConversationStatus, CandidateDoc
+from ai_agent.generator.schema import ToolSelection, CandidateDoc
 
 class ToolRunLog(BaseModel):
     tool: str
     inputs: Dict[str, Any] = Field(default_factory=dict)
     summary: str
     error: Optional[str] = None
+    timestamp: Optional[str] = None
 
 class AgentToolSelection(ToolSelection):
     tool_calls: List[ToolRunLog] = Field(default_factory=list)

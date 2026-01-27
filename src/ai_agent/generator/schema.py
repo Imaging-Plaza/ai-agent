@@ -145,6 +145,25 @@ class NoToolReason(str, Enum):
     NO_DIMENSION_MATCH = "no_dimension_match"
     INVALID_FILES = "invalid_files"  
 
+class ConversationStatus(str, Enum):
+    NEEDS_CLARIFICATION = "needs_clarification"
+    COMPLETE = "complete"
+
+class Conversation(BaseModel):
+    status: ConversationStatus
+    question: Optional[str] = None
+    context: Optional[str] = None
+    options: Optional[List[str]] = None
+
+    @model_validator(mode='after')
+    def validate_fields(self) -> 'Conversation':
+        if self.status == ConversationStatus.NEEDS_CLARIFICATION:
+            if not self.question:
+                raise ValueError("Question required when status is needs_clarification")
+            if not self.context:
+                raise ValueError("Context required when status is needs_clarification")
+        return self
+
 class ToolChoice(BaseModel):
     name: str
     rank: int
@@ -197,28 +216,12 @@ class ToolSelection(BaseModel):
         return None if v is None or str(v).strip() == "" else v
 
 
-class ConversationStatus(str, Enum):
-    NEEDS_CLARIFICATION = "needs_clarification"
-    COMPLETE = "complete"
-
-class Conversation(BaseModel):
-    status: ConversationStatus
-    question: Optional[str] = None
-    context: Optional[str] = None
-    options: Optional[List[str]] = None
-
-    @model_validator(mode='after')
-    def validate_fields(self) -> 'Conversation':
-        if self.status == ConversationStatus.NEEDS_CLARIFICATION:
-            if not self.question:
-                raise ValueError("Question required when status is needs_clarification")
-            if not self.context:
-                raise ValueError("Context required when status is needs_clarification")
-        return self
-
-
 __all__ = [
     "CandidateDoc",
     "PlanAndCode",
     "ToolSelection",
+    "Conversation",
+    "ConversationStatus",
+    "ToolChoice",
+    "NoToolReason",
 ]

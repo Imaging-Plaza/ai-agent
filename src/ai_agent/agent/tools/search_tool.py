@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List
 from pydantic import BaseModel, Field
 
-from generator.schema import CandidateDoc
+from ai_agent.generator.schema import CandidateDoc
 from .utils import get_pipeline
 
 class SearchToolsInput(BaseModel):

@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 import os, json
 
-from retriever.software_doc import SoftwareDoc
-from api.pipeline import RAGImagingPipeline
+from ai_agent.retriever.software_doc import SoftwareDoc
+from ai_agent.api.pipeline import RAGImagingPipeline
 
 
 _PIPE: Optional[RAGImagingPipeline] = None

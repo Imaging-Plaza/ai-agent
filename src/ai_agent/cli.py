@@ -9,12 +9,11 @@ import time
 from dotenv import load_dotenv
 import logging
 
-from ai_agent.catalog.sync import sync_once
-from ai_agent.ui.app import get_pipeline, refresh_ui_docs_from_index
-
-# load env variables and logger
 load_dotenv()
 log = logging.getLogger("ai_agent.cli")
+
+from ai_agent.catalog.sync import sync_once
+from ai_agent.ui import get_pipeline, refresh_ui_docs_from_index, launch
 
 # --------------------------- catalog background refresher ---------------------------
 def _background_refresh():
@@ -53,11 +52,13 @@ def _background_refresh():
     t.start()
 
 # --------------------------- custom tasks ---------------------------
-def run_ui():
+def run_chat():
+    """Launch the chat-based UI."""
     try:
         res = sync_once()
         log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
 
+        # Initialize pipeline
         pipe = get_pipeline()
 
         if res.get("changed"):
@@ -75,10 +76,9 @@ def run_ui():
     _background_refresh()
 
     try:
-        from ai_agent.ui.app import launch
         launch()
     except Exception:
-        log.exception("[ui-launch] failed")
+        log.exception("[chat-launch] failed")
         raise
 
 
@@ -93,14 +93,19 @@ def run_sync():
 # --------------------------- main entry ---------------------------
 def main():
     p = argparse.ArgumentParser(description="AI Agent CLI")
-    p.add_argument("mode", choices=["ui", "sync"], help="'ui' launches the app (auto-syncs first); 'sync' runs one refresh.")
+    p.add_argument(
+        "mode", 
+        choices=["chat", "sync"], 
+        help="'chat' launches the chat UI; 'sync' runs one catalog refresh."
+    )
     args = p.parse_args()
 
-    if args.mode == "ui":
-        run_ui()
+    if args.mode == "chat":
+        run_chat()
     elif args.mode == "sync":
         run_sync()
     else:
+        p.print_help()
         sys.exit(f"Unsupported mode: {args.mode}")
 
 if __name__ == "__main__":

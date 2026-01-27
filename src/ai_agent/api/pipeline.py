@@ -6,13 +6,13 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from retriever.reranker import CrossEncoderReranker
-from retriever.software_doc import SoftwareDoc
-from retriever.text_embedder import LocalBGEEmbedder
-from retriever.vector_index import VectorIndex
+from ai_agent.retriever.reranker import CrossEncoderReranker
+from ai_agent.retriever.software_doc import SoftwareDoc
+from ai_agent.retriever.text_embedder import LocalBGEEmbedder
+from ai_agent.retriever.vector_index import VectorIndex
 
-from utils.tags import strip_tags
-from utils.image_meta import detect_ext_token
+from ai_agent.utils.tags import strip_tags
+from ai_agent.utils.image_meta import detect_ext_token
 
 log = logging.getLogger("pipeline")
 
