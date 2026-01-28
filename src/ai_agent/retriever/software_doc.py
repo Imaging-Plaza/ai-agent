@@ -21,6 +21,14 @@ class SoftwareDoc(BaseModel):
     repo_url: Optional[str] = None
     description: Optional[str] = None
     documentation: Optional[str] = None
+    
+    @field_validator("name", mode="before")
+    @classmethod
+    def _coerce_name_from_list(cls, v):
+        """Handle name field that might be a list (common in catalog)."""
+        if isinstance(v, list):
+            return v[0] if v else "unknown"
+        return v
 
     # Semantics
     category: List[str] = Field(default_factory=list, alias="applicationCategory")
@@ -354,21 +362,75 @@ class SoftwareDoc(BaseModel):
         return out
 
     def to_retrieval_text(self) -> str:
-        dims_str = ", ".join(f"{d}D" for d in (self.dims or []))
-        parts = [
-            f"name: {self.name}",
-            f"tasks: {', '.join(self.tasks)}" if self.tasks else "",
-            f"modality: {', '.join(self.modality)}" if self.modality else "",
-            f"dims: {dims_str}" if dims_str else "",
-            f"category: {', '.join(self.category)}" if self.category else "",
-            f"keywords: {', '.join(self.keywords)}" if self.keywords else "",
-            f"language: {self.programming_language or ''}",
-            f"license: {self.license or ''}",
-            f"gpu_required: {self.gpu_required}",
-            f"is_free: {self.is_free}",
-            f"plugin_of: {', '.join(self.plugin_of)}" if self.plugin_of else "",
-            f"based_on: {', '.join(self.is_based_on)}" if self.is_based_on else "",
-            f"orgs: {', '.join(self.related_organizations)}" if self.related_organizations else "",
-            f"desc: {self.description or ''}",
-        ]
-        return " | ".join(p for p in parts if p)
+        """
+        Generate optimized text representation for retrieval.
+        
+        Strategy:
+        1. Repeat critical fields (tasks, modality, anatomy) multiple times for better matching
+        2. Add dimension variations (3D → volumetric, stack, etc.)
+        3. Expand tasks with synonyms (segmentation → mask, extraction, etc.)
+        4. Keep less critical metadata at the end for context
+        5. Add domain-specific keywords for special cases (e.g., historical documents → OCR)
+        """
+        from ai_agent.retriever.query_expansion import expand_terms
+        
+        # Critical fields with expansion and repetition
+        critical_parts = []
+        
+        # Name (appears once, high importance)
+        if self.name:
+            critical_parts.append(self.name)
+        
+        # Tasks (repeated 3x with expansions) - HIGHEST PRIORITY
+        if self.tasks:
+            expanded_tasks = expand_terms(self.tasks)
+            tasks_str = " ".join(expanded_tasks)
+            critical_parts.extend([tasks_str, tasks_str, tasks_str])
+        
+        # Anatomy (repeated 2x with expansions)
+        if self.anatomy:
+            expanded_anatomy = expand_terms(self.anatomy)
+            anatomy_str = " ".join(expanded_anatomy)
+            critical_parts.extend([anatomy_str, anatomy_str])
+        
+        # Modality (repeated 2x with expansions)
+        if self.modality:
+            expanded_modality = expand_terms(self.modality)
+            modality_str = " ".join(expanded_modality)
+            critical_parts.extend([modality_str, modality_str])
+        
+        # Dimensions (expanded with synonyms)
+        if self.dims:
+            dim_terms = []
+            for d in self.dims:
+                dim_terms.append(f"{d}D")
+                if d == 2:
+                    dim_terms.extend(["2D", "planar", "slice", "image"])
+                elif d == 3:
+                    dim_terms.extend(["3D", "volumetric", "volume", "stack"])
+                elif d == 4:
+                    dim_terms.extend(["4D", "temporal", "timeseries", "dynamic"])
+            critical_parts.append(" ".join(dim_terms))
+        
+        # Category and keywords (once)
+        if self.category:
+            critical_parts.append(" ".join(self.category))
+        if self.keywords:
+            critical_parts.append(" ".join(self.keywords))
+        
+        # Description (once, provides context)
+        if self.description:
+            critical_parts.append(self.description)
+        
+        # Secondary metadata (less important, appears once at end)
+        secondary_parts = []
+        if self.programming_language:
+            secondary_parts.append(f"language:{self.programming_language}")
+        if self.plugin_of:
+            secondary_parts.append(f"plugin:{' '.join(self.plugin_of)}")
+        if self.is_based_on:
+            secondary_parts.append(f"based_on:{' '.join(self.is_based_on)}")
+        
+        # Combine: critical fields first (high weight), secondary at end
+        all_parts = critical_parts + secondary_parts
+        return " ".join(p for p in all_parts if p)

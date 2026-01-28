@@ -4,6 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from ai_agent.generator.schema import CandidateDoc
+from ai_agent.retriever.query_expansion import expand_query
 from .utils import get_pipeline
 
 class SearchToolsInput(BaseModel):
@@ -36,6 +37,10 @@ def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
     # Remove any OriginalFormats line from semantic part
     clean_lines = [ln for ln in q.splitlines() if not ln.lower().startswith("originalformats:")]
     base_query = " ".join(ln.strip() for ln in clean_lines if ln.strip())
+    
+    # Apply query expansion to handle vocabulary mismatches
+    expanded_query = expand_query(base_query)
+    
     # Build format tokens (uppercase canonical where useful)
     token_map = {
         'tif': 'TIFF', 'tiff': 'TIFF', 'nii': 'NIfTI', 'nii.gz': 'NIfTI', 'dcm': 'DICOM', 'dicom': 'DICOM',
@@ -48,8 +53,9 @@ def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
             fmt_tokens.append(canon)
     if fmt_tokens:
         # append softly at end so primary semantics still dominate
-        base_query = (base_query + " " + " ".join(f"format:{t}" for t in fmt_tokens)).strip()
-    hits = pipe.retrieve_no_rerank(base_query, exclusions=inp.excluded, top_k=inp.top_k)
+        expanded_query = (expanded_query + " " + " ".join(f"format:{t}" for t in fmt_tokens)).strip()
+    
+    hits = pipe.retrieve_no_rerank(expanded_query, exclusions=inp.excluded, top_k=inp.top_k)
     cands: List[CandidateDoc] = []
     for h in hits:
         d = h.get("doc")
