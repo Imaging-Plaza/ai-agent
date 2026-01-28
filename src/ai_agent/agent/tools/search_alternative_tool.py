@@ -30,7 +30,7 @@ class SearchAlternativeOutput(BaseModel):
 
 def tool_search_alternative(inp: SearchAlternativeInput) -> SearchAlternativeOutput:
     """
-    Search with an alternative query formulation.
+    Search with an alternative query formulation, with automatic reranking.
     
     This tool allows the agent to explicitly try a different search approach
     when initial results are not satisfactory.
@@ -67,15 +67,12 @@ def tool_search_alternative(inp: SearchAlternativeInput) -> SearchAlternativeOut
             query + " " + " ".join(f"format:{t}" for t in fmt_tokens)
         ).strip()
     
-    # Call retrieval with the alternative query
-    # Set min_results=0 to prevent automatic retry (agent is already retrying)
-    hits = pipe.retrieve_no_rerank(
+    # Call retrieve() which includes automatic reranking
+    hits = pipe.retrieve(
         query,
         image_paths=inp.image_paths or None,
         exclusions=inp.excluded,
         top_k=inp.top_k,
-        min_results=0,  # Disable automatic retry since agent controls this
-        max_retries=0,  # Disable automatic retry
     )
     
     # Convert hits to CandidateDoc objects

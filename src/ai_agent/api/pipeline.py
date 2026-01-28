@@ -19,9 +19,18 @@ log = logging.getLogger("pipeline")
 
 
 class RAGImagingPipeline:
-    def __init__(self, index_dir: Optional[str] = None):
+    def __init__(
+        self,
+        index_dir: Optional[str] = None,
+        min_results: int = 5,
+        max_retries: int = 2,
+    ):
+        """Initialize the RAG imaging pipeline."""
         self.index_dir = Path(index_dir or os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
         self.index_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.min_results = min_results
+        self.max_retries = max_retries
 
         self.embedder = LocalBGEEmbedder()
         self.reranker = CrossEncoderReranker()
@@ -115,8 +124,6 @@ class RAGImagingPipeline:
         image_paths: Optional[List[str]] = None,
         top_k: int = 30,
         exclusions: Optional[List[str]] = None,
-        max_retries: int = 2,
-        min_results: int = 5,
     ) -> List[dict]:
         """
         Return raw vector hits WITHOUT applying the CrossEncoder reranker.
@@ -124,6 +131,8 @@ class RAGImagingPipeline:
         Each item: {id, doc, score}. Optional `image_paths` are used to derive
         additional text hints (format / modality / anatomy / dims) that are
         appended to the query before embedding.
+        
+        Relies on BGE-M3 semantic embeddings + CrossEncoder reranking.
         """
 
         def _norm(s: str) -> str:
@@ -131,26 +140,21 @@ class RAGImagingPipeline:
 
         excluded_norm = {_norm(x) for x in (exclusions or []) if x}
 
-        # 1) Strip any tags from the query (your existing behavior)
+        # 1) Strip any tags from the query
         clean_q = strip_tags(query)
 
         # 2) Add image-derived hints (format, modality, anatomy, dims, ...)
         image_hints = self._build_image_hint_text(image_paths)
         if image_hints:
-            clean_q = f"{clean_q} {image_hints}".strip() if clean_q else image_hints
-
-        # 3) Apply similarity-based expansion
-        if hasattr(self.index, 'similarity_expander') and self.index.similarity_expander.vocabulary:
-            expanded_q = self.index.similarity_expander.expand_query(clean_q)
-            log.info(f"Similarity-expanded query: {clean_q} → {expanded_q}")
+            final_q = f"{clean_q} {image_hints}".strip()
         else:
-            expanded_q = clean_q
+            final_q = clean_q
+        
+        log.info(f"Retrieval query: {clean_q}" + (f" + metadata: {image_hints[:50]}..." if image_hints else ""))
 
-        log.info(f"Final retrieval query: {expanded_q}")
-
-        # 4) Vector search with automatic retry logic
+        # 4) Vector search
         pool_k = max(50, top_k * 3)
-        hits = self.index.search(expanded_q, k=pool_k, reranker=None)
+        hits = self.index.search(final_q, k=pool_k, reranker=None)
 
         # 5) Apply name-based exclusions if any
         if excluded_norm:
@@ -160,46 +164,39 @@ class RAGImagingPipeline:
                 if _norm(getattr(h["doc"], "name", "")) not in excluded_norm
             ]
 
-        # 6) Check if results are sufficient, retry with alternatives if not
+        # 6) Check if results are sufficient, retry with broader terms if not
         attempt = 0
-        while len(hits) < min_results and attempt < max_retries:
+        while len(hits) < self.min_results and attempt < self.max_retries:
             attempt += 1
-            log.info(f"Insufficient results ({len(hits)} < {min_results}), attempting retry {attempt}/{max_retries}")
+            log.info(f"Insufficient results ({len(hits)} < {self.min_results}), attempting retry {attempt}/{self.max_retries}")
             
-            # Generate alternative query using similarity expander
-            if hasattr(self.index, 'similarity_expander') and self.index.similarity_expander.vocabulary:
-                alternatives = self.index.similarity_expander.suggest_alternative_queries(
-                    clean_q,
-                    num_alternatives=1
-                )
-                if alternatives:
-                    alt_query = alternatives[0]
-                    log.info(f"Trying alternative query: {alt_query}")
-                    
-                    # Add image hints to alternative
-                    if image_hints:
-                        alt_query = f"{alt_query} {image_hints}".strip()
-                    
-                    # Expand alternative query
-                    expanded_alt = self.index.similarity_expander.expand_query(alt_query)
-                    
-                    # Search with alternative
-                    alt_hits = self.index.search(expanded_alt, k=pool_k, reranker=None)
-                    
-                    # Merge results (avoiding duplicates)
-                    existing_ids = {h["id"] for h in hits}
-                    for h in alt_hits:
-                        if h["id"] not in existing_ids:
-                            if not excluded_norm or _norm(getattr(h["doc"], "name", "")) not in excluded_norm:
-                                hits.append(h)
-                                existing_ids.add(h["id"])
-                    
-                    log.info(f"After retry {attempt}: {len(hits)} total results")
+            # Generate alternative by simplifying query (remove specific terms, keep general ones)
+            # Strategy: use first 2-3 words only to broaden the search
+            words = clean_q.split()
+            if len(words) > 3:
+                alt_task = " ".join(words[:3])
+                log.info(f"Trying broader query: {alt_task}")
+                
+                # Build alternative query with image hints
+                if image_hints:
+                    alt_q = f"{alt_task} {image_hints}".strip()
                 else:
-                    log.warning(f"Could not generate alternative query for retry {attempt}")
-                    break
+                    alt_q = alt_task
+                
+                # Search with alternative
+                alt_hits = self.index.search(alt_q, k=pool_k, reranker=None)
+                
+                # Merge results (avoiding duplicates)
+                existing_ids = {h["id"] for h in hits}
+                for h in alt_hits:
+                    if h["id"] not in existing_ids:
+                        if not excluded_norm or _norm(getattr(h["doc"], "name", "")) not in excluded_norm:
+                            hits.append(h)
+                            existing_ids.add(h["id"])
+                
+                log.info(f"After retry {attempt}: {len(hits)} total results")
             else:
-                log.warning("Similarity expander not available for retry")
+                log.warning(f"Query too short to generate alternative for retry {attempt}")
                 break
 
         # 7) Attach convenience fields expected downstream
@@ -218,6 +215,37 @@ class RAGImagingPipeline:
         # Recreate query with any existing format tokens already embedded in retrieval
         ranked = self._apply_reranker(strip_tags(query), hits, top_k=top_k)
         return ranked
+    
+    def retrieve(
+        self,
+        query: str,
+        image_paths: Optional[List[str]] = None,
+        top_k: int = 10,
+        exclusions: Optional[List[str]] = None,
+    ) -> List[dict]:
+        """
+        Retrieve and automatically rerank results using BGE-M3 + CrossEncoder.
+        
+        This is the main retrieval method that combines:
+        1. Semantic search via BGE-M3 embeddings (no query expansion)
+        2. Precision reranking via CrossEncoder
+        3. Image metadata hints (format, modality, dimensions)
+        
+        Returns top_k results after CrossEncoder reranking.
+        """
+        # Get more candidates than needed for reranking
+        pool_k = max(30, top_k * 3)
+        hits = self.retrieve_no_rerank(
+            query=query,
+            image_paths=image_paths,
+            top_k=pool_k,
+            exclusions=exclusions,
+        )
+        
+        # Apply reranking to get final top_k
+        if hits:
+            return self.rerank_only(query, hits, top_k=top_k)
+        return []
 
     def get_doc(self, name: str) -> Optional[SoftwareDoc]:
         """Lookup a SoftwareDoc by name (case-sensitive match)."""

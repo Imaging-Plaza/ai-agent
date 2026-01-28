@@ -363,74 +363,55 @@ class SoftwareDoc(BaseModel):
 
     def to_retrieval_text(self) -> str:
         """
-        Generate optimized text representation for retrieval.
+        Generate text representation for retrieval.
         
         Strategy:
-        1. Repeat critical fields (tasks, modality, anatomy) multiple times for better matching
-        2. Add dimension variations (3D → volumetric, stack, etc.)
-        3. Expand tasks with synonyms (segmentation → mask, extraction, etc.)
-        4. Keep less critical metadata at the end for context
-        5. Add domain-specific keywords for special cases (e.g., historical documents → OCR)
+        1. Include all semantic fields without expansion (expansion happens at query-time)
+        2. Repeat critical fields (tasks, modality, anatomy) for better matching
+        3. Keep less critical metadata at the end for context
         """
-        from ai_agent.retriever.query_expansion import expand_terms
+        parts = []
         
-        # Critical fields with expansion and repetition
-        critical_parts = []
-        
-        # Name (appears once, high importance)
+        # Name (high importance)
         if self.name:
-            critical_parts.append(self.name)
+            parts.append(self.name)
         
-        # Tasks (repeated 3x with expansions) - HIGHEST PRIORITY
+        # Tasks (repeated 3x) - HIGHEST PRIORITY
         if self.tasks:
-            expanded_tasks = expand_terms(self.tasks)
-            tasks_str = " ".join(expanded_tasks)
-            critical_parts.extend([tasks_str, tasks_str, tasks_str])
+            tasks_str = " ".join(self.tasks)
+            parts.extend([tasks_str, tasks_str, tasks_str])
         
-        # Anatomy (repeated 2x with expansions)
+        # Anatomy (repeated 2x)
         if self.anatomy:
-            expanded_anatomy = expand_terms(self.anatomy)
-            anatomy_str = " ".join(expanded_anatomy)
-            critical_parts.extend([anatomy_str, anatomy_str])
+            anatomy_str = " ".join(self.anatomy)
+            parts.extend([anatomy_str, anatomy_str])
         
-        # Modality (repeated 2x with expansions)
+        # Modality (repeated 2x)
         if self.modality:
-            expanded_modality = expand_terms(self.modality)
-            modality_str = " ".join(expanded_modality)
-            critical_parts.extend([modality_str, modality_str])
+            modality_str = " ".join(self.modality)
+            parts.extend([modality_str, modality_str])
         
-        # Dimensions (expanded with synonyms)
+        # Dimensions (as-is from catalog)
         if self.dims:
-            dim_terms = []
-            for d in self.dims:
-                dim_terms.append(f"{d}D")
-                if d == 2:
-                    dim_terms.extend(["2D", "planar", "slice", "image"])
-                elif d == 3:
-                    dim_terms.extend(["3D", "volumetric", "volume", "stack"])
-                elif d == 4:
-                    dim_terms.extend(["4D", "temporal", "timeseries", "dynamic"])
-            critical_parts.append(" ".join(dim_terms))
+            dim_terms = [f"{d}D" for d in self.dims]
+            parts.append(" ".join(dim_terms))
         
-        # Category and keywords (once)
+        # Category and keywords
         if self.category:
-            critical_parts.append(" ".join(self.category))
+            parts.append(" ".join(self.category))
         if self.keywords:
-            critical_parts.append(" ".join(self.keywords))
+            parts.append(" ".join(self.keywords))
         
-        # Description (once, provides context)
+        # Description (provides context)
         if self.description:
-            critical_parts.append(self.description)
+            parts.append(self.description)
         
-        # Secondary metadata (less important, appears once at end)
-        secondary_parts = []
+        # Secondary metadata
         if self.programming_language:
-            secondary_parts.append(f"language:{self.programming_language}")
+            parts.append(f"language:{self.programming_language}")
         if self.plugin_of:
-            secondary_parts.append(f"plugin:{' '.join(self.plugin_of)}")
+            parts.append(f"plugin:{' '.join(self.plugin_of)}")
         if self.is_based_on:
-            secondary_parts.append(f"based_on:{' '.join(self.is_based_on)}")
+            parts.append(f"based_on:{' '.join(self.is_based_on)}")
         
-        # Combine: critical fields first (high weight), secondary at end
-        all_parts = critical_parts + secondary_parts
-        return " ".join(p for p in all_parts if p)
+        return " ".join(p for p in parts if p)

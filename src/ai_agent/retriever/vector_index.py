@@ -12,7 +12,6 @@ import numpy as np
 
 from .software_doc import SoftwareDoc
 from .text_embedder import TextEmbedder
-from .similarity_expander import SimilarityExpander
 
 if TYPE_CHECKING:
     from .reranker import CrossEncoderReranker
@@ -73,13 +72,6 @@ class VectorIndex:
         self.docs: Dict[str, SoftwareDoc] = {}
         self.fingerprints: Dict[str, str] = {}
         self._next_faiss_id: int = 1
-        
-        # Similarity-based query expander (shares embedder model)
-        self.similarity_expander = SimilarityExpander(
-            embedder_model=embedder.model if hasattr(embedder, 'model') else None,
-            similarity_threshold=0.5,
-            max_expansions=3,
-        )
 
     def _assign_faiss_id(self, sid: str) -> int:
         if sid in self.id_to_faiss:
@@ -213,20 +205,6 @@ class VectorIndex:
                     " ..." if removed_n > len(rem_sample) else ""
                 )
         
-        # Rebuild similarity vocabulary after catalog changes
-        if (added_n or updated_n or removed_n) and self.similarity_expander.model:
-            log.info("Rebuilding similarity vocabulary from updated catalog")
-            doc_dicts = [
-                {
-                    "tasks": doc.tasks,
-                    "anatomy": doc.anatomy,
-                    "modality": doc.modality,
-                    "keywords": doc.keywords,
-                }
-                for doc in self.docs.values()
-            ]
-            self.similarity_expander.build_vocabulary_from_catalog(doc_dicts)
-        
         return {"added": added_n, "updated": updated_n, "removed": removed_n}
 
     def save(self, dirpath: str | Path) -> None:
@@ -295,19 +273,5 @@ class VectorIndex:
         idx.id_to_faiss = {str(k): int(v) for k, v in meta.get("id_to_faiss", {}).items()}
         idx.faiss_to_id = {int(v): str(k) for k, v in idx.id_to_faiss.items()}
         idx.docs = {sid: SoftwareDoc(**payload) for sid, payload in meta.get("docs", {}).items()}
-        
-        # Build similarity vocabulary from loaded docs
-        if idx.docs and hasattr(idx.similarity_expander, 'model') and idx.similarity_expander.model:
-            log.info("Building similarity vocabulary from loaded catalog")
-            doc_dicts = [
-                {
-                    "tasks": doc.tasks,
-                    "anatomy": doc.anatomy,
-                    "modality": doc.modality,
-                    "keywords": doc.keywords,
-                }
-                for doc in idx.docs.values()
-            ]
-            idx.similarity_expander.build_vocabulary_from_catalog(doc_dicts)
         
         return idx

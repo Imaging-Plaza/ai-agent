@@ -20,7 +20,6 @@ from .tools.repo_info_tool import (
     RepoSummaryInput,
     coerce_github_url_or_none,
 )
-from .tools.rerank_tool import tool_rerank, RerankInput
 from .tools.search_tool import tool_search_tools, SearchToolsInput
 from .tools.search_alternative_tool import tool_search_alternative, SearchAlternativeInput
 from .tools.gradio_space_tool import tool_run_example, RunExampleInput
@@ -125,32 +124,6 @@ async def search_tools(
 
 
 @agent.tool(retries=2, prepare=cap_prepare)
-@limit_tool_calls("rerank", cap=3)
-async def rerank(
-    ctx: RunContext[AgentState],
-    query: str,
-    candidate_names: List[str],
-    top_k: int = 5,
-) -> List[dict]:
-    """
-    Cross-encoder reranker over a small set of candidate tool names.
-    """
-    out = tool_rerank(
-        RerankInput(query=query, candidate_names=candidate_names, top_k=top_k)
-    )
-    ctx.deps.tool_calls.append(
-        {
-            "tool": "rerank",
-            "query": query,
-            "used_model": out.used_model,
-            "count": len(out.reranked),
-            "timestamp": datetime.now().isoformat()
-        }
-    )
-    return list(out.reranked)
-
-
-@agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("search_alternative", cap=3)
 async def search_alternative(
     ctx: RunContext[AgentState],
@@ -159,7 +132,7 @@ async def search_alternative(
     top_k: int = 12,
 ) -> List[dict]:
     """
-    Search with an alternative query formulation.
+    Search with an alternative query formulation (includes automatic reranking).
     """
     # Merge exclusions
     explicit_excluded = excluded or []

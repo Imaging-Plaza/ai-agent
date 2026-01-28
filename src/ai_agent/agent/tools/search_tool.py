@@ -18,13 +18,13 @@ class SearchToolsOutput(BaseModel):
 
 def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
     """
-    Search tools WITHOUT reranker.
+    Search tools with automatic reranking.
 
-    - Uses dense retrieval with similarity-based query expansion.
+    - Uses dense retrieval with dictionary-based query expansion.
+    - Applies CrossEncoder reranking automatically for best results.
     - Softly biases results using file-format hints (format:EXT).
     - Optionally uses `image_paths` so the pipeline can derive additional
       hints (modality / anatomy / dims) directly from the image files.
-    - Includes automatic retry logic if insufficient results are found.
     """
     pipe = get_pipeline()
 
@@ -76,9 +76,8 @@ def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
             base_query + " " + " ".join(f"format:{t}" for t in fmt_tokens)
         ).strip()
 
-    # 5) Call the vector index with similarity expansion and automatic retry
-    # The pipeline now handles similarity-based expansion internally
-    hits = pipe.retrieve_no_rerank(
+    # 5) Call retrieve() that includes automatic reranking
+    hits = pipe.retrieve(
         base_query,
         image_paths=inp.image_paths or None,
         exclusions=inp.excluded,
