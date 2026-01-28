@@ -6,7 +6,7 @@ from datetime import datetime
 from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 from pydantic import BaseModel, Field
-from typing import List, Optional, Set, Dict, Tuple
+from typing import List, Optional, Set, Dict, Tuple, Any
 from urllib.parse import urlparse
 
 
@@ -14,16 +14,19 @@ from urllib.parse import urlparse
 
 class AgentState(BaseModel):
     """Holds incremental tool call logs for final reporting."""
-    tool_calls: List[dict] = []  # (kept as-is to not modify existing working field)
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
     tool_counts: Dict[str, int] = Field(default_factory=dict)
     disabled_tools: Set[str] = Field(default_factory=set)
-    excluded_tools: List[str] = Field(default_factory=list)  # Tools to exclude from search
-    
+    excluded_tools: List[str] = Field(default_factory=list)
+
     # Runtime overrides (session-only, not persisted)
     override_model: Optional[str] = None
     override_base_url: Optional[str] = None
     override_top_k: Optional[int] = None
     override_num_choices: Optional[int] = None
+
+    image_paths: List[str] = Field(default_factory=list)
+    original_formats: List[str] = Field(default_factory=list)
 
 # Quota decorator + prepare hook -----------------------------------------------
 

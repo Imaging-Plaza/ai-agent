@@ -8,7 +8,6 @@ from ai_agent.generator.schema import ToolSelection, CandidateDoc
 class ToolRunLog(BaseModel):
     tool: str
     inputs: Dict[str, Any] = Field(default_factory=dict)
-    summary: str
     error: Optional[str] = None
     timestamp: Optional[str] = None
 

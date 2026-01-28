@@ -28,6 +28,12 @@ All notable changes to this project will be documented in this file.
 - **Imaging Plaza branding**: Custom CSS theme with Plaza green colors (#00A991)
 - **Logo integration**: Official Imaging Plaza white logo displayed in header
 - **Redesigned layout**: Reorganized UI with header banner, left chat panel, and right sidebar for files and state
+- **Similarity-Based Query Expansion**: Replaced hard-coded synonym dictionaries with dynamic embedding-based similarity matching using BGE-M3 embeddings. Vocabulary is automatically extracted from catalog and updated on catalog changes.
+- **Iterative Retrieval with Retry**: Added automatic retry logic (up to 2 attempts) when initial search returns insufficient results (<5 candidates). System generates alternative queries using semantic neighbors.
+- **Agent Alternative Search Tool**: New `search_alternative` tool allows agent to explicitly request searches with different query formulations (up to 3 per conversation). Enables agent-driven iterative refinement.
+- **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
+- **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection).
+- **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
 
 ### Changed
 - CLI now supports `ai_agent chat`
@@ -40,6 +46,10 @@ All notable changes to this project will be documented in this file.
 - **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
 - **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection).
 - **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
+- **Query Expansion Method**: Moved from dictionary-based to similarity-based expansion using catalog vocabulary. Queries are now expanded with semantically related terms found via cosine similarity.
+- **Retrieval Pipeline**: Enhanced `retrieve_no_rerank()` with automatic retry and alternative query generation when results are insufficient.
+- **Agent Prompt**: Updated to explain new retrieval capabilities including similarity expansion, automatic retry, and when/how to use `search_alternative` tool.
+- **Import Paths**: Fixed and standardized all import paths to use `ai_agent.` prefix for consistency.
 - **Model Initialization**: Agent now uses configuration from `config.yaml`.
 - **API Client Creation**: OpenAI clients now support custom `base_url` for alternative API endpoints (EPFL, custom deployments).
 - **Dependency**: Added `pyyaml` to `pyproject.toml` dependencies.
@@ -62,6 +72,7 @@ All notable changes to this project will be documented in this file.
 - CLI no more supports `ai_agent ui` command
 
 ### Fixed
+- **Pydantic Forward Reference**: Reordered class definitions in `schema.py` so `Conversation` and `ConversationStatus` are defined before `ToolSelection` to prevent "class-not-fully-defined" errors.
 - **Conversation Context**: Agent now properly maintains conversation history, enabling natural understanding of follow-up requests like "show me alternatives".
 - **Clear Button**: Disabled during processing to prevent race conditions with ongoing requests.
 - **Alternative Tool Requests**: All recommended tools are now automatically added to the exclusion list (banlist) and properly passed to the agent through AgentState, ensuring follow-up requests like "I would like another tool" correctly return different tools.

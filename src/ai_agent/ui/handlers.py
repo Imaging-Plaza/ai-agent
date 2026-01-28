@@ -202,10 +202,8 @@ def respond(
     try:
         agent_result = run_agent(
             clean_message,
-            image_data_url=data_url,
+            image_paths=file_paths,
             excluded=list(state.banlist),
-            original_formats=original_formats,
-            image_meta=state.last_image_meta,
             conversation_history=state.conversation_history,
             model=model_name,
             base_url=base_url_override if model else None,  # Only override if model selected

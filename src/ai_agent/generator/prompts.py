@@ -75,22 +75,38 @@ AGENT_SYSTEM_PROMPT = (
     SELECTOR_SYSTEM
     + "\n\nAGENT TOOLING RULES (CRITICAL):"
     + "\n1. If task ambiguous (operation OR target structure missing) -> immediately return clarification JSON (NO tool calls). Treat ultra-generic inputs like 'help', 'help me', 'suggest tools', 'what can you do', or empty/emoji-only as ambiguous. Do NOT guess a modality or claim PNG just from a preview."
-    + "\n2. Otherwise: call search_tools(query) ONCE early (pass original_formats param if present; do NOT manufacture or over-weight formats — they are a soft compatibility hint)."
-    + "\n3. If you have >=3 plausible candidates and high confidence, you MAY skip rerank; else call rerank(query,candidate_names)."
-    + "\n4. Mandatory repo verification before final output: After search_tools (and optional rerank), take the top K ≤ {num_choices} candidates you plan to return and you MUST call repo_info(url) once for each. Use the repo URL from the candidate payload (field name repo_url; fallback keys: github, url, homepage). If a candidate has no repo URL, drop it rather than guessing. Only after repo_info confirms alignment with the requested task should you call resolve_demo_link(name). Do not return any candidate that wasn't verified by repo_info. Call `repo_info(url)` **only** with a GitHub repo URL or `owner/repo`. If a candidate lacks that, **drop it** (don't pass papers, docs, or homepages)."
-    + "\n5. The preview you receive may be PNG even if the original file is TIFF/DICOM/NIfTI, etc. Use provided original_formats hint (if any) for compatibility scoring only; do NOT assume a TIFF implies microscopy (could still be CT exported). Ask for modality if unclear."
-    + "\n6. FINAL RESPONSE: ONE JSON object only — no prose, no code fences. Include conversation + choices (rank, accuracy, why) OR clarification question."
-    + "\n7. Accuracy scoring: task(40)+compat(30)+features(30); incorporate original formats & 2D/3D nature from metadata; penalize format conversions (−5) if heavy."
-    + "\n8. Never fabricate tool outputs; if run_example not executed do NOT reference execution results."
-    + "\n9. After ranking, call resolve_demo_link(name) for each tool you plan to return. THEN include demo_link for those tools in final JSON choices. If a link is missing after resolution, omit demo_link for that tool. Never guess a URL."
-    + """\nExample call arguments (not results):
-      - search_tools(query="…", original_formats=[…])
-      - rerank(query="…", candidate_names=[…])
-      - repo_info(url="https://github.com/org/repo")   # for each finalist
-      - resolve_demo_link(tool_name="ToolName")
+    + "\n2. Otherwise: call search_tools(query) ONCE at the start. The system automatically applies similarity-based expansion (finding semantically related terms from catalog vocabulary) and retries with alternative phrasings if initial results are insufficient (<5 candidates). Trust the automatic expansion—no need to manually add synonyms."
+    + "\n3. If search_tools returns candidates but they seem inadequate or off-target, you MAY call search_alternative(alternative_query) up to 3 times with semantically different query formulations. Try: (a) broader/narrower scope, (b) domain-specific terminology, (c) task rephrasing, or (d) different anatomical focus. The system will apply similarity expansion to your alternative query as well."
+    + "\n4. If you have >=3 plausible candidates and high confidence, you MAY skip rerank; else call rerank(query, candidate_names) with top candidates for precise ordering."
+    + "\n5. Mandatory repo verification before final output: After search_tools (and optional rerank/search_alternative), take the top K ≤ {num_choices} candidates you plan to return and you MUST call repo_info(url) once for each. Use the repo URL from the candidate payload (field name repo_url; fallback keys: github, url, homepage). If a candidate has no repo URL, drop it rather than guessing. Only after repo_info confirms alignment with the requested task should you call resolve_demo_link(name). Do not return any candidate that wasn’t verified by repo_info. Call `repo_info(url)` **only** with a GitHub repo URL or `owner/repo`. If a candidate lacks that, **drop it** (don’t pass papers, docs, or homepages)."
+    + "\n6. The preview you receive may be PNG even if the original file is TIFF/DICOM/NIfTI, etc. Use provided original_formats hint (if any) for compatibility scoring only; do NOT assume a TIFF implies microscopy (could still be CT exported). Ask for modality if unclear."
+    + "\n7. FINAL RESPONSE: ONE JSON object only — no prose, no code fences. Include conversation + choices (rank, accuracy, why) OR clarification question."
+    + "\n8. Accuracy scoring: task(40)+compat(30)+features(30); incorporate original formats & 2D/3D nature from metadata; penalize format conversions (−5) if heavy."
+    + "\n9. Never fabricate tool outputs; if run_example not executed do NOT reference execution results."
+    + "\n10. After ranking, call resolve_demo_link(name) for each tool you plan to return. THEN include demo_link for those tools in final JSON choices. If a link is missing after resolution, omit demo_link for that tool. Never guess a URL."
+    + """\n
+    AVAILABLE TOOLS:
+    - search_tools(query, excluded=[], top_k=...): Initial semantic search using similarity-based query expansion and automatic retry logic. The system expands your query with semantically related terms from the catalog vocabulary and automatically retries with alternative phrasings if results are insufficient. Call this ONCE at the start.
+
+    - search_alternative(alternative_query, excluded=[], top_k=...): Explicit retry search with a different query formulation. Use when initial search_tools() results are inadequate and you want to try semantically different terms (broader scope, narrower focus, alternative phrasing, or domain-specific terminology). Can call up to 3 times per conversation. The system will still apply similarity expansion to your alternative query.
+
+    - rerank(query, candidate_names, top_k=...): Apply cross-encoder reranking to a subset of candidates for more accurate ranking. Use after search_tools when you have multiple plausible candidates and need precise ordering. Call once if needed.
+
+    - repo_info(url): Fetch GitHub repository summary including description, topics, and README content. Required for verification of each finalist candidate before including in final recommendations. Only pass GitHub URLs or 'owner/repo' format.
+
+    - resolve_demo_link(tool_name): Retrieve the best runnable demo/example link for a tool (HuggingFace Space, Gradio, Colab, etc.). Call after repo_info verification for tools you plan to recommend.
+
+    - run_example(tool_name, endpoint_url=None, extra_text=None): Execute a tool's demo/example endpoint (optional). Use only for verification purposes when testing tool functionality. Not required for standard recommendations.
+
+    USAGE PATTERN:
+    1. search_tools(query="segment lungs CT scan") → Returns initial candidates with similarity expansion
+    2. [If results weak/insufficient] search_alternative(alternative_query="pulmonary segmentation medical") → Try different terms
+    3. [If multiple good candidates] rerank(query="segment lungs", candidate_names=["Tool1", "Tool2", "Tool3"]) → Refine ranking
+    4. repo_info(url="https://github.com/org/tool1") → Verify each finalist (required)
+    5. resolve_demo_link(tool_name="Tool1") → Get demo URLs
+    6. [Optional] run_example(tool_name="Tool1") → Test functionality if needed
       """
 )
-
 
 def get_selector_system_prompt(num_choices: int = 3) -> str:
     """Generate the system prompt with dynamic num_choices."""
