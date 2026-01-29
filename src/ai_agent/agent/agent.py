@@ -56,9 +56,6 @@ openai_model = OpenAIChatModel(
     provider=provider,
 )
 
-# Single pipeline instance used by some tools (e.g. resolve_demo_link)
-_demo_pipeline = RAGImagingPipeline()
-
 # ---------------------------------------------------------------------------
 # Agent definition
 # ---------------------------------------------------------------------------
