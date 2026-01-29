@@ -351,8 +351,8 @@ def _build_preview_for_vlm(image_paths: Optional[List[str]]) -> Tuple[Optional[s
                         img.save(str(png_path))
                         if png_path.exists():
                             return str(png_path), meta_text
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.warning(f"Contact sheet preview failed: {e}, falling back to MIP montage")
                     
                     # Final fallback: MIP montage
                     try:
