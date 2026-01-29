@@ -5,7 +5,6 @@ Test script to check if EPFL openai/gpt-oss-120b model supports vision/images.
 
 import os
 import sys
-from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
