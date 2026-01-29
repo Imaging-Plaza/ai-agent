@@ -172,7 +172,6 @@ def _add_text_annotations(
     """
     # Create a copy to draw on
     annotated = img.copy()
-    draw = ImageDraw.Draw(annotated)
     
     # Try to load a font, fall back to default
     try:
