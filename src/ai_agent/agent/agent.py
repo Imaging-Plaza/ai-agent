@@ -11,15 +11,10 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from ai_agent.generator.prompts import get_agent_system_prompt
 from ai_agent.generator.schema import ToolSelection
-from ai_agent.api.pipeline import RAGImagingPipeline
-from ai_agent.utils.utils import _best_runnable_link
 from ai_agent.utils.config import get_config
 from .models import AgentToolSelection, ToolRunLog
-from .tools.repo_info_tool import (
-    tool_repo_summary,
-    RepoSummaryInput,
-    coerce_github_url_or_none,
-)
+from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
+from ai_agent.agent.utils import coerce_github_url_or_none
 from .tools.search_tool import tool_search_tools, SearchToolsInput
 from .tools.search_alternative_tool import tool_search_alternative, SearchAlternativeInput
 from .tools.gradio_space_tool import tool_run_example, RunExampleInput
@@ -186,7 +181,7 @@ async def repo_info(ctx: RunContext[AgentState], url: str) -> dict:
         return {k: v for k, v in payload.items() if k != "tool"}
 
     try:
-        out = tool_repo_summary(RepoSummaryInput(url=norm_url))
+        out = await tool_repo_summary(RepoSummaryInput(url=norm_url))
     except Exception as e:
         ctx.deps.tool_calls.append(
             {"tool": "repo_info", "url": norm_url, "error": str(e), "timestamp": datetime.now().isoformat()}
@@ -388,7 +383,6 @@ def run_agent(
 
         # Register tools on the dynamic agent
         agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
-        agent_instance.tool(rerank, retries=2, prepare=cap_prepare)
         agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
         agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
         agent_instance.tool(run_example, retries=0, prepare=cap_prepare)
@@ -406,7 +400,6 @@ def run_agent(
 
         # Register tools on the dynamic agent
         agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
-        agent_instance.tool(rerank, retries=2, prepare=cap_prepare)
         agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
         agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
         agent_instance.tool(run_example, retries=0, prepare=cap_prepare)
@@ -429,11 +422,15 @@ def run_agent(
     # ---- 6) Convert raw tool call records into ToolRunLog objects ----------
     for tc in getattr(deps, "tool_calls", []):
         tool_name = tc.get("tool")
-        inputs = {k: v for k, v in tc.items() if k != "tool"}
+        timestamp = tc.get("timestamp")
+        error = tc.get("error")
+        inputs = {k: v for k, v in tc.items() if k not in ("tool", "timestamp", "error")}
         tool_logs.append(
             ToolRunLog(
                 tool=tool_name,
                 inputs=inputs,
+                timestamp=timestamp,
+                error=error,
             )
         )
 
