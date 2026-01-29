@@ -253,15 +253,20 @@ def run_agent(
     base_url: str | None = None,
     top_k: int | None = None,
     num_choices: int | None = None,
+    image_metadata: str | None = None,
 ) -> AgentToolSelection:
     """
     Execute the agent for a user task and at least one image path.
 
     - derive canonical original_formats (tiff / dicom / nifti / ...)
-    - build a compact image metadata summary
+    - build a compact image metadata summary (or use pre-computed one)
     - pass both to the LLM as hidden context
     - store image_paths/original_formats in deps so retrieval tools can use them
     - optionally allow runtime model/base_url/top_k/num_choices overrides
+    
+    Args:
+        image_metadata: Optional pre-computed metadata string. If provided,
+                       avoids redundant metadata extraction.
     """
     if not image_paths:
         raise ValueError("run_agent requires at least one image path")
@@ -269,7 +274,8 @@ def run_agent(
     tool_logs: List[ToolRunLog] = []
 
     # ---- 1) Derive image-based metadata and format hints --------------------
-    meta_str = summarize_image_metadata(image_paths) or ""
+    # Use pre-computed metadata if available, otherwise compute it
+    meta_str = image_metadata if image_metadata is not None else (summarize_image_metadata(image_paths) or "")
     fmt_str = detect_ext_token(image_paths) or ""
     original_formats = [t.lower() for t in fmt_str.split()] if fmt_str else []
 

@@ -209,6 +209,7 @@ def respond(
             base_url=base_url_override if model else None,  # Only override if model selected
             top_k=top_k,
             num_choices=num_choices,
+            image_metadata=state.last_image_meta,  # Pass pre-computed metadata to avoid redundant I/O
         )
     except ValueError as e:
         # Configuration error (missing API key, etc.)
