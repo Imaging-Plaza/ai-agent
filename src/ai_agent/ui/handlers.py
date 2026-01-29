@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
+from pathlib import Path
 
 from ai_agent.agent.agent import run_agent
 from ai_agent.agent.tools.gradio_space_tool import tool_run_example, RunExampleInput
@@ -164,16 +165,25 @@ def respond(
     # ========================================================================
     reply.text += f"🤔 Finding tools for: _{clean_message}_\n\n"
     
-    data_url = None
+    image_bytes = None
     if state.last_preview_path:
         try:
-            data_url = _to_supported_png_dataurl(state.last_preview_path)
+            # Read image bytes directly instead of converting to data URL
+            preview_path = Path(state.last_preview_path)
+            if preview_path.exists():
+                image_bytes = preview_path.read_bytes()
+                log.info(f"✅ Image loaded: {len(image_bytes)} bytes from {state.last_preview_path}")
+                log.info(f"🖼️  Image will be sent to VLM as BinaryContent")
+            else:
+                log.warning(f"⚠️ Preview path does not exist: {state.last_preview_path}")
         except Exception as e:
-            log.debug(
-                "Failed to build PNG data URL from preview %r: %r",
+            log.warning(
+                "Failed to read image bytes from preview %r: %r",
                 state.last_preview_path,
                 e,
             )
+    else:
+        log.warning("⚠️ No preview path available - VLM will not receive image")
     
     # Extract original formats
     original_formats = []
@@ -199,21 +209,17 @@ def respond(
         base_url_override = model_config.get("base_url")  # Can be None for OpenAI
         log.info(f"Model config: {model} -> name={model_name}, base_url={base_url_override}")
     
-    # Only pass pre-computed metadata if it corresponds to current file_paths
-    # (avoids using stale metadata from previous requests)
-    current_metadata = state.last_image_meta if file_paths else None
-    
     try:
         agent_result = run_agent(
             clean_message,
             image_paths=file_paths,
+            image_bytes=image_bytes,  # Pass image bytes to VLM
             excluded=list(state.banlist),
             conversation_history=state.conversation_history,
             model=model_name,
             base_url=base_url_override if model else None,  # Only override if model selected
             top_k=top_k,
             num_choices=num_choices,
-            image_metadata=current_metadata,  # Pass pre-computed metadata to avoid redundant I/O
         )
     except ValueError as e:
         # Configuration error (missing API key, etc.)

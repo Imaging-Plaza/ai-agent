@@ -6,8 +6,9 @@ from typing import List
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.usage import UsageLimits
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.messages import BinaryContent
 
 from ai_agent.generator.prompts import get_agent_system_prompt
 from ai_agent.generator.schema import ToolSelection
@@ -46,7 +47,7 @@ if agent_model_config.base_url:
 else:
     provider = OpenAIProvider(api_key=api_key)
 
-openai_model = OpenAIChatModel(
+openai_model = OpenAIResponsesModel(
     model_name=agent_model_config.name,
     provider=provider,
 )
@@ -126,7 +127,6 @@ async def search_alternative(
     """
     Search with an alternative query formulation (includes automatic reranking).
     """
-    # Merge exclusions
     explicit_excluded = excluded or []
     global_excluded = getattr(ctx.deps, "excluded_tools", []) or []
     all_excluded = sorted(set(explicit_excluded + list(global_excluded)))
@@ -241,6 +241,7 @@ def run_agent(
     excluded: List[str] | None = None,
     conversation_history: List[str] | None = None,
     *,
+    image_bytes: bytes | None = None,
     model: str | None = None,
     base_url: str | None = None,
     top_k: int | None = None,
@@ -255,10 +256,10 @@ def run_agent(
     - pass both to the LLM as hidden context
     - store image_paths/original_formats in deps so retrieval tools can use them
     - optionally allow runtime model/base_url/top_k/num_choices overrides
-    
-    Args:
-        image_metadata: Optional pre-computed metadata string. If provided,
-                       avoids redundant metadata extraction.
+
+    IMPORTANT:
+      The model only sees an actual image if `image_bytes` is provided.
+      `image_paths` are used for metadata + tool context only.
     """
     if not image_paths:
         raise ValueError("run_agent requires at least one image path")
@@ -266,13 +267,11 @@ def run_agent(
     tool_logs: List[ToolRunLog] = []
 
     # ---- 1) Derive image-based metadata and format hints --------------------
-    # Use pre-computed metadata if available, otherwise compute it
     meta_str = image_metadata if image_metadata is not None else (summarize_image_metadata(image_paths) or "")
     fmt_str = detect_ext_token(image_paths) or ""
     original_formats = [t.lower() for t in fmt_str.split()] if fmt_str else []
 
     # ---- 2) Prepare dependency state passed to all tools --------------------
-    # Keep the "excluded_tools" pattern from develop, but also keep your overrides.
     deps = AgentState(
         excluded_tools=excluded or [],
         override_model=model,
@@ -281,7 +280,6 @@ def run_agent(
         override_num_choices=num_choices,
     )
 
-    # Store image information on deps so tools can reuse it.
     setattr(deps, "image_paths", list(image_paths))
     setattr(deps, "original_formats", original_formats)
 
@@ -295,8 +293,7 @@ def run_agent(
     if top_k is not None:
         hidden_meta += f"\n(Search top_k: {top_k})"
 
-    # Visible hint so the model remembers there *is* an image.
-    extra_context = "\nPreview image provided. Use tools compatible with its modality, anatomy, and file format."
+    extra_context = "\n\n**CRITICAL: Analyze the attached preview image showing the user's data.**\nUse visual observations (anatomy visible, image quality, dimensionality, contrast) combined with the metadata below to recommend tools. Reference what you see in your explanations."
 
     # ---- 4) Build the prompt (optionally including history) ----------------
     if conversation_history and len(conversation_history) > 0:
@@ -309,35 +306,28 @@ def run_agent(
         prompt = task + extra_context + hidden_meta
 
     # -----------------------------------------------------------------------
-    # Determine which agent instance to use (YOUR FEATURE — kept)
+    # Determine which agent instance to use
     # -----------------------------------------------------------------------
-    agent_instance = agent  # Default to global agent
+    agent_instance = agent
     effective_num_choices = num_choices if num_choices is not None else 3
     effective_model = model if model else agent_model_config.name
     effective_top_k = top_k if top_k is not None else 12
 
     # When model is provided from UI, base_url comes with it (can be None for OpenAI)
-    # When model is NOT provided, use config defaults
     if model:
-        # Model selected from dropdown - base_url parameter is authoritative
         if base_url and "inference.rcp.epfl.ch" in base_url:
-            # EPFL model selected
             runtime_api_key = os.getenv("EPFL_API_KEY")
             if not runtime_api_key:
-                raise ValueError(
-                    "EPFL_API_KEY not found. Cannot use EPFL models without VPN and API key."
-                )
+                raise ValueError("EPFL_API_KEY not found. Cannot use EPFL models without VPN and API key.")
             effective_base_url = base_url
             log.info("✓ Using EPFL_API_KEY for EPFL inference server")
         else:
-            # OpenAI or other model selected (base_url=None means OpenAI)
             runtime_api_key = os.getenv("OPENAI_API_KEY")
             if not runtime_api_key:
                 raise ValueError("OPENAI_API_KEY not found. Cannot use OpenAI models.")
-            effective_base_url = base_url  # Will be None for OpenAI
+            effective_base_url = base_url  # None for OpenAI
             log.info("✓ Using OPENAI_API_KEY for OpenAI endpoint")
     else:
-        # No model override - use config defaults
         effective_base_url = agent_model_config.base_url
         if effective_base_url and "inference.rcp.epfl.ch" in effective_base_url:
             runtime_api_key = os.getenv("EPFL_API_KEY")
@@ -357,11 +347,10 @@ def run_agent(
         f"top_k: {effective_top_k}, num_choices: {effective_num_choices}, excluded: {len(excluded or [])}"
     )
 
-    # Create dynamic agent if needed
     needs_dynamic_agent = (
         (model and model != agent_model_config.name)
         or (base_url is not None and base_url != agent_model_config.base_url)
-        or (runtime_api_key != api_key)  # API key mismatch - need new agent!
+        or (runtime_api_key != api_key)
     )
 
     if needs_dynamic_agent:
@@ -373,7 +362,7 @@ def run_agent(
             base_url=effective_base_url,
             api_key=runtime_api_key,
         )
-        runtime_model = OpenAIChatModel(model_name=effective_model, provider=runtime_provider)
+        runtime_model = OpenAIResponsesModel(model_name=effective_model, provider=runtime_provider)
 
         agent_instance = Agent(
             model=runtime_model,
@@ -388,7 +377,6 @@ def run_agent(
         agent_instance.tool(run_example, retries=0, prepare=cap_prepare)
 
     elif num_choices is not None and num_choices != 3:
-        # Model/base_url same but num_choices differs - create agent with updated prompt
         log.info(
             f"📦 Creating runtime agent with num_choices={effective_num_choices} (model: {effective_model})"
         )
@@ -407,19 +395,50 @@ def run_agent(
     else:
         log.info(f"♻️  Using global agent (model: {effective_model}, num_choices: {effective_num_choices})")
 
-    log.debug(f"Prompt length: {len(prompt)} chars, has_image: {bool(image_paths)}")
+    log.debug(
+        f"Prompt length: {len(prompt)} chars, has_image_paths: {bool(image_paths)}, has_image_bytes: {bool(image_bytes)}"
+    )
 
-    # ---- 5) Run the agent --------------------------------------------------
-    result = agent_instance.run_sync(
-        prompt,
+    # ---- 5) Build multimodal prompt if image bytes provided ----------------
+    if image_bytes:
+        log.info(
+            f"🖼️  Sending image preview to model ({len(image_bytes)} bytes = {len(image_bytes)/1024:.1f}KB)"
+        )
+        user_prompt = [
+            prompt,
+            BinaryContent(
+                data=image_bytes,
+                media_type="image/png",
+            ),
+        ]
+    else:
+        log.warning("⚠️  No image bytes provided - the model will not see the image preview")
+        user_prompt = prompt
+
+    # ---- 6) Run the agent --------------------------------------------------
+    run_result = agent_instance.run_sync(
+        user_prompt,
         deps=deps,
         output_type=ToolSelection,
         usage_limits=UsageLimits(tool_calls_limit=20),
-    ).output
+    )
+    result = run_result.output
 
     log.info(f"✅ Agent execution complete - choices returned: {len(result.choices)}")
 
-    # ---- 6) Convert raw tool call records into ToolRunLog objects ----------
+    # Log usage (helpful, but may not explicitly expose image-specific counters)
+    if run_result.usage:
+        usage = run_result.usage()
+        log.info(
+            f"📊 Usage: total_tokens={usage.total_tokens}, "
+            f"request_tokens={usage.request_tokens}, response_tokens={usage.response_tokens}"
+        )
+
+    if image_bytes and ("inference.rcp.epfl.ch" in endpoint_display):
+        log.warning("⚠️  Using EPFL inference server - confirm the selected model supports vision on that endpoint.")
+        log.warning("   OpenAI billing/dashboard may not reflect image usage when using a non-OpenAI endpoint.")
+
+    # ---- 7) Convert raw tool call records into ToolRunLog objects ----------
     for tc in getattr(deps, "tool_calls", []):
         tool_name = tc.get("tool")
         timestamp = tc.get("timestamp")
@@ -434,7 +453,7 @@ def run_agent(
             )
         )
 
-    # ---- 7) Wrap into high-level AgentToolSelection ------------------------
+    # ---- 8) Wrap into high-level AgentToolSelection ------------------------
     return AgentToolSelection(
         conversation=result.conversation,
         choices=result.choices,
