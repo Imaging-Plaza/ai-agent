@@ -20,7 +20,7 @@ def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
     """
     Search tools with automatic reranking.
 
-    - Uses dense retrieval with dictionary-based query expansion.
+    - Uses embedding-based similarity and metadata hints
     - Applies CrossEncoder reranking automatically for best results.
     - Softly biases results using file-format hints (format:EXT).
     - Optionally uses `image_paths` so the pipeline can derive additional

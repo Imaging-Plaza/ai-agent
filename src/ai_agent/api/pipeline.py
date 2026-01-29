@@ -132,7 +132,8 @@ class RAGImagingPipeline:
         additional text hints (format / modality / anatomy / dims) that are
         appended to the query before embedding.
         
-        Relies on BGE-M3 semantic embeddings + CrossEncoder reranking.
+        Relies on BGE-M3 semantic embeddings and approximate nearest-neighbor
+        vector search.
         """
 
         def _norm(s: str) -> str:
