@@ -287,11 +287,10 @@ def _build_preview_for_vlm(image_paths: Optional[List[str]]) -> Tuple[Optional[s
                 'shape': shp,
             }
             
-            # Try to extract modality from metadata or filename
-            if 'modality' in meta:
-                annotation_meta['modality'] = meta['modality']
-            elif hasattr(meta, 'Modality'):
-                annotation_meta['modality'] = meta.Modality
+            # Try to extract modality from metadata (handle both lowercase and DICOM-style keys)
+            modality = meta.get('modality') or meta.get('Modality')
+            if modality:
+                annotation_meta['modality'] = modality
             
             # Extract spacing if available
             if 'zooms' in meta:
