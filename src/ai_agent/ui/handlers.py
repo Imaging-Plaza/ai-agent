@@ -208,11 +208,21 @@ def respond(
         model_name = model_config.get("name")
         base_url_override = model_config.get("base_url")  # Can be None for OpenAI
         log.info(f"Model config: {model} -> name={model_name}, base_url={base_url_override}")
+
+    effective_paths = file_paths or (state.last_files or [])
+
+    if not effective_paths:
+        reply.text += (
+            "⚠️ Please upload an image first (or re-upload). "
+            "I need at least one image to recommend tools for your data."
+        )
+        state.conversation_history.append(f"Assistant: {reply.text}")
+        return reply, state
     
     try:
         agent_result = run_agent(
             clean_message,
-            image_paths=file_paths,
+            image_paths=effective_paths,
             image_bytes=image_bytes,  # Pass image bytes to VLM
             excluded=list(state.banlist),
             conversation_history=state.conversation_history,
