@@ -199,6 +199,10 @@ def respond(
         base_url_override = model_config.get("base_url")  # Can be None for OpenAI
         log.info(f"Model config: {model} -> name={model_name}, base_url={base_url_override}")
     
+    # Only pass pre-computed metadata if it corresponds to current file_paths
+    # (avoids using stale metadata from previous requests)
+    current_metadata = state.last_image_meta if file_paths else None
+    
     try:
         agent_result = run_agent(
             clean_message,
@@ -209,7 +213,7 @@ def respond(
             base_url=base_url_override if model else None,  # Only override if model selected
             top_k=top_k,
             num_choices=num_choices,
-            image_metadata=state.last_image_meta,  # Pass pre-computed metadata to avoid redundant I/O
+            image_metadata=current_metadata,  # Pass pre-computed metadata to avoid redundant I/O
         )
     except ValueError as e:
         # Configuration error (missing API key, etc.)
