@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
+from pathlib import Path
 
 from ai_agent.agent.agent import run_agent
 from ai_agent.agent.tools.gradio_space_tool import tool_run_example, RunExampleInput
@@ -164,16 +165,25 @@ def respond(
     # ========================================================================
     reply.text += f"🤔 Finding tools for: _{clean_message}_\n\n"
     
-    data_url = None
+    image_bytes = None
     if state.last_preview_path:
         try:
-            data_url = _to_supported_png_dataurl(state.last_preview_path)
+            # Read image bytes directly instead of converting to data URL
+            preview_path = Path(state.last_preview_path)
+            if preview_path.exists():
+                image_bytes = preview_path.read_bytes()
+                log.info(f"✅ Image loaded: {len(image_bytes)} bytes from {state.last_preview_path}")
+                log.info(f"🖼️  Image will be sent to VLM as BinaryContent")
+            else:
+                log.warning(f"⚠️ Preview path does not exist: {state.last_preview_path}")
         except Exception as e:
-            log.debug(
-                "Failed to build PNG data URL from preview %r: %r",
+            log.warning(
+                "Failed to read image bytes from preview %r: %r",
                 state.last_preview_path,
                 e,
             )
+    else:
+        log.warning("⚠️ No preview path available - VLM will not receive image")
     
     # Extract original formats
     original_formats = []
@@ -198,14 +208,23 @@ def respond(
         model_name = model_config.get("name")
         base_url_override = model_config.get("base_url")  # Can be None for OpenAI
         log.info(f"Model config: {model} -> name={model_name}, base_url={base_url_override}")
+
+    effective_paths = file_paths or (state.last_files or [])
+
+    if not effective_paths:
+        reply.text += (
+            "⚠️ Please upload an image first (or re-upload). "
+            "I need at least one image to recommend tools for your data."
+        )
+        state.conversation_history.append(f"Assistant: {reply.text}")
+        return reply, state
     
     try:
         agent_result = run_agent(
             clean_message,
-            image_data_url=data_url,
+            image_paths=effective_paths,
+            image_bytes=image_bytes,  # Pass image bytes to VLM
             excluded=list(state.banlist),
-            original_formats=original_formats,
-            image_meta=state.last_image_meta,
             conversation_history=state.conversation_history,
             model=model_name,
             base_url=base_url_override if model else None,  # Only override if model selected

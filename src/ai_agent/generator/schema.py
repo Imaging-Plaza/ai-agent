@@ -17,7 +17,6 @@ class SupportingData(BaseModel):
     body_site: Optional[str] = Field(default=None, alias="bodySite")
     imaging_modality: Optional[str] = Field(default=None, alias="imagingModality")
 
-
 class RunnableExample(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -25,7 +24,6 @@ class RunnableExample(BaseModel):
     name: Optional[str] = None
     url: Optional[str] = None
     host_type: Optional[str] = Field(default=None, alias="hostType")
-
 
 class ExecutableNotebook(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
@@ -124,8 +122,6 @@ class CandidateDoc(BaseModel):
             if digits: push(digits)
         return out
 
-
-
 class PlanAndCode(BaseModel):
     """
     Back-compat schema for the older 'plan + code' generator.
@@ -136,7 +132,6 @@ class PlanAndCode(BaseModel):
     why: str
     steps: List[str] = Field(default_factory=list)
     code: str = ""
-
 
 class NoToolReason(str, Enum):
     NO_SUITABLE_TOOL = "no_suitable_tool"

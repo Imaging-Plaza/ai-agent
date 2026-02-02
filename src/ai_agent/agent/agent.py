@@ -3,28 +3,30 @@ from __future__ import annotations
 import os, logging
 from datetime import datetime
 from typing import List
+
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.usage import UsageLimits
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.messages import BinaryContent
 
 from ai_agent.generator.prompts import get_agent_system_prompt
 from ai_agent.generator.schema import ToolSelection
-from ai_agent.api.pipeline import RAGImagingPipeline
-from ai_agent.utils.utils import _best_runnable_link
 from ai_agent.utils.config import get_config
 from .models import AgentToolSelection, ToolRunLog
 from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
-from .tools.rerank_tool import tool_rerank, RerankInput
+from ai_agent.agent.utils import coerce_github_url_or_none
 from .tools.search_tool import tool_search_tools, SearchToolsInput
+from .tools.search_alternative_tool import tool_search_alternative, SearchAlternativeInput
 from .tools.gradio_space_tool import tool_run_example, RunExampleInput
-from .utils import AgentState, limit_tool_calls, cap_prepare, coerce_github_url_or_none
+from .utils import AgentState, limit_tool_calls, cap_prepare
+from ai_agent.utils.image_meta import summarize_image_metadata, detect_ext_token
 
 log = logging.getLogger("agent.core")
 
-
-# Agent model ---------------------------------------------------------------
-
+# ---------------------------------------------------------------------------
+# Model / provider setup
+# ---------------------------------------------------------------------------
 config = get_config()
 agent_model_config = config.agent_model
 
@@ -45,137 +47,231 @@ if agent_model_config.base_url:
 else:
     provider = OpenAIProvider(api_key=api_key)
 
-openai_model = OpenAIChatModel(
+openai_model = OpenAIResponsesModel(
     model_name=agent_model_config.name,
     provider=provider,
 )
 
-# Agent definition -------------------------------------------------------------
-
+# ---------------------------------------------------------------------------
+# Agent definition
+# ---------------------------------------------------------------------------
 agent = Agent(
     model=openai_model,
     system_prompt=get_agent_system_prompt(os.getenv("NUM_CHOICES", "3")),
     deps_type=AgentState,
 )
 
-# Register tools ---------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Tool adapters for the agent
+# ---------------------------------------------------------------------------
 
 @agent.tool(retries=2, prepare=cap_prepare)
-@limit_tool_calls("search_tools", cap=1)  # <= per-tool quota here
-async def search_tools(ctx: RunContext[AgentState], query: str, excluded: List[str] | None = None, top_k: int = 12, original_formats: List[str] | None = None):
-    # Merge explicit excluded param with state's excluded_tools
-    all_excluded = list(set((excluded or []) + ctx.deps.excluded_tools))
-    # Use override from context if available
+@limit_tool_calls("search_tools", cap=1)
+async def search_tools(
+    ctx: RunContext[AgentState],
+    query: str,
+    excluded: List[str] | None = None,
+    top_k: int = 12,
+) -> List[dict]:
+    """
+    Agent-facing search tool.
+
+    Delegates to tools.search_tool.tool_search_tools(), but automatically
+    injects:
+      - globally excluded tools (from ctx.deps.excluded_tools)
+      - image_paths and original_formats (from ctx.deps, set in run_agent)
+    so the language model never has to reason about file paths directly.
+    """
+    # Merge explicit exclusions with global exclusions from AgentState
+    explicit_excluded = excluded or []
+    global_excluded = getattr(ctx.deps, "excluded_tools", []) or []
+    all_excluded = sorted(set(explicit_excluded + list(global_excluded)))
+
+    original_formats = getattr(ctx.deps, "original_formats", []) or []
+    image_paths = getattr(ctx.deps, "image_paths", []) or []
+
     effective_top_k = ctx.deps.override_top_k if ctx.deps.override_top_k is not None else top_k
-    out = tool_search_tools(SearchToolsInput(query=query, excluded=all_excluded, top_k=effective_top_k, original_formats=original_formats or []))
-    payload = [c.model_dump(mode="python") for c in out.candidates]
-    ctx.deps.tool_calls.append({"tool": "search_tools", "query": query, "count": len(payload), "original_formats": original_formats or [], "excluded": all_excluded, "timestamp": datetime.now().isoformat()})
-    return payload
+
+    inp = SearchToolsInput(
+        query=query,
+        excluded=all_excluded,
+        top_k=effective_top_k,
+        original_formats=original_formats,
+        image_paths=image_paths,
+    )
+    out = tool_search_tools(inp)
+
+    ctx.deps.tool_calls.append(
+        {
+            "tool": "search_tools",
+            "query": query,
+            "count": len(out.candidates),
+            "original_formats": original_formats,
+            "excluded": all_excluded,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
+
+    # Return plain dicts so the LLM sees a simple JSON-like structure.
+    return [c.model_dump(mode="python") for c in out.candidates]
+
 
 @agent.tool(retries=2, prepare=cap_prepare)
-@limit_tool_calls("rerank", cap=1)
-async def rerank(ctx: RunContext[AgentState], query: str, candidate_names: List[str], top_k: int = 5):
-    out = tool_rerank(RerankInput(query=query, candidate_names=candidate_names, top_k=top_k))
-    ctx.deps.tool_calls.append({"tool": "rerank", "query": query, "used_model": out.used_model, "count": len(out.reranked), "timestamp": datetime.now().isoformat()})
-    return out.model_dump(mode="python")
+@limit_tool_calls("search_alternative", cap=3)
+async def search_alternative(
+    ctx: RunContext[AgentState],
+    alternative_query: str,
+    excluded: List[str] | None = None,
+    top_k: int = 12,
+) -> List[dict]:
+    """
+    Search with an alternative query formulation (includes automatic reranking).
+    """
+    explicit_excluded = excluded or []
+    global_excluded = getattr(ctx.deps, "excluded_tools", []) or []
+    all_excluded = sorted(set(explicit_excluded + list(global_excluded)))
 
-# @agent.tool(retries=2, prepare=cap_prepare)
-# @limit_tool_calls("run_example", cap=1)
-# async def run_example(
-#     ctx: RunContext[AgentState],
-#     tool_name: str,
-#     image_path: str | None = None,
-#     endpoint_url: str | None = None,
-#     extra_text: str | None = None,
-# ):
-#     out = tool_run_example(
-#         RunExampleInput(
-#             tool_name=tool_name,
-#             image_path=image_path,
-#             endpoint_url=endpoint_url,
-#             extra_text=extra_text,
-#         )
-#     )
-#     ctx.deps.tool_calls.append({
-#         "tool": "run_example",
-#         "tool_name": tool_name,
-#         "ran": out.ran,
-#         "endpoint_url": out.endpoint_url,
-#         "api_name": out.api_name,
-#     })
-#     return out.model_dump(mode="python")
+    original_formats = getattr(ctx.deps, "original_formats", []) or []
+    image_paths = getattr(ctx.deps, "image_paths", []) or []
 
-@agent.tool(retries=0, prepare=cap_prepare)
-@limit_tool_calls("repo_info", cap=6)
-async def repo_info(ctx: RunContext[AgentState], url: str):
+    inp = SearchAlternativeInput(
+        alternative_query=alternative_query,
+        excluded=all_excluded,
+        top_k=top_k,
+        original_formats=original_formats,
+        image_paths=image_paths,
+    )
+    out = tool_search_alternative(inp)
+
+    ctx.deps.tool_calls.append(
+        {
+            "tool": "search_alternative",
+            "alternative_query": alternative_query,
+            "query_used": out.query_used,
+            "count": len(out.candidates),
+            "original_formats": original_formats,
+            "excluded": all_excluded,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
+
+    return [c.model_dump(mode="python") for c in out.candidates]
+
+
+@agent.tool(retries=2, prepare=cap_prepare)
+@limit_tool_calls("repo_info", cap=12)
+async def repo_info(ctx: RunContext[AgentState], url: str) -> dict:
+    """
+    Fetch a short summary of a GitHub repository.
+
+    Non-GitHub URLs are ignored; the tool returns a small dict noting
+    that it was skipped.
+    """
     norm_url = coerce_github_url_or_none(url)
     if not norm_url:
         payload = {
-            "invalid": True,
+            "tool": "repo_info",
+            "url": url,
+            "skipped": True,
             "reason": "NON_GITHUB_URL",
             "hint": "Pass a GitHub repo URL or 'owner/repo' to repo_info(url).",
-            "original": url,
+            "timestamp": datetime.now().isoformat()
         }
-        ctx.deps.tool_calls.append({"tool": "repo_info", "url": url, "skipped": True, "reason": "NON_GITHUB_URL", "timestamp": datetime.now().isoformat()})
-        return payload
+        ctx.deps.tool_calls.append(payload)
+        return {k: v for k, v in payload.items() if k != "tool"}
 
     try:
         out = await tool_repo_summary(RepoSummaryInput(url=norm_url))
-        ctx.deps.tool_calls.append({
+    except Exception as e:
+        ctx.deps.tool_calls.append(
+            {"tool": "repo_info", "url": norm_url, "error": str(e), "timestamp": datetime.now().isoformat()}
+        )
+        raise
+
+    ctx.deps.tool_calls.append(
+        {
             "tool": "repo_info",
             "url": norm_url,
-            "truncated": out.truncated,
-            "source": out.source,
+            "truncated": getattr(out, "truncated", False),
             "timestamp": datetime.now().isoformat()
-        })
-        return out.model_dump(mode="python")
-    except Exception as e:
-        ctx.deps.tool_calls.append({"tool": "repo_info", "url": norm_url, "error": str(e), "timestamp": datetime.now().isoformat()})
-        return {
-            "invalid": True,
-            "reason": "FETCH_FAILED",
-            "url": norm_url,
-            "message": str(e),
         }
+    )
+    return out.model_dump(mode="python")
 
-@agent.tool(retries=2, prepare=cap_prepare)
-@limit_tool_calls("resolve_demo_link", cap=3)
-async def resolve_demo_link(ctx: RunContext[AgentState], tool_name: str):
-    """Return the best runnable demo link for a tool (if any)."""
-    link = None
-    try:
-        pipe = RAGImagingPipeline()
-        doc = pipe.get_doc(tool_name)
-        if doc:
-            link = _best_runnable_link(doc)
-    except Exception:
-        link = None
-    ctx.deps.tool_calls.append({"tool": "resolve_demo_link", "tool_name": tool_name, "demo_link": link, "timestamp": datetime.now().isoformat()})
-    return {"tool_name": tool_name, "demo_link": link}
 
-# Runner wrapper ---------------------------------------------------------------
+@agent.tool(retries=0, prepare=cap_prepare)
+@limit_tool_calls("run_example", cap=1)
+async def run_example(
+    ctx: RunContext[AgentState],
+    tool_name: str,
+    endpoint_url: str | None = None,
+    extra_text: str | None = None,
+) -> dict:
+    """
+    Run an example / demo for a given tool via its Gradio space.
 
+    Thin wrapper around tools.gradio_space_tool.tool_run_example().
+    """
+    out = tool_run_example(
+        RunExampleInput(
+            tool_name=tool_name,
+            endpoint_url=endpoint_url,
+            extra_text=extra_text,
+        )
+    )
+    ctx.deps.tool_calls.append(
+        {
+            "tool": "run_example",
+            "tool_name": tool_name,
+            "ran": getattr(out, "ran", False),
+            "endpoint_url": getattr(out, "endpoint_url", endpoint_url),
+            "api_name": getattr(out, "api_name", None),
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
+    return out.model_dump(mode="python")
+
+
+# ---------------------------------------------------------------------------
+# High level entry point: run the agent on (text query + image)
+# ---------------------------------------------------------------------------
 def run_agent(
     task: str,
-    image_data_url: str | None = None,
+    image_paths: List[str],
     excluded: List[str] | None = None,
-    original_formats: List[str] | None = None,
-    image_meta: str | None = None,
     conversation_history: List[str] | None = None,
+    *,
+    image_bytes: bytes | None = None,
     model: str | None = None,
     base_url: str | None = None,
     top_k: int | None = None,
     num_choices: int | None = None,
+    image_metadata: str | None = None,
 ) -> AgentToolSelection:
-    """Execute the agent. We inline the image as extra context in user message (multimodal reasoning)."""
-    extra_context = ""
-    if image_data_url:
-        # Neutral preview line that avoids implying original format
-        extra_context = "\nPreview image provided (rendered PNG). DO NOT infer original format from this preview; rely on 'OriginalFormats:' line if present."
+    """
+    Execute the agent for a user task and at least one image path.
+
+    - derive canonical original_formats (tiff / dicom / nifti / ...)
+    - build a compact image metadata summary (or use pre-computed one)
+    - pass both to the LLM as hidden context
+    - store image_paths/original_formats in deps so retrieval tools can use them
+    - optionally allow runtime model/base_url/top_k/num_choices overrides
+
+    IMPORTANT:
+      The model only sees an actual image if `image_bytes` is provided.
+      `image_paths` are used for metadata + tool context only.
+    """
+    if not image_paths:
+        raise ValueError("run_agent requires at least one image path")
 
     tool_logs: List[ToolRunLog] = []
 
-    # Create AgentState with runtime overrides
+    # ---- 1) Derive image-based metadata and format hints --------------------
+    meta_str = image_metadata if image_metadata is not None else (summarize_image_metadata(image_paths) or "")
+    fmt_str = detect_ext_token(image_paths) or ""
+    original_formats = [t.lower() for t in fmt_str.split()] if fmt_str else []
+
+    # ---- 2) Prepare dependency state passed to all tools --------------------
     deps = AgentState(
         excluded_tools=excluded or [],
         override_model=model,
@@ -183,54 +279,55 @@ def run_agent(
         override_top_k=top_k,
         override_num_choices=num_choices,
     )
-    
-    # Provide hidden metadata context lines (non-user-visible) below a delimiter
+
+    setattr(deps, "image_paths", list(image_paths))
+    setattr(deps, "original_formats", original_formats)
+
+    # ---- 3) Hidden metadata lines for the model ----------------------------
     hidden_meta = ""
     if original_formats:
         hidden_meta += "\n(Formats Hint: " + ",".join(original_formats) + ")"
-    if image_meta:
-        # collapse newlines to avoid confusing the model with too many lines
-        short_meta = " ".join(x.strip() for x in image_meta.splitlines() if x.strip())
+    if meta_str:
+        short_meta = " ".join(x.strip() for x in meta_str.splitlines() if x.strip())
         hidden_meta += "\n(Image Metadata: " + short_meta[:500] + ("…" if len(short_meta) > 500 else "") + ")"
-    
-    # Add top_k hint if specified (for UI settings)
     if top_k is not None:
         hidden_meta += f"\n(Search top_k: {top_k})"
-    
-    # Build prompt with conversation history if this is a follow-up
+
+    extra_context = "\n\n**CRITICAL: Analyze the attached preview image showing the user's data.**\nUse visual observations (anatomy visible, image quality, dimensionality, contrast) combined with the metadata below to recommend tools. Reference what you see in your explanations."
+
+    # ---- 4) Build the prompt (optionally including history) ----------------
     if conversation_history and len(conversation_history) > 0:
-        # Format previous conversation for context
         history_text = "\n".join(conversation_history)
-        prompt = f"Previous conversation:\n{history_text}\n\nCurrent request: {task}{extra_context}{hidden_meta}"
+        prompt = (
+            f"Previous conversation:\n{history_text}\n\n"
+            f"Current request: {task}{extra_context}{hidden_meta}"
+        )
     else:
         prompt = task + extra_context + hidden_meta
-    
+
+    # -----------------------------------------------------------------------
     # Determine which agent instance to use
-    agent_instance = agent  # Default to global agent
+    # -----------------------------------------------------------------------
+    agent_instance = agent
     effective_num_choices = num_choices if num_choices is not None else 3
     effective_model = model if model else agent_model_config.name
     effective_top_k = top_k if top_k is not None else 12
-    
+
     # When model is provided from UI, base_url comes with it (can be None for OpenAI)
-    # When model is NOT provided, use config defaults
     if model:
-        # Model selected from dropdown - base_url parameter is authoritative
         if base_url and "inference.rcp.epfl.ch" in base_url:
-            # EPFL model selected
             runtime_api_key = os.getenv("EPFL_API_KEY")
             if not runtime_api_key:
                 raise ValueError("EPFL_API_KEY not found. Cannot use EPFL models without VPN and API key.")
             effective_base_url = base_url
             log.info("✓ Using EPFL_API_KEY for EPFL inference server")
         else:
-            # OpenAI or other model selected (base_url=None means OpenAI)
             runtime_api_key = os.getenv("OPENAI_API_KEY")
             if not runtime_api_key:
                 raise ValueError("OPENAI_API_KEY not found. Cannot use OpenAI models.")
-            effective_base_url = base_url  # Will be None for OpenAI
+            effective_base_url = base_url  # None for OpenAI
             log.info("✓ Using OPENAI_API_KEY for OpenAI endpoint")
     else:
-        # No model override - use config defaults
         effective_base_url = agent_model_config.base_url
         if effective_base_url and "inference.rcp.epfl.ch" in effective_base_url:
             runtime_api_key = os.getenv("EPFL_API_KEY")
@@ -242,80 +339,121 @@ def run_agent(
             if not runtime_api_key:
                 raise ValueError("OPENAI_API_KEY not found")
             log.info("✓ Using OPENAI_API_KEY from config")
-    
+
     # Log runtime configuration
     endpoint_display = effective_base_url if effective_base_url else "api.openai.com"
     log.info(
         f"🤖 Agent execution - Model: {effective_model}, endpoint: {endpoint_display}, "
         f"top_k: {effective_top_k}, num_choices: {effective_num_choices}, excluded: {len(excluded or [])}"
     )
-    
-    # Create dynamic agent:
+
     needs_dynamic_agent = (
-        (model and model != agent_model_config.name) or
-        (base_url is not None and base_url != agent_model_config.base_url) or
-        (runtime_api_key != api_key)  # API key mismatch - need new agent!
+        (model and model != agent_model_config.name)
+        or (base_url is not None and base_url != agent_model_config.base_url)
+        or (runtime_api_key != api_key)
     )
-    
+
     if needs_dynamic_agent:
-        log.info(f"📦 Creating runtime agent with model={effective_model}, endpoint={effective_base_url or 'api.openai.com'}")
-        
+        log.info(
+            f"📦 Creating runtime agent with model={effective_model}, endpoint={effective_base_url or 'api.openai.com'}"
+        )
+
         runtime_provider = OpenAIProvider(
             base_url=effective_base_url,
             api_key=runtime_api_key,
         )
-        runtime_model = OpenAIChatModel(model_name=effective_model, provider=runtime_provider)
+        runtime_model = OpenAIResponsesModel(model_name=effective_model, provider=runtime_provider)
+
         agent_instance = Agent(
             model=runtime_model,
             system_prompt=get_agent_system_prompt(effective_num_choices),
             deps_type=AgentState,
         )
+
         # Register tools on the dynamic agent
         agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
-        agent_instance.tool(rerank, retries=2, prepare=cap_prepare)
-        agent_instance.tool(repo_info, retries=0, prepare=cap_prepare)
-        agent_instance.tool(resolve_demo_link, retries=2, prepare=cap_prepare)
+        agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
+        agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
+        agent_instance.tool(run_example, retries=0, prepare=cap_prepare)
+
     elif num_choices is not None and num_choices != 3:
-        # Model/base_url same but num_choices differs - create agent with updated prompt
-        log.info(f"📦 Creating runtime agent with num_choices={effective_num_choices} (model: {effective_model})")
+        log.info(
+            f"📦 Creating runtime agent with num_choices={effective_num_choices} (model: {effective_model})"
+        )
         agent_instance = Agent(
             model=openai_model,
             system_prompt=get_agent_system_prompt(effective_num_choices),
             deps_type=AgentState,
         )
+
         # Register tools on the dynamic agent
         agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
-        agent_instance.tool(rerank, retries=2, prepare=cap_prepare)
-        agent_instance.tool(repo_info, retries=0, prepare=cap_prepare)
-        agent_instance.tool(resolve_demo_link, retries=2, prepare=cap_prepare)
+        agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
+        agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
+        agent_instance.tool(run_example, retries=0, prepare=cap_prepare)
+
     else:
         log.info(f"♻️  Using global agent (model: {effective_model}, num_choices: {effective_num_choices})")
-    
-    log.debug(f"Prompt length: {len(prompt)} chars, has_image: {image_data_url is not None}")
-    result = agent_instance.run_sync(prompt, deps=deps, output_type=ToolSelection, usage_limits=UsageLimits(tool_calls_limit=10)).output
+
+    log.debug(
+        f"Prompt length: {len(prompt)} chars, has_image_paths: {bool(image_paths)}, has_image_bytes: {bool(image_bytes)}"
+    )
+
+    # ---- 5) Build multimodal prompt if image bytes provided ----------------
+    if image_bytes:
+        log.info(
+            f"🖼️  Sending image preview to model ({len(image_bytes)} bytes = {len(image_bytes)/1024:.1f}KB)"
+        )
+        user_prompt = [
+            prompt,
+            BinaryContent(
+                data=image_bytes,
+                media_type="image/png",
+            ),
+        ]
+    else:
+        log.warning("⚠️  No image bytes provided - the model will not see the image preview")
+        user_prompt = prompt
+
+    # ---- 6) Run the agent --------------------------------------------------
+    run_result = agent_instance.run_sync(
+        user_prompt,
+        deps=deps,
+        output_type=ToolSelection,
+        usage_limits=UsageLimits(tool_calls_limit=20),
+    )
+    result = run_result.output
+
     log.info(f"✅ Agent execution complete - choices returned: {len(result.choices)}")
 
-    # Convert tool call dicts into ToolRunLog entries
-    for tc in deps.tool_calls:
-        tool_logs.append(ToolRunLog(
-            tool=tc.get("tool"), 
-            inputs={k: v for k, v in tc.items() if k not in {"tool", "timestamp"}}, 
-            summary=str(tc),
-            timestamp=tc.get("timestamp")
-        ))
+    # Log usage (helpful, but may not explicitly expose image-specific counters)
+    if run_result.usage:
+        usage = run_result.usage()
+        log.info(
+            f"📊 Usage: total_tokens={usage.total_tokens}, "
+            f"request_tokens={usage.request_tokens}, response_tokens={usage.response_tokens}"
+        )
 
-    # Post-run enrichment: pull demo links from resolve_demo_link tool calls
-    demo_map = {}
-    for tc in tool_logs:
-        if tc.tool == "resolve_demo_link":
-            tool_name = tc.inputs.get("tool_name")
-            if tool_name:
-                demo_link = tc.inputs.get("demo_link")
-                demo_map[tool_name] = demo_link
-    for ch in result.choices:
-        if getattr(ch, 'name', None) and ch.name in demo_map and demo_map[ch.name]:
-            setattr(ch, 'demo_link', demo_map[ch.name])
+    if image_bytes and ("inference.rcp.epfl.ch" in endpoint_display):
+        log.warning("⚠️  Using EPFL inference server - confirm the selected model supports vision on that endpoint.")
+        log.warning("   OpenAI billing/dashboard may not reflect image usage when using a non-OpenAI endpoint.")
 
+    # ---- 7) Convert raw tool call records into ToolRunLog objects ----------
+    for tc in getattr(deps, "tool_calls", []):
+        tool_name = tc.get("tool")
+        timestamp = tc.get("timestamp")
+        error = tc.get("error")
+        inputs = {k: v for k, v in tc.items() if k not in ("tool", "timestamp", "error")}
+        tool_logs.append(
+            ToolRunLog(
+                tool=tool_name,
+                inputs=inputs,
+                timestamp=timestamp,
+                error=error,
+            )
+        )
+
+    # ---- 8) Wrap into high-level AgentToolSelection ------------------------
     return AgentToolSelection(
         conversation=result.conversation,
         choices=result.choices,
@@ -323,5 +461,6 @@ def run_agent(
         reason=result.reason,
         tool_calls=tool_logs,
     )
+
 
 __all__ = ["run_agent", "agent"]

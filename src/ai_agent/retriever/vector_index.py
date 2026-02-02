@@ -204,6 +204,7 @@ class VectorIndex:
                     ", ".join(rem_sample),
                     " ..." if removed_n > len(rem_sample) else ""
                 )
+        
         return {"added": added_n, "updated": updated_n, "removed": removed_n}
 
     def save(self, dirpath: str | Path) -> None:
@@ -272,4 +273,5 @@ class VectorIndex:
         idx.id_to_faiss = {str(k): int(v) for k, v in meta.get("id_to_faiss", {}).items()}
         idx.faiss_to_id = {int(v): str(k) for k, v in idx.id_to_faiss.items()}
         idx.docs = {sid: SoftwareDoc(**payload) for sid, payload in meta.get("docs", {}).items()}
+        
         return idx

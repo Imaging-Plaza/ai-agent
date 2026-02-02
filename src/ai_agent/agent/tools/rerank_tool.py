@@ -18,6 +18,10 @@ class RerankOutput(BaseModel):
 
 def tool_rerank(inp: RerankInput) -> RerankOutput:
     pipe = get_pipeline()
+    
+    # Use original query (similarity expansion happens in search tools)
+    query = inp.query
+    
     # reconstruct minimal hit dicts for reranker from catalog
     hits: List[Dict[str, Any]] = []
     for name in inp.candidate_names:
@@ -28,7 +32,7 @@ def tool_rerank(inp: RerankInput) -> RerankOutput:
     if not hits:
         return RerankOutput(reranked=[], used_model=False)
     if getattr(pipe, "reranker", None):
-        ranked = pipe.rerank_only(inp.query, hits, top_k=inp.top_k)
+        ranked = pipe.rerank_only(query, hits, top_k=inp.top_k)
         out = [
             {
                 "name": h["doc"].name,
@@ -38,7 +42,7 @@ def tool_rerank(inp: RerankInput) -> RerankOutput:
         ]
         return RerankOutput(reranked=out, used_model=True)
     # fallback lexical
-    q = inp.query.lower()
+    q = query.lower()
     scored = []
     for h in hits:
         doc: SoftwareDoc = h["doc"]

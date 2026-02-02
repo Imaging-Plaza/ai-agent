@@ -2,7 +2,7 @@
 
 # Default config
 # agent_model:
-#   name: "gpt-4o"                     # Model name
+#   name: "gpt-5.1" # "gpt-4o"                     # Model name
 #   base_url: null                          # null for default OpenAI endpoint
 #   api_key_env: "OPENAI_API_KEY"          # Environment variable containing API key
 

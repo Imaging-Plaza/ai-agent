@@ -21,6 +21,14 @@ class SoftwareDoc(BaseModel):
     repo_url: Optional[str] = None
     description: Optional[str] = None
     documentation: Optional[str] = None
+    
+    @field_validator("name", mode="before")
+    @classmethod
+    def _coerce_name_from_list(cls, v):
+        """Handle name field that might be a list (common in catalog)."""
+        if isinstance(v, list):
+            return v[0] if v else "unknown"
+        return v
 
     # Semantics
     category: List[str] = Field(default_factory=list, alias="applicationCategory")
@@ -354,21 +362,56 @@ class SoftwareDoc(BaseModel):
         return out
 
     def to_retrieval_text(self) -> str:
-        dims_str = ", ".join(f"{d}D" for d in (self.dims or []))
-        parts = [
-            f"name: {self.name}",
-            f"tasks: {', '.join(self.tasks)}" if self.tasks else "",
-            f"modality: {', '.join(self.modality)}" if self.modality else "",
-            f"dims: {dims_str}" if dims_str else "",
-            f"category: {', '.join(self.category)}" if self.category else "",
-            f"keywords: {', '.join(self.keywords)}" if self.keywords else "",
-            f"language: {self.programming_language or ''}",
-            f"license: {self.license or ''}",
-            f"gpu_required: {self.gpu_required}",
-            f"is_free: {self.is_free}",
-            f"plugin_of: {', '.join(self.plugin_of)}" if self.plugin_of else "",
-            f"based_on: {', '.join(self.is_based_on)}" if self.is_based_on else "",
-            f"orgs: {', '.join(self.related_organizations)}" if self.related_organizations else "",
-            f"desc: {self.description or ''}",
-        ]
-        return " | ".join(p for p in parts if p)
+        """
+        Generate text representation for retrieval.
+        
+        Strategy:
+        1. Include all semantic fields without expansion (expansion happens at query-time)
+        2. Repeat critical fields (tasks, modality, anatomy) for better matching
+        3. Keep less critical metadata at the end for context
+        """
+        parts = []
+        
+        # Name (high importance)
+        if self.name:
+            parts.append(self.name)
+        
+        # Tasks (repeated 3x) - HIGHEST PRIORITY
+        if self.tasks:
+            tasks_str = " ".join(self.tasks)
+            parts.extend([tasks_str, tasks_str, tasks_str])
+        
+        # Anatomy (repeated 2x)
+        if self.anatomy:
+            anatomy_str = " ".join(self.anatomy)
+            parts.extend([anatomy_str, anatomy_str])
+        
+        # Modality (repeated 2x)
+        if self.modality:
+            modality_str = " ".join(self.modality)
+            parts.extend([modality_str, modality_str])
+        
+        # Dimensions (as-is from catalog)
+        if self.dims:
+            dim_terms = [f"{d}D" for d in self.dims]
+            parts.append(" ".join(dim_terms))
+        
+        # Category and keywords
+        if self.category:
+            parts.append(" ".join(self.category))
+        if self.keywords:
+            parts.append(" ".join(self.keywords))
+        
+        # Description (provides context)
+        if self.description:
+            parts.append(self.description)
+        
+        # Secondary metadata
+        if self.programming_language:
+            parts.append(f"language:{self.programming_language}")
+        if self.plugin_of:
+            parts.append(f"plugin:{' '.join(self.plugin_of)}")
+        if self.is_based_on:
+            parts.append(f"based_on:{' '.join(self.is_based_on)}")
+        
+        return " ".join(p for p in parts if p)

@@ -3,7 +3,7 @@ import re
 from typing import List
 
 # Matches any control tag we support
-TAG_RE = re.compile(r"\[(?:REFINE|NO_RERANK|EXCLUDE:[^\]]*|EXCLUDED:[^\]]*)\]")
+TAG_RE = re.compile(r"\[(?:REFINE|EXCLUDE:[^\]]*|EXCLUDED:[^\]]*)\]")
 EXCLUDE_RE = re.compile(r"\[(?:EXCLUDE|EXCLUDED):([^\]]+)\]")
 
 def strip_tags(text: str) -> str:
@@ -21,6 +21,3 @@ def parse_exclusions(text: str) -> List[str]:
         return []
     parts = [p.strip() for p in m.group(1).split("|")]
     return [p for p in parts if p]
-
-def has_no_rerank(text: str) -> bool:
-    return "[NO_RERANK]" in (text or "")
