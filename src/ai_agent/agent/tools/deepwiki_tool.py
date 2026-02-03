@@ -13,7 +13,7 @@ from ..utils import _coerce_owner_repo_ref
 log = logging.getLogger("agent.deepwiki")
 
 # DeepWiki MCP server endpoint (SSE transport)
-DEEPWIKI_SSE_URL = "https://mcp.deepwiki.com/sse"
+DEEPWIKI_SSE_URL = "https://mcp.deepwiki.com/mcp"
 
 # Timeout for DeepWiki operations (seconds)
 DEEPWIKI_TIMEOUT = 60
