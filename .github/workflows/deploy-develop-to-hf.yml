@@ -3,7 +3,6 @@ name: Deploy develop to Hugging Face Space (SDSC/ai-agent)
 on:
   push:
     branches: [ develop ]
-  # optional: manual trigger from Actions tab
   workflow_dispatch:
 
 jobs:
@@ -14,15 +13,43 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # required so git push works correctly
-          lfs: true        # good idea if you have large models/assets
-          # submodules: recursive   # uncomment if you ever add submodules
+          fetch-depth: 0
+          lfs: true
+
+      # 👇 This step ONLY changes README in the CI workspace, not in your repo
+      - name: Generate Hugging Face README with YAML frontmatter
+        run: |
+          # Keep original README content
+          mv README.md README.project.md
+
+          # Create new README with HF config at the top
+          cat << 'EOF' > README.md
+          ---
+          title: AI Agent
+          emoji: 🤖
+          colorFrom: blue
+          colorTo: green
+          sdk: docker
+          app_port: 7860
+          pinned: false
+          ---
+
+          EOF
+
+          # Append the original README content below the YAML block
+          cat README.project.md >> README.md
+
+          # Commit this *locally* so we can push it to the HF remote
+          git config user.email "ci@github.actions"
+          git config user.name "github-actions[bot]"
+          git add README.md
+          git commit -m "Add HF Spaces frontmatter to README for deployment" || echo "No changes to commit"
 
       - name: Push develop to HF Space SDSC/ai-agent
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Push local 'develop' to the Space's 'main' branch
+          # Push the current branch (develop, with the local README commit) to the Space's main
           git push --force \
             https://SDSC:${HF_TOKEN}@huggingface.co/spaces/SDSC/ai-agent \
-            develop:main
+            HEAD:main
