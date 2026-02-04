@@ -5,15 +5,15 @@ import logging
 from typing import Optional
 
 from pydantic import BaseModel
-from pydantic_ai.mcp import MCPServerSSE
+from pydantic_ai.mcp import MCPServerStreamableHTTP
 
 from .utils import _clip
 from ..utils import _coerce_owner_repo_ref
 
 log = logging.getLogger("agent.deepwiki")
 
-# DeepWiki MCP server endpoint (SSE transport)
-DEEPWIKI_SSE_URL = "https://mcp.deepwiki.com/mcp"
+# DeepWiki MCP server endpoint (Streamable HTTP transport)
+DEEPWIKI_HTTP_URL = "https://mcp.deepwiki.com/mcp"
 
 # Timeout for DeepWiki operations (seconds)
 DEEPWIKI_TIMEOUT = 60
@@ -35,14 +35,14 @@ class DeepWikiContentsOutput(BaseModel):
 
 async def get_wiki_contents(input: DeepWikiInput) -> DeepWikiContentsOutput:
     """
-    Fetch repo docs from DeepWiki MCP (SSE) and return a clipped string
+    Fetch repo docs from DeepWiki MCP (Streamable HTTP) and return a clipped string
     to keep LLM token usage under control.
     """
     owner, repo, _ = _coerce_owner_repo_ref(input.url)
     repo = f"{owner}/{repo}"
 
     try:
-        server = MCPServerSSE(DEEPWIKI_SSE_URL)
+        server = MCPServerStreamableHTTP(DEEPWIKI_HTTP_URL)
 
         async with server:
             result = await asyncio.wait_for(
@@ -50,9 +50,23 @@ async def get_wiki_contents(input: DeepWikiInput) -> DeepWikiContentsOutput:
                 timeout=DEEPWIKI_TIMEOUT,
             )
 
+            # Handle different result types from MCP
             text = None
-            if isinstance(result, list):
-                text = "\n".join([p for p in result if isinstance(p, str)]) or None
+            if isinstance(result, str):
+                # Direct string result
+                text = result
+            elif hasattr(result, 'content'):
+                # MCP ToolResult with content field
+                text_parts = []
+                for item in result.content:
+                    if hasattr(item, 'text'):
+                        text_parts.append(item.text)
+                    elif isinstance(item, str):
+                        text_parts.append(item)
+                text = "\n".join(text_parts) if text_parts else None
+            elif isinstance(result, list):
+                # List of strings or content items
+                text = "\n".join([str(p) for p in result if p]) or None
 
             if text and text.strip():
                 clipped_text, truncated = _clip(text.strip())
