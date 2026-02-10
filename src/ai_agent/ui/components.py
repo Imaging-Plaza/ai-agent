@@ -23,7 +23,7 @@ MODEL_CONFIGS = {
     # EPFL inference server models
     "openai/gpt-oss-120b [EPFL]": {
         "name": "openai/gpt-oss-120b",
-        "base_url": "https://inference.rcp.epfl.ch/v1",
+        "base_url": "https://inference-rcp.epfl.ch/v1",
         "provider": "EPFL"
     },
     "mistralai/Mistral-Small-3.2-24B-Instruct-2506 [EPFL]": {
