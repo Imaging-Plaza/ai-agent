@@ -45,3 +45,8 @@ def _clip(s: str) -> Tuple[str, bool]:
     if len(s) <= MAX_CHARS:
         return s, False
     return s[:MAX_CHARS] + "\n\n...[truncated for token budget]...", True
+
+def _is_github_url(url: str) -> bool:
+    """Check if URL looks like a GitHub URL."""
+    url_lower = url.lower().strip()
+    return "github.com" in url_lower or url_lower.count("/") >= 1 and not url_lower.startswith("http")

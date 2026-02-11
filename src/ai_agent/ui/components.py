@@ -2,8 +2,10 @@ import logging
 import os
 import json
 from typing import List, Dict
+from pathlib import Path
 
 import gradio as gr
+import yaml
 
 from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.retriever.software_doc import SoftwareDoc
@@ -13,29 +15,51 @@ from .visualizations import create_tool_usage_chart, create_tool_timeline, creat
 
 log = logging.getLogger("chat_components")
 
-# Model configurations with their inference servers
-MODEL_CONFIGS = {
-    # OpenAI models (default endpoint)
-    "gpt-4o-mini": {"name": "gpt-4o-mini", "base_url": None, "provider": "OpenAI"},
-    "gpt-4o": {"name": "gpt-4o", "base_url": None, "provider": "OpenAI"},
-    "gpt-4-turbo": {"name": "gpt-4-turbo", "base_url": None, "provider": "OpenAI"},
-    
-    # EPFL inference server models
-    "openai/gpt-oss-120b [EPFL]": {
-        "name": "openai/gpt-oss-120b",
-        "base_url": "https://inference-rcp.epfl.ch/v1",
-        "provider": "EPFL"
-    },
-    "mistralai/Mistral-Small-3.2-24B-Instruct-2506 [EPFL]": {
-        "name": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
-        "base_url": "https://inference.rcp.epfl.ch/v1",
-        "provider": "EPFL"
-    },
-}
+DEFAULT_MODEL_CONFIG = {"gpt-4o": {"name": "gpt-4o", "base_url": None, "provider": "OpenAI", "api_key_env": "OPENAI_API_KEY"}} 
+
+# Load model configurations from config.yaml
+def _load_model_configs() -> Dict[str, Dict[str, str]]:
+    """Load model configurations from config.yaml."""
+    try:
+        # Load raw YAML to get available_models
+        config_path = os.getenv("CONFIG_PATH", "config.yaml")
+        if not Path(config_path).exists():
+            log.warning(f"Config file not found: {config_path}, using defaults")
+            raise FileNotFoundError(config_path)
+        
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        
+        available_models = data.get("available_models", [])
+        
+        model_configs = {}
+        for model in available_models:
+            display_name = model.get("display_name")
+            if display_name:
+                model_configs[display_name] = {
+                    "name": model.get("name"),
+                    "base_url": model.get("base_url"),
+                    "provider": model.get("provider", "Unknown"),
+                    "api_key_env": model.get("api_key_env", "OPENAI_API_KEY")
+                }
+        
+        # Fallback to default models if config is empty
+        if not model_configs:
+            log.warning("No models found in config.yaml, using defaults")
+            model_configs = DEFAULT_MODEL_CONFIG
+        
+        log.info(f"Loaded {len(model_configs)} models from config: {list(model_configs.keys())}")
+        return model_configs
+    except Exception as e:
+        log.error(f"Failed to load models from config: {e}")
+        # Fallback to minimal default
+        return DEFAULT_MODEL_CONFIG
+
+MODEL_CONFIGS = _load_model_configs()
 
 def get_model_config(model_display_name: str) -> Dict[str, str]:
     """Get model configuration from display name."""
-    return MODEL_CONFIGS.get(model_display_name, {"name": model_display_name, "base_url": None, "provider": "Unknown"})
+    return MODEL_CONFIGS.get(model_display_name, {"name": model_display_name, "base_url": None, "provider": "Unknown", "api_key_env": "OPENAI_API_KEY"})
 
 
 def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
@@ -138,9 +162,11 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         # Settings section (collapsed by default)
         with gr.Accordion("⚙️ Settings", open=False):
             with gr.Row():
+                # Use first available model as default to avoid inconsistency
+                default_model = list(MODEL_CONFIGS.keys())[0] if MODEL_CONFIGS else "gpt-4o"
                 model_dropdown = gr.Dropdown(
                     choices=list(MODEL_CONFIGS.keys()),
-                    value="gpt-4o-mini",
+                    value=default_model,
                     label="Model",
                     info="Select AI model and inference server",
                 )
