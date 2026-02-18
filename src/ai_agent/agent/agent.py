@@ -341,7 +341,7 @@ def run_agent(
             raise ValueError(f"{key_env_name} not found in environment. Cannot use this model.")
         effective_base_url = base_url  # Can be None for OpenAI
         log.info(f"✓ Using {key_env_name} for model {effective_model}")
-        log.debug(f"{key_env_name} starts with: {runtime_api_key[:10] if runtime_api_key else 'NONE'}... (len={len(runtime_api_key) if runtime_api_key else 0})")
+        log.debug(f"{key_env_name} is set: {bool(runtime_api_key)}")
     else:
         # No model override - use config defaults
         effective_base_url = agent_model_config.base_url
