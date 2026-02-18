@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 import os, json
+from urllib.parse import urlparse
 
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.api.pipeline import RAGImagingPipeline
@@ -11,10 +12,16 @@ _PIPE: Optional[RAGImagingPipeline] = None
 _DOCS: List[SoftwareDoc] = []
 MAX_CHARS = 20000
 
-def get_pipeline() -> RAGImagingPipeline:
-    global _PIPE, _DOCS
-    if _PIPE is None:
-        # Minimal lazy loader; catalog path should already be set
+def get_catalog_docs() -> List[SoftwareDoc]:
+    """
+    Load and return catalog docs without initializing the full pipeline.
+    
+    This is a lightweight alternative to get_pipeline() for catalog-only operations
+    that don't need the embedder, reranker, or index.
+    """
+    global _DOCS
+    if not _DOCS:
+        # Load catalog docs
         from pathlib import Path
         catalog = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
         p = Path(catalog)
@@ -36,6 +43,14 @@ def get_pipeline() -> RAGImagingPipeline:
                     except Exception:
                         continue
         _DOCS = docs
+    return _DOCS
+
+def get_pipeline() -> RAGImagingPipeline:
+    global _PIPE, _DOCS
+    if _PIPE is None:
+        # Load docs first (reuses cached docs if available)
+        get_catalog_docs()
+        # Now initialize the full pipeline
         _PIPE = RAGImagingPipeline()
     return _PIPE
 
@@ -45,3 +60,17 @@ def _clip(s: str) -> Tuple[str, bool]:
     if len(s) <= MAX_CHARS:
         return s, False
     return s[:MAX_CHARS] + "\n\n...[truncated for token budget]...", True
+
+def _is_github_url(url: str) -> bool:
+    """Return True only for URLs that actually point to github.com."""
+    s = (url or "").strip()
+    if not s:
+        return False
+
+    parsed = urlparse(s)
+
+    # If no scheme was provided (e.g. "github.com/org/repo"), parse again with a dummy scheme
+    if not parsed.scheme and not parsed.netloc:
+        parsed = urlparse("https://" + s)
+
+    return parsed.netloc.lower() == "github.com"

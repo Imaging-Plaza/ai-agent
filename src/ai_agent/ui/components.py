@@ -1,7 +1,7 @@
 import logging
 import os
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import gradio as gr
 
@@ -10,32 +10,19 @@ from ai_agent.retriever.software_doc import SoftwareDoc
 
 from .handlers import respond
 from .visualizations import create_tool_usage_chart, create_tool_timeline, create_disabled_tools_display
+from .utils import get_available_models, get_default_model_display_name
 
 log = logging.getLogger("chat_components")
 
-# Model configurations with their inference servers
-MODEL_CONFIGS = {
-    # OpenAI models (default endpoint)
-    "gpt-4o-mini": {"name": "gpt-4o-mini", "base_url": None, "provider": "OpenAI"},
-    "gpt-4o": {"name": "gpt-4o", "base_url": None, "provider": "OpenAI"},
-    "gpt-4-turbo": {"name": "gpt-4-turbo", "base_url": None, "provider": "OpenAI"},
-    
-    # EPFL inference server models
-    "openai/gpt-oss-120b [EPFL]": {
-        "name": "openai/gpt-oss-120b",
-        "base_url": "https://inference-rcp.epfl.ch/v1",
-        "provider": "EPFL"
-    },
-    "mistralai/Mistral-Small-3.2-24B-Instruct-2506 [EPFL]": {
-        "name": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
-        "base_url": "https://inference.rcp.epfl.ch/v1",
-        "provider": "EPFL"
-    },
-}
+# Load model configurations from config.yaml
+MODEL_CONFIGS = get_available_models()
 
-def get_model_config(model_display_name: str) -> Dict[str, str]:
+def get_model_config(model_display_name: str) -> Dict[str, Optional[str]]:
     """Get model configuration from display name."""
-    return MODEL_CONFIGS.get(model_display_name, {"name": model_display_name, "base_url": None, "provider": "Unknown"})
+    return MODEL_CONFIGS.get(
+        model_display_name,
+        {"name": model_display_name, "base_url": None, "provider": "Unknown", "api_key_env": "OPENAI_API_KEY"}
+    )
 
 
 def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
@@ -125,9 +112,11 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         with gr.Row(elem_classes="main-header"):
             gr.HTML("""
                 <div class="logo-container">
-                    <img src="https://imaging-plaza.epfl.ch/logos/imaging_plaza_white.svg" 
-                         alt="Imaging Plaza Logo" 
-                         style="height: 48px; width: auto;" />
+                    <div style="background: white; border-radius: 12px; padding: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                        <img src="https://imaging-plaza.epfl.ch/logos/imaging_plaza.svg" 
+                             alt="Imaging Plaza Logo" 
+                             style="height: 42px; width: auto; display: block;" />
+                    </div>
                     <div>
                         <h1 class="header-title">AI Assistant</h1>
                         <p class="header-subtitle">Find the right imaging tools for your research</p>
@@ -138,9 +127,11 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         # Settings section (collapsed by default)
         with gr.Accordion("⚙️ Settings", open=False):
             with gr.Row():
+                # Use agent_model from config as default
+                default_model = get_default_model_display_name()
                 model_dropdown = gr.Dropdown(
                     choices=list(MODEL_CONFIGS.keys()),
-                    value="gpt-4o-mini",
+                    value=default_model,
                     label="Model",
                     info="Select AI model and inference server",
                 )

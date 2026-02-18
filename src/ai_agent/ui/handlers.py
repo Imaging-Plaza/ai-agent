@@ -201,13 +201,15 @@ def respond(
     # Parse model configuration if provided
     model_name = None
     base_url_override = None  # Use different variable name
+    api_key_env = None
     if model:
         # Import here to avoid circular dependency
         from ai_agent.ui.components import get_model_config
         model_config = get_model_config(model)
         model_name = model_config.get("name")
         base_url_override = model_config.get("base_url")  # Can be None for OpenAI
-        log.info(f"Model config: {model} -> name={model_name}, base_url={base_url_override}")
+        api_key_env = model_config.get("api_key_env", "OPENAI_API_KEY")
+        log.info(f"Model config: {model} -> name={model_name}, base_url={base_url_override}, api_key_env={api_key_env}")
 
     effective_paths = file_paths or (state.last_files or [])
 
@@ -228,6 +230,7 @@ def respond(
             conversation_history=state.conversation_history,
             model=model_name,
             base_url=base_url_override if model else None,  # Only override if model selected
+            api_key_env=api_key_env,  # Pass the API key environment variable name
             top_k=top_k,
             num_choices=num_choices,
         )
