@@ -21,7 +21,7 @@ from .tools.search_alternative_tool import tool_search_alternative, SearchAltern
 from .tools.gradio_space_tool import tool_run_example, RunExampleInput
 from .utils import AgentState, limit_tool_calls, cap_prepare
 from ai_agent.utils.image_meta import summarize_image_metadata, detect_ext_token
-from ai_agent.generator.schema import ConversationState
+from ai_agent.generator.schema import Conversation
 
 log = logging.getLogger("agent.core")
 
@@ -41,7 +41,7 @@ log.info(f"Initializing agent model: {agent_model_config.name}")
 
 if agent_model_config.base_url:
     log.info(f"Using custom OpenAI base URL: {agent_model_config.base_url}")
-    log.info("Using OpenAIModel (chat/completions API) for custom endpoint")
+    log.info("Using OpenAIChatModel (chat/completions API) for custom endpoint")
     provider = OpenAIProvider(
         base_url=agent_model_config.base_url,
         api_key=api_key,
@@ -371,10 +371,10 @@ def run_agent(
             api_key=runtime_api_key,
         )
         
-        # Use OpenAIModel (chat/completions) for custom endpoints, OpenAIResponsesModel for default OpenAI
+        # Use OpenAIChatModel (chat/completions) for custom endpoints, OpenAIResponsesModel for default OpenAI
         if effective_base_url:
-            log.info("Using OpenAIModel (chat/completions API) for custom endpoint")
-            runtime_model = OpenAIModel(model_name=effective_model, provider=runtime_provider)
+            log.info("Using OpenAIChatModel (chat/completions API) for custom endpoint")
+            runtime_model = OpenAIChatModel(model_name=effective_model, provider=runtime_provider)
         else:
             runtime_model = OpenAIResponsesModel(model_name=effective_model, provider=runtime_provider)
 
@@ -463,7 +463,7 @@ def run_agent(
             log.warning("Global tool call quota reached - continuing with partial results")
 
             result = ToolSelection(
-                conversation=ConversationState(
+                conversation=Conversation(
                     status="terminal_no_tool",
                     context="The agent reached the maximum number of tool calls allowed. Please try a more specific query or break down your request into smaller parts.",
                     question="",

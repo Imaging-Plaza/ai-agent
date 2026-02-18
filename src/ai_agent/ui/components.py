@@ -2,64 +2,27 @@ import logging
 import os
 import json
 from typing import List, Dict
-from pathlib import Path
 
 import gradio as gr
-import yaml
 
 from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.retriever.software_doc import SoftwareDoc
 
 from .handlers import respond
 from .visualizations import create_tool_usage_chart, create_tool_timeline, create_disabled_tools_display
+from .utils import get_available_models, get_default_model_display_name
 
 log = logging.getLogger("chat_components")
 
-DEFAULT_MODEL_CONFIG = {"gpt-4o": {"name": "gpt-4o", "base_url": None, "provider": "OpenAI", "api_key_env": "OPENAI_API_KEY"}} 
-
 # Load model configurations from config.yaml
-def _load_model_configs() -> Dict[str, Dict[str, str]]:
-    """Load model configurations from config.yaml."""
-    try:
-        # Load raw YAML to get available_models
-        config_path = os.getenv("CONFIG_PATH", "config.yaml")
-        if not Path(config_path).exists():
-            log.warning(f"Config file not found: {config_path}, using defaults")
-            raise FileNotFoundError(config_path)
-        
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        
-        available_models = data.get("available_models", [])
-        
-        model_configs = {}
-        for model in available_models:
-            display_name = model.get("display_name")
-            if display_name:
-                model_configs[display_name] = {
-                    "name": model.get("name"),
-                    "base_url": model.get("base_url"),
-                    "provider": model.get("provider", "Unknown"),
-                    "api_key_env": model.get("api_key_env", "OPENAI_API_KEY")
-                }
-        
-        # Fallback to default models if config is empty
-        if not model_configs:
-            log.warning("No models found in config.yaml, using defaults")
-            model_configs = DEFAULT_MODEL_CONFIG
-        
-        log.info(f"Loaded {len(model_configs)} models from config: {list(model_configs.keys())}")
-        return model_configs
-    except Exception as e:
-        log.error(f"Failed to load models from config: {e}")
-        # Fallback to minimal default
-        return DEFAULT_MODEL_CONFIG
-
-MODEL_CONFIGS = _load_model_configs()
+MODEL_CONFIGS = get_available_models()
 
 def get_model_config(model_display_name: str) -> Dict[str, str]:
     """Get model configuration from display name."""
-    return MODEL_CONFIGS.get(model_display_name, {"name": model_display_name, "base_url": None, "provider": "Unknown", "api_key_env": "OPENAI_API_KEY"})
+    return MODEL_CONFIGS.get(
+        model_display_name,
+        {"name": model_display_name, "base_url": None, "provider": "Unknown", "api_key_env": "OPENAI_API_KEY"}
+    )
 
 
 def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
@@ -149,9 +112,11 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         with gr.Row(elem_classes="main-header"):
             gr.HTML("""
                 <div class="logo-container">
-                    <img src="https://imaging-plaza.epfl.ch/logos/imaging_plaza_white.svg" 
-                         alt="Imaging Plaza Logo" 
-                         style="height: 48px; width: auto;" />
+                    <div style="background: white; border-radius: 12px; padding: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                        <img src="https://imaging-plaza.epfl.ch/logos/imaging_plaza.svg" 
+                             alt="Imaging Plaza Logo" 
+                             style="height: 42px; width: auto; display: block;" />
+                    </div>
                     <div>
                         <h1 class="header-title">AI Assistant</h1>
                         <p class="header-subtitle">Find the right imaging tools for your research</p>
@@ -162,8 +127,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         # Settings section (collapsed by default)
         with gr.Accordion("⚙️ Settings", open=False):
             with gr.Row():
-                # Use first available model as default to avoid inconsistency
-                default_model = list(MODEL_CONFIGS.keys())[0] if MODEL_CONFIGS else "gpt-4o"
+                # Use agent_model from config as default
+                default_model = get_default_model_display_name()
                 model_dropdown = gr.Dropdown(
                     choices=list(MODEL_CONFIGS.keys()),
                     value=default_model,
