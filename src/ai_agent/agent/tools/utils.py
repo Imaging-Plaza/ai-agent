@@ -12,10 +12,16 @@ _PIPE: Optional[RAGImagingPipeline] = None
 _DOCS: List[SoftwareDoc] = []
 MAX_CHARS = 20000
 
-def get_pipeline() -> RAGImagingPipeline:
-    global _PIPE, _DOCS
-    if _PIPE is None:
-        # Minimal lazy loader; catalog path should already be set
+def get_catalog_docs() -> List[SoftwareDoc]:
+    """
+    Load and return catalog docs without initializing the full pipeline.
+    
+    This is a lightweight alternative to get_pipeline() for catalog-only operations
+    that don't need the embedder, reranker, or index.
+    """
+    global _DOCS
+    if not _DOCS:
+        # Load catalog docs
         from pathlib import Path
         catalog = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
         p = Path(catalog)
@@ -37,6 +43,14 @@ def get_pipeline() -> RAGImagingPipeline:
                     except Exception:
                         continue
         _DOCS = docs
+    return _DOCS
+
+def get_pipeline() -> RAGImagingPipeline:
+    global _PIPE, _DOCS
+    if _PIPE is None:
+        # Load docs first (reuses cached docs if available)
+        get_catalog_docs()
+        # Now initialize the full pipeline
         _PIPE = RAGImagingPipeline()
     return _PIPE
 
