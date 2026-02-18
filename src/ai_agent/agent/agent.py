@@ -6,12 +6,12 @@ from typing import List
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.usage import UsageLimits
-from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.messages import BinaryContent
 
 from ai_agent.generator.prompts import get_agent_system_prompt
-from ai_agent.generator.schema import ToolSelection, Conversation, ConversationStatus
+from ai_agent.generator.schema import ToolSelection
 from ai_agent.utils.config import get_config
 from .models import AgentToolSelection, ToolRunLog
 from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
@@ -43,10 +43,6 @@ if agent_model_config.base_url:
     provider = OpenAIProvider(
         base_url=agent_model_config.base_url,
         api_key=api_key,
-    )
-    openai_model = OpenAIChatModel(
-        model_name=agent_model_config.name,
-        provider=provider,
     )
 else:
     provider = OpenAIProvider(api_key=api_key)
@@ -164,43 +160,31 @@ async def search_alternative(
 
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("repo_info", cap=12)
-async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str = None) -> dict:
+async def repo_info(ctx: RunContext[AgentState], url: str) -> dict:
     """
     Fetch a short summary of a GitHub repository.
 
     Non-GitHub URLs are ignored; the tool returns a small dict noting
-    that it was skipped. If a tool_name is provided and the URL is not
-    a GitHub URL, the tool will attempt to look up the GitHub URL from
-    the catalog.
-    
-    Args:
-        url: Repository URL or GitHub owner/repo format
-        tool_name: Optional tool name to look up in catalog if URL is not GitHub
+    that it was skipped.
     """
     norm_url = coerce_github_url_or_none(url)
-    
-    # If URL is not a GitHub URL and tool_name is provided, try catalog lookup
-    if not norm_url and tool_name:
-        log.info(f"Non-GitHub URL provided, tool_name={tool_name}, attempting catalog lookup")
-        # The tool_repo_summary will handle the catalog lookup
-        norm_url = url  # Pass through, tool_repo_summary will handle it
-    elif not norm_url:
+    if not norm_url:
         payload = {
             "tool": "repo_info",
             "url": url,
             "skipped": True,
             "reason": "NON_GITHUB_URL",
-            "hint": "Pass a GitHub repo URL or 'owner/repo' to repo_info(url). Optionally provide tool_name for catalog lookup.",
+            "hint": "Pass a GitHub repo URL or 'owner/repo' to repo_info(url).",
             "timestamp": datetime.now().isoformat()
         }
         ctx.deps.tool_calls.append(payload)
         return {k: v for k, v in payload.items() if k != "tool"}
 
     try:
-        out = await tool_repo_summary(RepoSummaryInput(url=norm_url, tool_name=tool_name))
+        out = await tool_repo_summary(RepoSummaryInput(url=norm_url))
     except Exception as e:
         ctx.deps.tool_calls.append(
-            {"tool": "repo_info", "url": norm_url, "tool_name": tool_name, "error": str(e), "timestamp": datetime.now().isoformat()}
+            {"tool": "repo_info", "url": norm_url, "error": str(e), "timestamp": datetime.now().isoformat()}
         )
         raise
 
@@ -208,7 +192,6 @@ async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str = None
         {
             "tool": "repo_info",
             "url": norm_url,
-            "tool_name": tool_name,
             "truncated": getattr(out, "truncated", False),
             "timestamp": datetime.now().isoformat()
         }
@@ -261,7 +244,6 @@ def run_agent(
     image_bytes: bytes | None = None,
     model: str | None = None,
     base_url: str | None = None,
-    api_key_env: str | None = None,
     top_k: int | None = None,
     num_choices: int | None = None,
     image_metadata: str | None = None,
@@ -333,19 +315,30 @@ def run_agent(
 
     # When model is provided from UI, base_url comes with it (can be None for OpenAI)
     if model:
-        # Use api_key_env from config if provided, otherwise default to OPENAI_API_KEY
-        key_env_name = api_key_env if api_key_env else "OPENAI_API_KEY"
-        runtime_api_key = os.getenv(key_env_name)
-        if not runtime_api_key:
-            raise ValueError(f"{key_env_name} not found in environment. Cannot use this model.")
-        effective_base_url = base_url  # Can be None for OpenAI
-        log.info(f"✓ Using {key_env_name} for model {effective_model}")
-        log.debug(f"{key_env_name} starts with: {runtime_api_key[:10] if runtime_api_key else 'NONE'}... (len={len(runtime_api_key) if runtime_api_key else 0})")
+        if base_url and "inference.rcp.epfl.ch" in base_url:
+            runtime_api_key = os.getenv("EPFL_API_KEY")
+            if not runtime_api_key:
+                raise ValueError("EPFL_API_KEY not found. Cannot use EPFL models without VPN and API key.")
+            effective_base_url = base_url
+            log.info("✓ Using EPFL_API_KEY for EPFL inference server")
+        else:
+            runtime_api_key = os.getenv("OPENAI_API_KEY")
+            if not runtime_api_key:
+                raise ValueError("OPENAI_API_KEY not found. Cannot use OpenAI models.")
+            effective_base_url = base_url  # None for OpenAI
+            log.info("✓ Using OPENAI_API_KEY for OpenAI endpoint")
     else:
-        # No model override - use config defaults
         effective_base_url = agent_model_config.base_url
-        runtime_api_key = api_key  # Already loaded from config at startup
-        log.info(f"✓ Using API key from config for model {effective_model}")
+        if effective_base_url and "inference.rcp.epfl.ch" in effective_base_url:
+            runtime_api_key = os.getenv("EPFL_API_KEY")
+            if not runtime_api_key:
+                raise ValueError("EPFL_API_KEY not found")
+            log.info("✓ Using EPFL_API_KEY from config")
+        else:
+            runtime_api_key = os.getenv("OPENAI_API_KEY")
+            if not runtime_api_key:
+                raise ValueError("OPENAI_API_KEY not found")
+            log.info("✓ Using OPENAI_API_KEY from config")
 
     # Log runtime configuration
     endpoint_display = effective_base_url if effective_base_url else "api.openai.com"
@@ -369,13 +362,7 @@ def run_agent(
             base_url=effective_base_url,
             api_key=runtime_api_key,
         )
-        
-        # Use OpenAIModel (chat/completions) for custom endpoints, OpenAIResponsesModel for default OpenAI
-        if effective_base_url:
-            log.info("Using OpenAIChatModel (chat/completions API) for custom endpoint")
-            runtime_model = OpenAIChatModel(model_name=effective_model, provider=runtime_provider)
-        else:
-            runtime_model = OpenAIResponsesModel(model_name=effective_model, provider=runtime_provider)
+        runtime_model = OpenAIResponsesModel(model_name=effective_model, provider=runtime_provider)
 
         agent_instance = Agent(
             model=runtime_model,
@@ -429,51 +416,27 @@ def run_agent(
         user_prompt = prompt
 
     # ---- 6) Run the agent --------------------------------------------------
-    try:
-        run_result = agent_instance.run_sync(
-            user_prompt,
-            deps=deps,
-            output_type=ToolSelection,
-            usage_limits=UsageLimits(tool_calls_limit=20),
+    run_result = agent_instance.run_sync(
+        user_prompt,
+        deps=deps,
+        output_type=ToolSelection,
+        usage_limits=UsageLimits(tool_calls_limit=20),
+    )
+    result = run_result.output
+
+    log.info(f"✅ Agent execution complete - choices returned: {len(result.choices)}")
+
+    # Log usage (helpful, but may not explicitly expose image-specific counters)
+    if run_result.usage:
+        usage = run_result.usage()
+        log.info(
+            f"📊 Usage: total_tokens={usage.total_tokens}, "
+            f"request_tokens={usage.request_tokens}, response_tokens={usage.response_tokens}"
         )
-        result = run_result.output
 
-        log.info(f"✅ Agent execution complete - choices returned: {len(result.choices)}")
-
-        # Log usage (helpful, but may not explicitly expose image-specific counters)
-        if run_result.usage:
-            usage = run_result.usage()
-            log.info(
-                f"📊 Usage: total_tokens={usage.total_tokens}, "
-                f"input_tokens={usage.input_tokens}, output_tokens={usage.output_tokens}"
-            )
-
-        # Warn if using non-OpenAI endpoint with images
-        if image_bytes and effective_base_url:
-            log.warning("⚠️  Using custom endpoint - confirm the selected model supports vision.")
-
-    except Exception as e:
-        # Handle global tool quota limit (UsageLimitExceeded) and other errors gracefully
-        error_msg = str(e)
-        log.warning(f"⚠️  Agent execution encountered an error: {error_msg}")
-        
-        # Check if this is a usage limit error (global tool quota)
-        if "UsageLimitExceeded" in str(type(e).__name__) or "tool_calls_limit" in error_msg.lower():
-            log.warning("Global tool call quota reached - continuing with partial results")
-
-            result = ToolSelection(
-                conversation=Conversation(
-                    status=ConversationStatus.COMPLETE,
-                    context="The agent reached the maximum number of tool calls allowed. Please try a more specific query or break down your request into smaller parts.",
-                    question=None,
-                    options=None
-                ),
-                choices=[],
-                explanation="Tool call limit reached during execution. Try refining your query.",
-                reason=None
-            )
-        else:
-            raise
+    if image_bytes and ("inference.rcp.epfl.ch" in endpoint_display):
+        log.warning("⚠️  Using EPFL inference server - confirm the selected model supports vision on that endpoint.")
+        log.warning("   OpenAI billing/dashboard may not reflect image usage when using a non-OpenAI endpoint.")
 
     # ---- 7) Convert raw tool call records into ToolRunLog objects ----------
     for tc in getattr(deps, "tool_calls", []):

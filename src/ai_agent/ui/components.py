@@ -10,9 +10,32 @@ from ai_agent.retriever.software_doc import SoftwareDoc
 
 from .handlers import respond
 from .visualizations import create_tool_usage_chart, create_tool_timeline, create_disabled_tools_display
-from .utils import get_available_models, get_default_ui_model
 
 log = logging.getLogger("chat_components")
+
+# Model configurations with their inference servers
+MODEL_CONFIGS = {
+    # OpenAI models (default endpoint)
+    "gpt-4o-mini": {"name": "gpt-4o-mini", "base_url": None, "provider": "OpenAI"},
+    "gpt-4o": {"name": "gpt-4o", "base_url": None, "provider": "OpenAI"},
+    "gpt-4-turbo": {"name": "gpt-4-turbo", "base_url": None, "provider": "OpenAI"},
+    
+    # EPFL inference server models
+    "openai/gpt-oss-120b [EPFL]": {
+        "name": "openai/gpt-oss-120b",
+        "base_url": "https://inference-rcp.epfl.ch/v1",
+        "provider": "EPFL"
+    },
+    "mistralai/Mistral-Small-3.2-24B-Instruct-2506 [EPFL]": {
+        "name": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        "base_url": "https://inference.rcp.epfl.ch/v1",
+        "provider": "EPFL"
+    },
+}
+
+def get_model_config(model_display_name: str) -> Dict[str, str]:
+    """Get model configuration from display name."""
+    return MODEL_CONFIGS.get(model_display_name, {"name": model_display_name, "base_url": None, "provider": "Unknown"})
 
 
 def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
@@ -102,7 +125,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         with gr.Row(elem_classes="main-header"):
             gr.HTML("""
                 <div class="logo-container">
-                    <img src="https://imaging-plaza.epfl.ch/logos/imaging_plaza.svg" 
+                    <img src="https://imaging-plaza.epfl.ch/logos/imaging_plaza_white.svg" 
                          alt="Imaging Plaza Logo" 
                          style="height: 48px; width: auto;" />
                     <div>
@@ -115,14 +138,9 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         # Settings section (collapsed by default)
         with gr.Accordion("⚙️ Settings", open=False):
             with gr.Row():
-                # Load models and default from config
-                available_models = get_available_models()
-                model_choices = [m["display_name"] for m in available_models]
-                default_model = get_default_ui_model()
-                
                 model_dropdown = gr.Dropdown(
-                    choices=model_choices,
-                    value=default_model,
+                    choices=list(MODEL_CONFIGS.keys()),
+                    value="gpt-4o-mini",
                     label="Model",
                     info="Select AI model and inference server",
                 )
