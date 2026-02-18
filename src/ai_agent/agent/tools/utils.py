@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 import os, json
+from urllib.parse import urlparse
 
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.api.pipeline import RAGImagingPipeline
@@ -47,6 +48,15 @@ def _clip(s: str) -> Tuple[str, bool]:
     return s[:MAX_CHARS] + "\n\n...[truncated for token budget]...", True
 
 def _is_github_url(url: str) -> bool:
-    """Check if URL looks like a GitHub URL."""
-    url_lower = url.lower().strip()
-    return "github.com" in url_lower or url_lower.count("/") >= 1 and not url_lower.startswith("http")
+    """Return True only for URLs that actually point to github.com."""
+    s = (url or "").strip()
+    if not s:
+        return False
+
+    parsed = urlparse(s)
+
+    # If no scheme was provided (e.g. "github.com/org/repo"), parse again with a dummy scheme
+    if not parsed.scheme and not parsed.netloc:
+        parsed = urlparse("https://" + s)
+
+    return parsed.netloc.lower() == "github.com"

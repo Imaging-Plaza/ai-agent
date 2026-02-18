@@ -1,7 +1,7 @@
 import logging
 import os
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import gradio as gr
 
@@ -17,7 +17,7 @@ log = logging.getLogger("chat_components")
 # Load model configurations from config.yaml
 MODEL_CONFIGS = get_available_models()
 
-def get_model_config(model_display_name: str) -> Dict[str, str]:
+def get_model_config(model_display_name: str) -> Dict[str, Optional[str]]:
     """Get model configuration from display name."""
     return MODEL_CONFIGS.get(
         model_display_name,
