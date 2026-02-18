@@ -11,7 +11,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.messages import BinaryContent
 
 from ai_agent.generator.prompts import get_agent_system_prompt
-from ai_agent.generator.schema import ToolSelection
+from ai_agent.generator.schema import ToolSelection, Conversation, ConversationStatus
 from ai_agent.utils.config import get_config
 from .models import AgentToolSelection, ToolRunLog
 from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
@@ -21,7 +21,6 @@ from .tools.search_alternative_tool import tool_search_alternative, SearchAltern
 from .tools.gradio_space_tool import tool_run_example, RunExampleInput
 from .utils import AgentState, limit_tool_calls, cap_prepare
 from ai_agent.utils.image_meta import summarize_image_metadata, detect_ext_token
-from ai_agent.generator.schema import Conversation
 
 log = logging.getLogger("agent.core")
 
@@ -464,14 +463,14 @@ def run_agent(
 
             result = ToolSelection(
                 conversation=Conversation(
-                    status="terminal_no_tool",
+                    status=ConversationStatus.COMPLETE,
                     context="The agent reached the maximum number of tool calls allowed. Please try a more specific query or break down your request into smaller parts.",
-                    question="",
-                    options=[]
+                    question=None,
+                    options=None
                 ),
                 choices=[],
                 explanation="Tool call limit reached during execution. Try refining your query.",
-                reason="TOOL_QUOTA_EXCEEDED"
+                reason=None
             )
         else:
             raise
