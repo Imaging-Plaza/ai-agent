@@ -165,7 +165,7 @@ async def search_alternative(
 
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("repo_info", cap=12)
-async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str = None) -> dict:
+async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str | None = None) -> dict:
     """
     Fetch a short summary of a GitHub repository.
 
