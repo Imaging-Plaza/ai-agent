@@ -7,7 +7,7 @@ import repocards
 from pydantic import BaseModel
 
 from .deepwiki_tool import get_wiki_contents, DeepWikiInput
-from .utils import _clip, get_pipeline, _is_github_url
+from .utils import _clip, get_catalog_docs, _is_github_url
 
 import logging
 log = logging.getLogger("agent.repo_info")
@@ -92,6 +92,9 @@ def _get_repo_url_from_catalog(tool_name: str) -> Optional[str]:
     """
     Look up a tool's GitHub repository URL from the catalog.
     
+    Uses lightweight catalog reading to avoid initializing the full RAG pipeline
+    (embedder/reranker/index) for simple metadata lookups.
+    
     Args:
         tool_name: Name of the tool to look up
     
@@ -99,25 +102,19 @@ def _get_repo_url_from_catalog(tool_name: str) -> Optional[str]:
         GitHub URL if found, None otherwise
     """
     try:
-        pipeline = get_pipeline()
+        # Use lightweight catalog reader instead of full pipeline
+        docs = get_catalog_docs()
         
-        # Access the docs from the index
-        if hasattr(pipeline, 'index') and hasattr(pipeline.index, 'docs'):
-            docs = pipeline.index.docs
-            
-            # Look up tool by name (case-insensitive)
-            tool_name_lower = tool_name.lower().strip()
-            for doc_name, doc in docs.items():
-                if doc_name.lower().strip() == tool_name_lower or \
-                   (hasattr(doc, 'name') and doc.name.lower().strip() == tool_name_lower):
-                    # Try repo_url field first, then url field
-                    repo_url = getattr(doc, 'repo_url', None)
-                    if repo_url and _is_github_url(repo_url):
-                        return repo_url
-                    
-                    url = getattr(doc, 'url', None)
-                    if url and _is_github_url(url):
-                        return url
+        # Look up tool by name (case-insensitive)
+        tool_name_lower = tool_name.lower().strip()
+        for doc in docs:
+            if doc.name.lower().strip() == tool_name_lower:
+                # Try repo_url field first, then url field
+                if doc.repo_url and _is_github_url(doc.repo_url):
+                    return doc.repo_url
+                
+                if doc.url and _is_github_url(doc.url):
+                    return doc.url
         
         return None
     except Exception as e:
