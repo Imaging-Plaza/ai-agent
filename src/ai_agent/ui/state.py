@@ -19,6 +19,11 @@ class ChatState:
     last_files: List[str] = field(default_factory=list)
     last_image_meta: Optional[str] = None
     
+    # Tool approval system
+    pending_tool_approval: Optional[str] = None  # Tool name waiting for approval
+    pending_tool_params: Dict[str, Any] = field(default_factory=dict)  # Tool parameters
+    agent_result: Optional[Dict[str, Any]] = None  # Cached agent result before tool execution
+    
     def to_dict(self) -> dict:
         """Serialize state for Gradio State component."""
         return {
@@ -31,6 +36,9 @@ class ChatState:
             "last_preview_path": self.last_preview_path,
             "last_files": self.last_files,
             "last_image_meta": self.last_image_meta,
+            "pending_tool_approval": self.pending_tool_approval,
+            "pending_tool_params": self.pending_tool_params,
+            "agent_result": self.agent_result,
         }
     
     @staticmethod
@@ -48,6 +56,9 @@ class ChatState:
             last_preview_path=d.get("last_preview_path"),
             last_files=d.get("last_files", []),
             last_image_meta=d.get("last_image_meta"),
+            pending_tool_approval=d.get("pending_tool_approval"),
+            pending_tool_params=d.get("pending_tool_params", {}),
+            agent_result=d.get("agent_result"),
         )
 
 
@@ -60,6 +71,7 @@ class ChatMessage:
     json_data: Optional[Dict[str, Any]] = None
     code_blocks: List[Tuple[str, str]] = field(default_factory=list)  # (lang, code)
     tool_traces: List[Dict[str, Any]] = field(default_factory=list)
+    stats: Optional[Dict[str, Any]] = None  # Performance stats (time, tokens, etc.)
     
     def to_markdown(self) -> str:
         """Convert message to markdown with media."""
@@ -67,6 +79,17 @@ class ChatMessage:
         
         if self.text:
             parts.append(self.text)
+        
+        # Render stats if available
+        if self.stats:
+            parts.append("\n---\n**📊 Performance Stats:**\n")
+            if "compute_time" in self.stats:
+                parts.append(f"⏱️ Compute time: {self.stats['compute_time']:.2f}s\n")
+            if "total_time" in self.stats:
+                parts.append(f"⏱️ Total time: {self.stats['total_time']:.2f}s\n")
+            if "tokens" in self.stats:
+                tok = self.stats["tokens"]
+                parts.append(f"🎫 Tokens: {tok.get('total', 0)} (in: {tok.get('input', 0)}, out: {tok.get('output', 0)})\n")
         
         # Render file links
         for file_path, label in self.files:

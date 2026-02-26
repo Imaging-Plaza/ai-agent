@@ -87,13 +87,11 @@ AVAILABLE TOOLS:
 - search_tools(query, excluded=[], top_k=...): Semantic search with automatic query expansion and reranking
 - search_alternative(alternative_query, excluded=[], top_k=...): Try different query formulation (up to 3 times)
 - repo_info(url): Fetch GitHub repository info for verification (required for finalists)
-- run_example(tool_name, endpoint_url=None, extra_text=None): Test tool functionality (optional)
 
 USAGE PATTERN:
 1. search_tools(query) → Get initial candidates
 2. [Optional] search_alternative(alternative_query) → Try different terms if needed
 3. repo_info(url) → Verify each finalist before recommending
-4. [Optional] run_example(tool_name) → Test if needed
       """
 )
 
