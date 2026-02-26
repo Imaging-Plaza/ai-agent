@@ -1,8 +1,8 @@
-name: Deploy develop to Hugging Face Space (SDSC/ai-agent)
+name: Deploy main to Hugging Face Space (SDSC/ai-agent)
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -45,11 +45,11 @@ jobs:
           git add README.md
           git commit -m "Add HF Spaces frontmatter to README for deployment" || echo "No changes to commit"
 
-      - name: Push develop to HF Space SDSC/ai-agent
+      - name: Push main to HF Space SDSC/ai-agent
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Push the current branch (develop, with the local README commit) to the Space's main
+          # Push the current branch (main, with the local README commit) to the Space's main
           git push --force \
             https://SDSC:${HF_TOKEN}@huggingface.co/spaces/SDSC/ai-agent \
             HEAD:main

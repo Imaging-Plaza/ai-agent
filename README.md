@@ -1,7 +1,7 @@
 # AI Imaging Agent (Imaging Plaza)
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 An intelligent RAG + AI agent system that helps users discover the right imaging software for their images and tasks. Upload an image, describe what you want to do, and get ranked tool recommendations with links to runnable demos.
 
@@ -485,7 +485,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ## 📄 License
 
-No license specified for now.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
 
