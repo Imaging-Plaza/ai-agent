@@ -52,6 +52,9 @@ class LungsSegmentationOutput(BaseModel):
 LUNGS_SEGMENTATION_ENDPOINT = "https://qchapp-3d-lungs-segmentation.hf.space/"
 LUNGS_SEGMENTATION_API_NAME = "/segment"
 
+# Maximum file size for downloads (1GB for medical imaging)
+MAX_DOWNLOAD_SIZE = 1024 * 1024 * 1024  # 1GB in bytes
+
 
 # ---------------------------------------------------------------------
 # Public tool
@@ -257,7 +260,7 @@ def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None, _
 
 def _download_to_temp(url: str, hf_token: Optional[str] = None) -> Optional[str]:
     """
-    Download a URL to a temporary file (streaming).
+    Download a URL to a temporary file (streaming) with size limit checks.
     """
     headers: Dict[str, str] = {}
     if hf_token:
@@ -269,13 +272,26 @@ def _download_to_temp(url: str, hf_token: Optional[str] = None) -> Optional[str]
                 log.error("Download failed: url=%s status=%s", url, r.status_code)
                 return None
 
+            # Check Content-Length if available
+            content_length = r.headers.get("content-length")
+            if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
+                log.error("File too large: %s bytes (max %s)", content_length, MAX_DOWNLOAD_SIZE)
+                return None
+
             ext = _guess_ext(url, r.headers.get("content-type", ""))
 
             with tempfile.NamedTemporaryFile(delete=False, prefix="lungs_seg_", suffix=ext) as f:
+                downloaded_size = 0
                 for chunk in r.iter_content(chunk_size=1024 * 1024):
                     if chunk:
+                        downloaded_size += len(chunk)
+                        if downloaded_size > MAX_DOWNLOAD_SIZE:
+                            log.error("Download exceeded size limit: %s bytes", downloaded_size)
+                            f.close()
+                            os.remove(f.name)
+                            return None
                         f.write(chunk)
-                log.info("Downloaded %s -> %s", url, f.name)
+                log.info("Downloaded %s bytes: %s -> %s", downloaded_size, url, f.name)
                 return register_temp_file(f.name)
     except Exception as e:
         log.error("Failed to download %s: %r", url, e)
@@ -286,6 +302,7 @@ def _download_from_gradio_file_endpoint(client: Client, server_path: str, hf_tok
     """
     Last-resort fallback when API returns '/tmp/...' but no URL.
     Often blocked with 403 unless Space allows that directory or writes into Gradio temp/cache.
+    Includes size limit checks.
     """
     base = (getattr(client, "src", None) or LUNGS_SEGMENTATION_ENDPOINT).rstrip("/")
     file_url = f"{base}/gradio_api/file={server_path}"
@@ -300,7 +317,7 @@ def _download_from_gradio_file_endpoint(client: Client, server_path: str, hf_tok
         params["session_hash"] = session_hash
 
     try:
-        r = requests.get(file_url, headers=headers, params=params, timeout=60)
+        r = requests.get(file_url, headers=headers, params=params, timeout=60, stream=True)
         if r.status_code == 403:
             # Common: file exists but not allowed to be served
             detail: Any
@@ -315,15 +332,30 @@ def _download_from_gradio_file_endpoint(client: Client, server_path: str, hf_tok
             log.error("HTTP %s from %s", r.status_code, file_url)
             return None
 
+        # Check Content-Length before downloading
+        content_length = r.headers.get("content-length")
+        if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
+            log.error("File too large: %s bytes (max %s)", content_length, MAX_DOWNLOAD_SIZE)
+            return None
+
+        # Read content with size check
+        content = b""
+        for chunk in r.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                content += chunk
+                if len(content) > MAX_DOWNLOAD_SIZE:
+                    log.error("Download exceeded size limit: %s bytes", len(content))
+                    return None
+
         ct = r.headers.get("content-type", "")
-        if "html" in ct.lower() or r.content.startswith(b"<!"):
+        if "html" in ct.lower() or content.startswith(b"<!"):
             log.error("Got HTML instead of file from %s", file_url)
             return None
 
         ext = os.path.splitext(server_path)[1] or ".tif"
         with tempfile.NamedTemporaryFile(delete=False, prefix="lungs_seg_", suffix=ext) as f:
-            f.write(r.content)
-            log.info("Downloaded %s bytes from gradio file endpoint -> %s", len(r.content), f.name)
+            f.write(content)
+            log.info("Downloaded %s bytes from gradio file endpoint -> %s", len(content), f.name)
             return register_temp_file(f.name)
 
     except Exception as e:
