@@ -14,36 +14,25 @@ from gradio_client import Client, handle_file
 from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.utils.temp_file_manager import register_temp_file
 from ai_agent.agent.tools.mcp.registry import register_tool, ToolConfig
+from ai_agent.agent.tools.mcp.base import BaseToolOutput, ImageToolInput
 
 log = logging.getLogger("agent.lungs_segmentation")
 
 # ---------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------
-class LungsSegmentationInput(BaseModel):
+class LungsSegmentationInput(ImageToolInput):
     """Input for 3D lungs segmentation tool."""
-    image_path: str = Field(description="Path to the CT scan image file (DICOM, NIfTI, or TIFF)")
-    description: Optional[str] = Field(default=None, description="Optional description or notes about the image")
+    pass  # Inherits image_path and description from ImageToolInput
 
 
-class LungsSegmentationOutput(BaseModel):
+class LungsSegmentationOutput(BaseToolOutput):
     """Output from 3D lungs segmentation tool."""
-    success: bool = False
-
-    # Back-compat: result_path is what older callers expect.
-    # We will set it to preview if available, else origin.
-    result_path: Optional[str] = None
-
-    # New fields (like run_example)
-    result_origin: Optional[str] = None       # downloaded .tif/.nii/.etc
-    result_preview: Optional[str] = None      # png/gif preview from _build_preview_for_vlm
-    metadata_text: Optional[str] = None       # metadata string from _build_preview_for_vlm
-
-    error: Optional[str] = None
-    compute_time_seconds: float = 0.0
-    endpoint_url: str = ""
-    api_name: str = ""
-    notes: Optional[str] = None
+    # All standard fields inherited from BaseToolOutput:
+    # - success, error, compute_time_seconds, notes
+    # - result_preview, result_origin, result_path
+    # - metadata_text, endpoint_url, api_name
+    pass
 
 
 # ---------------------------------------------------------------------

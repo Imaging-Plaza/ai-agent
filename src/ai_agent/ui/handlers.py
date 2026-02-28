@@ -220,6 +220,10 @@ def respond(
                 preview_path = demo_result.result_preview or demo_result.result_image
                 reply.text += f"✅ Demo completed!\n\n"
                 reply.images.append(preview_path)
+                
+                # Add original result file for download if available
+                if demo_result.result_origin:
+                    reply.files.append((demo_result.result_origin, "Download result"))
         
             else:
                 note = demo_result.notes or "No output image returned"

@@ -420,6 +420,7 @@ def run_agent(
         # Handle global tool quota limit (UsageLimitExceeded) and other errors gracefully
         error_msg = str(e)
         log.warning(f"⚠️  Agent execution encountered an error: {error_msg}")
+        run_result = None  # Ensure run_result is defined for usage stats extraction
         
         # Check if this is a usage limit error (global tool quota)
         if "UsageLimitExceeded" in str(type(e).__name__) or "tool_calls_limit" in error_msg.lower():
@@ -456,7 +457,7 @@ def run_agent(
 
     # ---- 8) Extract usage statistics if available -------------------------
     usage_stats = None
-    if hasattr(run_result, "usage") and run_result.usage:
+    if run_result and hasattr(run_result, "usage") and run_result.usage:
         usage = run_result.usage()
         usage_stats = UsageStats(
             total_tokens=usage.total_tokens,
