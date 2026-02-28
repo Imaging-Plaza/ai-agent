@@ -429,7 +429,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
             state = ChatState.from_dict(state_dict)
             
             if not state.pending_tool_approval:
-                return history, state_dict, None, gr.update(visible=False)
+                return history, state_dict, None, gr.update(visible=False), gr.update()
             
             # Execute the tool
             reply, new_state = execute_tool_with_approval(
