@@ -105,7 +105,7 @@ All notable changes to this project will be documented in this file.
 - **Lazy Tool Loading** (`agent/tools/__init__.py`): Only export registry, not all tools
   - Prevents loading heavy dependencies (nibabel, pydicom) at package import
   - Tools imported explicitly where needed (e.g., in `ui/app.py`)
-  - Added `_ensure_tools_registered()` function for explicit bulk loading
+  - Added `ensure_tools_registered()` function for explicit bulk loading
   - Fixes import hangs caused by eager tool loading
 - **Tool Import Location** (`ui/app.py`): Import lungs_segmentation_tool to trigger registration before UI launch
 - **LungsSegmentationOutput Schema**: Enhanced with separate `result_origin` (original format file for download), `result_preview` (PNG preview for display), `metadata_text` (file metadata string), and `api_name` fields. Maintains backward compatibility with `result_path` field (now set to preview when available, else origin).
