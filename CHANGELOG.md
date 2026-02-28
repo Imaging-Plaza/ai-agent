@@ -52,7 +52,7 @@ All notable changes to this project will be documented in this file.
   - `get_tool()` automatically resolves both registry names and catalog names for seamless integration with RAG recommendations
   - Supports lazy loading to avoid loading heavy dependencies at import time
 - **MCP Tools Subpackage** (`agent/tools/mcp/`): Organized separation of registered imaging tools (MCP protocol) from agent utilities. Base models, registry, and imaging tools (e.g., lungs_segmentation) now in dedicated subpackage for clarity.
-- **Base Tool Models** (`agent/tools/base.py`): Standard Pydantic schemas for tool consistency
+- **Base Tool Models** (`agent/tools/mcp/base.py`): Standard Pydantic schemas for tool consistency
   - `BaseToolOutput`: Standard fields across all tools (success, error, compute_time_seconds, result_preview, result_origin, metadata_text, notes)
   - `BaseToolInput`: Minimal base class for tool inputs
   - `ImageToolInput`: Common pattern for image-based tools with image_path and description fields
