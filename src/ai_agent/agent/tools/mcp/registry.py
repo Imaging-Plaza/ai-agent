@@ -57,10 +57,19 @@ def register_tool(config: ToolConfig) -> None:
         config: Tool configuration
         
     Raises:
-        ValueError: If tool name already registered
+        ValueError: If tool name already registered or catalog name collision
     """
     if config.name in TOOL_REGISTRY:
         raise ValueError(f"Tool '{config.name}' is already registered")
+    
+    # Check for catalog name collisions before registering
+    if config.catalog_names:
+        for catalog_name in config.catalog_names:
+            if catalog_name in CATALOG_NAME_TO_TOOL and CATALOG_NAME_TO_TOOL[catalog_name] != config.name:
+                raise ValueError(
+                    f"Catalog name '{catalog_name}' already registered to "
+                    f"'{CATALOG_NAME_TO_TOOL[catalog_name]}'"
+                )
     
     TOOL_REGISTRY[config.name] = config
     

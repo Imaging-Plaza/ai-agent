@@ -12,6 +12,7 @@ import requests
 from gradio_client import Client, handle_file
 
 from ai_agent.utils.previews import _build_preview_for_vlm
+from ai_agent.utils.temp_file_manager import register_temp_file
 from ai_agent.agent.tools.mcp.registry import register_tool, ToolConfig
 
 log = logging.getLogger("agent.lungs_segmentation")
@@ -187,7 +188,7 @@ def _safe_build_preview(origin_path: str) -> Tuple[Optional[str], Optional[str]]
         return None, None
 
 
-def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None) -> Optional[str]:
+def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None, _depth: int = 0) -> Optional[str]:
     """
     Convert common Gradio outputs into a local file path.
 
@@ -197,13 +198,21 @@ def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None) -
       - dict (FileData-like) containing url/path/name/filepath
       - list/tuple containing any of the above
       - server path '/tmp/...' -> attempt Gradio file endpoint (may 403)
+      
+    Args:
+        obj: Object to materialize
+        client: Gradio client
+        hf_token: Optional HuggingFace token
+        _depth: Internal recursion depth counter (max 10)
     """
-    if obj is None:
+    if obj is None or _depth > 10:
+        if _depth > 10:
+            log.warning("Recursion depth limit reached in _materialize_any, halting.")
         return None
 
     # list/tuple: most Gradio outputs are single-element lists
     if isinstance(obj, (list, tuple)) and obj:
-        return _materialize_any(obj[0], client=client, hf_token=hf_token)
+        return _materialize_any(obj[0], client=client, hf_token=hf_token, _depth=_depth + 1)
 
     # dict: FileData-like is best case (url provided)
     if isinstance(obj, dict):
@@ -217,7 +226,7 @@ def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None) -
         for k in ("path", "filepath", "file", "name"):
             v = obj.get(k)
             if isinstance(v, str) and v:
-                return _materialize_any(v, client=client, hf_token=hf_token)
+                return _materialize_any(v, client=client, hf_token=hf_token, _depth=_depth + 1)
 
         return None
 
@@ -267,7 +276,7 @@ def _download_to_temp(url: str, hf_token: Optional[str] = None) -> Optional[str]
                     if chunk:
                         f.write(chunk)
                 log.info("Downloaded %s -> %s", url, f.name)
-                return f.name
+                return register_temp_file(f.name)
     except Exception as e:
         log.error("Failed to download %s: %r", url, e)
         return None
@@ -315,7 +324,7 @@ def _download_from_gradio_file_endpoint(client: Client, server_path: str, hf_tok
         with tempfile.NamedTemporaryFile(delete=False, prefix="lungs_seg_", suffix=ext) as f:
             f.write(r.content)
             log.info("Downloaded %s bytes from gradio file endpoint -> %s", len(r.content), f.name)
-            return f.name
+            return register_temp_file(f.name)
 
     except Exception as e:
         log.error("Failed gradio file endpoint download: %r", e)

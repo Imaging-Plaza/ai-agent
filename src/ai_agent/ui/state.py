@@ -6,6 +6,34 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 
 
+def format_stats_markdown(stats: Dict[str, Any]) -> str:
+    """
+    Format performance stats as markdown.
+    
+    Args:
+        stats: Dictionary containing performance metrics
+        
+    Returns:
+        Formatted markdown string with stats, or empty string if no stats
+    """
+    if not stats:
+        return ""
+    
+    parts = ["\n---\n**📊 Performance Stats:**\n"]
+    
+    if "compute_time" in stats:
+        parts.append(f"⏱️ Compute time: {stats['compute_time']:.2f}s\n")
+    
+    if "total_time" in stats:
+        parts.append(f"⏱️ Total time: {stats['total_time']:.2f}s\n")
+    
+    if "tokens" in stats:
+        tok = stats["tokens"]
+        parts.append(f"🎫 Tokens: {tok.get('total', 0)} (in: {tok.get('input', 0)}, out: {tok.get('output', 0)})\n")
+    
+    return "".join(parts)
+
+
 @dataclass
 class ChatState:
     """Encapsulates all conversation state for the agent."""
@@ -81,15 +109,9 @@ class ChatMessage:
             parts.append(self.text)
         
         # Render stats if available
-        if self.stats:
-            parts.append("\n---\n**📊 Performance Stats:**\n")
-            if "compute_time" in self.stats:
-                parts.append(f"⏱️ Compute time: {self.stats['compute_time']:.2f}s\n")
-            if "total_time" in self.stats:
-                parts.append(f"⏱️ Total time: {self.stats['total_time']:.2f}s\n")
-            if "tokens" in self.stats:
-                tok = self.stats["tokens"]
-                parts.append(f"🎫 Tokens: {tok.get('total', 0)} (in: {tok.get('input', 0)}, out: {tok.get('output', 0)})\n")
+        stats_md = format_stats_markdown(self.stats)
+        if stats_md:
+            parts.append(stats_md)
         
         # Render file links
         for file_path, label in self.files:

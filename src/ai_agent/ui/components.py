@@ -11,6 +11,7 @@ from ai_agent.retriever.software_doc import SoftwareDoc
 from .handlers import respond
 from .visualizations import create_tool_usage_chart, create_tool_timeline, create_disabled_tools_display
 from .utils import get_available_models, get_default_model_display_name
+from .state import format_stats_markdown
 
 log = logging.getLogger("chat_components")
 
@@ -330,15 +331,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 text_content = reply.text
                 
                 # Add stats if available
-                if reply.stats:
-                    text_content += "\n\n---\n**📊 Performance Stats:**\n"
-                    if "compute_time" in reply.stats:
-                        text_content += f"⏱️ Compute time: {reply.stats['compute_time']:.2f}s\n"
-                    if "total_time" in reply.stats:
-                        text_content += f"⏱️ Total time: {reply.stats['total_time']:.2f}s\n"
-                    if "tokens" in reply.stats:
-                        tok = reply.stats["tokens"]
-                        text_content += f"🎫 Tokens: {tok.get('total', 0)} (in: {tok.get('input', 0)}, out: {tok.get('output', 0)})\n"
+                text_content += format_stats_markdown(reply.stats)
                 
                 # Add file links
                 if reply.files:
@@ -440,12 +433,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
             
             # Build response text with stats
             text_content = reply.text
-            if reply.stats:
-                text_content += "\n\n---\n**📊 Performance Stats:**\n"
-                if "compute_time" in reply.stats:
-                    text_content += f"⏱️ Compute time: {reply.stats['compute_time']:.2f}s\n"
-                if "total_time" in reply.stats:
-                    text_content += f"⏱️ Total time: {reply.stats['total_time']:.2f}s\n"
+            text_content += format_stats_markdown(reply.stats)
             
             # Add text message
             history.append({"role": "assistant", "content": text_content})
