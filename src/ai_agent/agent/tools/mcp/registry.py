@@ -24,7 +24,7 @@ class ToolConfig:
     executor: Callable  # Function that takes input_model and returns output_model
     
     # Capability flags
-    catalog_names: List[str] = None  # Catalog names for this tool (e.g., ["lungs-segmentation"])
+    catalog_names: Optional[List[str]] = None  # Catalog names for this tool (e.g., ["lungs-segmentation"])
     supports_images: bool = True
     supports_files: bool = True
     requires_approval: bool = True  # Whether to show approval button
