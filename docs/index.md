@@ -3,7 +3,7 @@
 **An intelligent RAG + AI agent system that helps users discover the right imaging software for their images and tasks.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/sdsc-ordes/ai-agent/blob/main/LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/imaging-plaza/ai-agent/blob/main/LICENSE)
 
 ---
 
@@ -70,8 +70,8 @@ Ready to try it out? Head over to the [Installation Guide](getting-started/insta
 
 ## Project Status
 
-This project is actively developed and maintained by the SDSC-ORDES team. Check the [Changelog](reference/changelog.md) for recent updates.
+This project is actively developed and maintained by the Imaging Plaza team. Check the [Changelog](reference/changelog.md) for recent updates.
 
 ## License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](https://github.com/sdsc-ordes/ai-agent/blob/main/LICENSE) file for details.
+This project is licensed under the Apache 2.0 License - see the [LICENSE](https://github.com/imaging-plaza/ai-agent/blob/main/LICENSE) file for details.

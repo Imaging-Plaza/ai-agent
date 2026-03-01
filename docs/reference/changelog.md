@@ -2,7 +2,7 @@
 
 All notable changes to the AI Imaging Agent are documented here.
 
-For the complete, detailed changelog, see [CHANGELOG.md](https://github.com/sdsc-ordes/ai-agent/blob/main/CHANGELOG.md) in the repository.
+For the complete, detailed changelog, see [CHANGELOG.md](https://github.com/imaging-plaza/ai-agent/blob/main/CHANGELOG.md) in the repository.
 
 ## Recent Releases
 
@@ -67,6 +67,6 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ## Contributing
 
-All notable changes should be documented in [CHANGELOG.md](https://github.com/sdsc-ordes/ai-agent/blob/main/CHANGELOG.md) following the [Keep a Changelog](https://keepachangelog.com/) format.
+All notable changes should be documented in [CHANGELOG.md](https://github.com/imaging-plaza/ai-agent/blob/main/CHANGELOG.md) following the [Keep a Changelog](https://keepachangelog.com/) format.
 
 See [Contributing Guide](../development/contributing.md) for details.

@@ -16,7 +16,7 @@ Before installing, ensure you have:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/sdsc-ordes/ai-agent.git
+git clone https://github.com/imaging-plaza/ai-agent.git
 cd ai-agent
 ```
 
