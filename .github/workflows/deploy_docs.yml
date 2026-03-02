@@ -23,6 +23,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Pages
+        uses: actions/configure-pages@v5
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -38,13 +41,12 @@ jobs:
         run: mkdocs build --strict
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: ./site
 
   deploy:
     if: github.ref == 'refs/heads/feature/docs'
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
