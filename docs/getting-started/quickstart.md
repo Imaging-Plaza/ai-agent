@@ -13,8 +13,6 @@ ai_agent chat
 You should see output like:
 
 ```
-[startup-sync] 150 → dataset/catalog.jsonl
-[startup-refresh] catalog unchanged; keeping existing FAISS index
 Running on local URL:  http://127.0.0.1:7860
 ```
 
@@ -39,7 +37,7 @@ Let's try a simple segmentation task:
     - Explanations for why each tool matches your task
     - Links to runnable demos
 
-4. **Run a Demo** (optional): Click "Would you like me to run the demo?" and respond with "yes" to execute the tool directly on your image
+4. **Run a Demo** (optional): Click the "Run Demo" button to see the result of the tool on your uploaded image
 
 ### Example 2: Medical Image Analysis
 

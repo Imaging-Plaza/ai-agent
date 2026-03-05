@@ -19,10 +19,6 @@ EPFL_API_KEY=sk-xxxx
 # Software catalog path
 SOFTWARE_CATALOG=dataset/catalog.jsonl
 
-# Pipeline configuration
-TOP_K=8                # Number of candidates to retrieve
-NUM_CHOICES=3          # Number of tools to recommend
-
 # Logging configuration
 LOGLEVEL_CONSOLE=WARNING
 LOGLEVEL_FILE=INFO
@@ -116,15 +112,7 @@ This enables the agent to fetch detailed information about GitHub repositories.
 
 ### Pipeline Parameters
 
-Adjust retrieval and recommendation settings:
-
-```dotenv
-# Number of candidate tools to retrieve
-TOP_K=8
-
-# Number of final recommendations to show
-NUM_CHOICES=3
-```
+Adjust retrieval and recommendation settings directly in the app setting. You can change the `TOP_K` and `NUM_CHOICES` parameters.
 
 ### Logging
 

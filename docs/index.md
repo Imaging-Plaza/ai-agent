@@ -31,8 +31,8 @@ ai_agent chat
 
 Then in the web interface:
 
-1. Upload a medical image (e.g., a CT scan)
-2. Type: _"I want to segment the lungs from this image"_
+1. Upload an image (e.g., a CT scan, or a PNG)
+2. Type your request (e.g., _"I want to segment the lungs from this image"_ or _"I want to deblur this image"_)
 3. Get ranked tool recommendations with accuracy scores
 4. Click "Run demo" to execute tools directly
 

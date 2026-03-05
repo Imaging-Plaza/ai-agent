@@ -6,7 +6,7 @@ This guide will help you install and set up the AI Imaging Agent on your system.
 
 Before installing, ensure you have:
 
-- **Python 3.10–3.12** installed
+- **Python 3.10–3.13** installed
 - **pip** (Python package manager)
 - **OpenAI API key** (or compatible API endpoint)
 - Internet connection for model calls
