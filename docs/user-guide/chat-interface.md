@@ -227,9 +227,6 @@ The debug sidebar shows:
 
 ## Tips for Effective Interaction
 
-!!! tip "Upload First, Ask Second"
-    Upload your image before describing the task. The agent can see image content and extract metadata.
-
 !!! tip "Be Specific About Requirements"
     Mention specific needs:
     

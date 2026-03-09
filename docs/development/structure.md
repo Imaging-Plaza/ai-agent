@@ -50,6 +50,7 @@ agent/
 ```
 
 **Key components**:
+
 - `agent.py`: Agent instance, system prompt, tool definitions
 - `state.py`: Conversation state management
 - `tools.py`: Tool implementations (search_alternative, repo_info, etc.)
@@ -67,6 +68,7 @@ api/
 ```
 
 **Responsibilities**:
+
 - File validation and metadata extraction
 - Retrieval + VLM selection orchestration
 - Error handling and logging
@@ -85,6 +87,7 @@ catalog/
 ```
 
 **Functions**:
+
 - Load catalog from JSONL
 - Check for changes (SHA1)
 - Trigger index rebuild
@@ -102,6 +105,7 @@ generator/
 ```
 
 **Models**:
+
 - `ToolRecommendation`: Individual tool recommendation
 - `AgentResponse`: Complete response with status
 - `ConversationStatus`: Enum for conversation states
@@ -123,6 +127,7 @@ retriever/
 ```
 
 **Pipeline flow**:
+
 1. `text_embedder.py`: Embed query
 2. `vector_index.py`: FAISS search
 3. `reranker.py`: CrossEncoder reranking
@@ -146,6 +151,7 @@ ui/
 ```
 
 **Key files**:
+
 - `app.py`: Main Gradio interface
 - `handlers.py`: `respond()` function - core interaction logic
 - `formatters.py`: Format recommendations as markdown/cards
@@ -168,6 +174,7 @@ utils/
 ```
 
 **Common utilities**:
+
 - `config.py`: Load `config.yaml` with Pydantic validation
 - `file_validator.py`: Size limits, format checks
 - `image_meta.py`: Extract DICOM/NIfTI/TIFF metadata
@@ -187,6 +194,7 @@ def main():
 ```
 
 **Commands**:
+
 - `ai_agent chat`: Launch UI
 - `ai_agent sync`: Sync catalog
 
@@ -204,6 +212,7 @@ tests/
 ```
 
 **Test categories**:
+
 - Unit tests: Individual components
 - Integration tests: Full pipeline
 - End-to-end tests: Real API calls (optional)
@@ -289,6 +298,7 @@ ui/ → agent/ → api/ → retriever/
 ```
 
 **Rules**:
+
 - `utils/`: No dependencies on other modules
 - `retriever/`: Pure retrieval, no generation
 - `generator/`: Pure schemas, no retrieval

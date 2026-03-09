@@ -4,9 +4,9 @@ The software catalog is the foundation of the AI Imaging Agent, containing curat
 
 ## Overview
 
-**Format**: JSON Lines (JSONL)
-**Location**: `dataset/catalog.jsonl`
-**Schema**: Based on schema.org SoftwareSourceCode
+**Format**: JSON Lines (JSONL)  
+**Location**: `dataset/catalog.jsonl`  
+**Schema**: Based on schema.org SoftwareSourceCode  
 **Size**: ~150 tools currently
 
 ## Catalog Schema
@@ -68,6 +68,7 @@ Canonical tool name (matches repository or published name)
 Brief description of tool's purpose and capabilities
 
 **Guidelines**:
+
 - 1-2 sentences
 - Mention key features
 - Include domain/modality if specific
@@ -87,6 +88,7 @@ Primary language(s)
 Software license identifier (SPDX format)
 
 **Common values**:
+
 - `"Apache-2.0"`: Permissive, commercial OK
 - `"MIT"`: Very permissive
 - `"GPL-3.0"`: Copyleft
@@ -97,6 +99,7 @@ Software license identifier (SPDX format)
 Array of relevant tags/keywords
 
 **Categories**:
+
 - **Tasks**: segmentation, classification, registration, detection
 - **Modalities**: CT, MRI, X-ray, ultrasound, microscopy
 - **Techniques**: deep-learning, traditional-cv, machine-learning
@@ -106,6 +109,7 @@ Array of relevant tags/keywords
 Medical imaging modalities supported
 
 **Standard values**:
+
 - `"CT"`: Computed Tomography
 - `"MRI"`: Magnetic Resonance Imaging
 - `"XR"`: X-ray radiography
@@ -128,6 +132,7 @@ Spatial dimensions supported
 File formats supported for input/output
 
 **Common values**:
+
 - Medical: `"DICOM"`, `"NIfTI"`, `"NRRD"`, `"Analyze"`
 - Standard: `"PNG"`, `"JPEG"`, `"TIFF"`, `"BMP"`
 - Scientific: `"HDF5"`, `"Zarr"`, `"OME-TIFF"`
@@ -137,6 +142,7 @@ File formats supported for input/output
 Analysis tasks the tool performs
 
 **Common values**:
+
 - `"segmentation"`: Image segmentation
 - `"classification"`: Image classification
 - `"detection"`: Object detection
@@ -165,6 +171,7 @@ JSON Lines (JSONL): Each line is a complete JSON object
 ```
 
 **Benefits**:
+
 - Easy to append new tools
 - Stream processing for large catalogs
 - Each line independently parseable
@@ -257,7 +264,7 @@ This rebuilds the embeddings and FAISS index.
 1. **Delete line** from `catalog.jsonl`
 2. **Update checksum** and **sync**
 
-## Catalog Sources
+<!-- ## Catalog Sources
 
 ### Current Catalog
 
@@ -282,7 +289,7 @@ Tools are included based on:
 **Target**: 500+ tools covering:
 - Medical imaging (CT, MRI, X-ray, ultrasound, pathology)
 - Scientific imaging (microscopy, astronomy, remote sensing)
-- Computer vision (general object detection, segmentation, etc.)
+- Computer vision (general object detection, segmentation, etc.) -->
 
 ## Synchronization
 

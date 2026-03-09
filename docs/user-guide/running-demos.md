@@ -1,4 +1,4 @@
-# Running Demos
+# Running Demos (This area is still under construction..)
 
 The AI Imaging Agent can execute tool demos directly on your uploaded images. This guide explains how demo execution works and how to use it effectively.
 
@@ -22,6 +22,7 @@ Agent: Would you like me to run the demo with your image?
 ```
 
 This appears when:
+
 - Tool has a compatible Gradio Space demo
 - Your image format is compatible
 - Demo's API is accessible
@@ -42,6 +43,7 @@ The agent detects these patterns and proceeds.
 ### 3. Execution Happens
 
 The agent:
+
 1. Uploads your image to the demo space
 2. Configures any required parameters
 3. Triggers execution
@@ -51,6 +53,7 @@ The agent:
 ### 4. Results Display
 
 You receive:
+
 - **Success message** with output
 - **Result images** or files
 - **Execution trace** showing what happened
@@ -66,6 +69,7 @@ You receive:
 ```
 
 **Features**:
+
 - ✅ Automatic execution
 - ✅ Progress monitoring
 - ✅ Result retrieval
@@ -89,6 +93,7 @@ Running TotalSegmentator on your CT scan...
 ```
 
 **Process**:
+
 1. Click the notebook link
 2. Open in Google Colab
 3. Upload your image to the notebook
@@ -104,6 +109,7 @@ Running TotalSegmentator on your CT scan...
 ```
 
 **Process**:
+
 1. Click the demo link
 2. Web app opens in new tab
 3. Upload your image via the web UI
@@ -119,6 +125,7 @@ Running TotalSegmentator on your CT scan...
 ```
 
 **Process**:
+
 1. Clone the repository
 2. Install dependencies
 3. Run example scripts
@@ -167,6 +174,7 @@ The agent automatically configures:
 
 #### Task Selection
 Common task parameters:
+
 - **Task dropdown**: Matches your query to task option
 - **Model selection**: Chooses appropriate model
 - **Mode**: Inference, predict, analyze, etc.
@@ -215,6 +223,7 @@ Agent: This demo has additional parameters. Please visit the link to configure:
 **Error**: Connection timeout or failed upload
 
 **Solutions**:
+
 - Check internet connection
 - Try again (server may be busy)
 - Visit demo link manually
@@ -225,6 +234,7 @@ Agent: This demo has additional parameters. Please visit the link to configure:
 **Error**: Output doesn't match expectations
 
 **Solutions**:
+
 - Check if correct parameters were used
 - Verify image uploaded correctly
 - Try adjusting task settings manually
@@ -235,6 +245,7 @@ Agent: This demo has additional parameters. Please visit the link to configure:
 **Error**: "Format not supported"
 
 **Solutions**:
+
 - Convert image to supported format
 - Use tool that accepts your format
 - Try alternative recommendation
@@ -244,6 +255,7 @@ Agent: This demo has additional parameters. Please visit the link to configure:
 **Error**: 404 or space not found
 
 **Solutions**:
+
 - Space may be temporarily down
 - Check GitHub repo for alternative demo
 - Try different tool recommendation
@@ -303,6 +315,7 @@ If automatic execution isn't available:
 ### Segmentation Results
 
 Typically includes:
+
 - **Segmentation mask**: Binary or multi-class mask
 - **Overlay visualization**: Mask overlaid on original image
 - **Statistics**: Volume, area, counts
@@ -310,6 +323,7 @@ Typically includes:
 ### Detection Results
 
 Usually provides:
+
 - **Bounding boxes**: Coordinates of detected objects
 - **Annotated image**: Visual with boxes/labels
 - **Confidence scores**: Detection confidence
@@ -317,6 +331,7 @@ Usually provides:
 ### Registration Results
 
 Common outputs:
+
 - **Transformed image**: Registered/aligned image
 - **Transformation matrix**: Spatial transform parameters
 - **Quality metrics**: Similarity scores
@@ -324,6 +339,7 @@ Common outputs:
 ### Classification Results
 
 Typical outputs:
+
 - **Class labels**: Predicted categories
 - **Probabilities**: Confidence per class
 - **Visualization**: Class activation maps
@@ -334,12 +350,14 @@ Help improve the agent by reporting:
 
 ### Successful Demos
 When demos work well, this validates:
+
 - Tool compatibility
 - Parameter auto-configuration
 - Format handling
 
 ### Issues
 Report when:
+
 - Demo fails unexpectedly
 - Results are incorrect
 - Parameters were misconfigured

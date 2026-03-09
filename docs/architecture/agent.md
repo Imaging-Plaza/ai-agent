@@ -7,6 +7,7 @@ The second stage of the pipeline uses a vision-language model (VLM) with Pydanti
 **Goal**: Select the most relevant tools using vision + text understanding
 
 **Characteristics**:
+
 - 🧠 Intelligent reasoning with explanations
 - 👁️ Vision-aware (analyzes image content)
 - 🎯 Comparative ranking of candidates
@@ -35,6 +36,7 @@ graph TB
 **Framework**: [PydanticAI](https://ai.pydantic.dev/)
 
 **Benefits**:
+
 - Type-safe with Pydantic models
 - Structured output validation
 - Built-in tool support
@@ -58,6 +60,7 @@ agent = Agent(
 ```
 
 **Key parameters**:
+
 - `model`: VLM model to use (configurable)
 - `system_prompt`: Agent's role and behavior
 - `deps_type`: Conversation state type
@@ -111,6 +114,7 @@ async def search_alternative(
 ```
 
 **Usage**:
+
 - Agent invokes when user asks for alternatives
 - Up to 3 calls per conversation
 - Formulates semantically different queries
@@ -144,10 +148,12 @@ async def repo_info(
 ```
 
 **Data sources**:
+
 1. **DeepWiki MCP**: Pre-indexed, fast, no rate limits
 2. **Repocards**: Direct fetch, fallback for new repos
 
 **Returns**:
+
 - Repository description
 - Stars, language, topics
 - Last update date
@@ -248,6 +254,7 @@ Candidate tools:
 ```
 
 **Image Attachment**:
+
 - PNG preview of user's image
 - Converted from DICOM/NIfTI/etc.
 - Enables visual analysis
@@ -265,6 +272,7 @@ response = await agent.run(
 ```
 
 **Multimodal input**:
+
 - Text: Query + metadata + candidates
 - Image: Preview PNG
 - Context: Conversation history
@@ -327,6 +335,7 @@ class AgentResponse(BaseModel):
 ### Validation
 
 Pydantic validates:
+
 - All required fields present
 - Types correct (int, str, enum)
 - Enums within allowed values
@@ -360,6 +369,7 @@ Normal successful response:
 ```
 
 **Triggers**: 
+
 - Query is clear
 - Candidates found
 - Image/metadata sufficient
@@ -518,18 +528,20 @@ except OpenAIError as e:
 ### Graceful Degradation
 
 If VLM fails:
+
 1. Return top retrieval candidates without ranking
 2. Use retrieval scores as fallback
 3. Provide generic explanations
 4. Suggest manual exploration
 
-## Performance
+<!-- ## Performance
 
 ### Latency
 
 Typical VLM call: **2-5 seconds**
 
 Breakdown:
+
 - Prompt construction: <100ms
 - API call: 2-4s (network + inference)
 - Response parsing: <100ms
@@ -538,11 +550,13 @@ Breakdown:
 ### Optimization
 
 **Prompt optimization**:
+
 - Concise candidate descriptions
 - Limit to top-8 candidates
 - Structured format for parsing
 
 **Caching**:
+
 - Model endpoint reused
 - Agent instance persists across requests
 
@@ -554,7 +568,7 @@ responses = await asyncio.gather(*[
     agent.run(query2),
     agent.run(query3)
 ])
-```
+``` -->
 
 ## Testing
 

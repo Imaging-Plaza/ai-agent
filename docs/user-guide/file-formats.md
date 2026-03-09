@@ -25,12 +25,14 @@ The AI Imaging Agent supports a wide range of file formats for medical and scien
 | DICOM | `.dcm`, `.dicom` | Digital Imaging and Communications in Medicine |
 
 **Features**:
+
 - Industry standard for medical imaging
 - Contains rich metadata (patient info, acquisition parameters)
 - Supports multiple modalities (CT, MRI, X-ray, etc.)
 - Can store 2D images or 3D volumes
 
 **Metadata Extracted**:
+
 - Patient ID, Study Instance UID
 - Modality (CT, MR, CR, DX, etc.)
 - Image dimensions and spacing
@@ -50,12 +52,14 @@ Upload a CT DICOM file and ask:
 | NIfTI | `.nii`, `.nii.gz` | Neuroimaging Informatics Technology Initiative |
 
 **Features**:
+
 - Standard for neuroimaging research
 - Supports 3D and 4D (time-series) volumes
 - Compact storage with optional gzip compression
 - Contains spatial orientation information
 
 **Metadata Extracted**:
+
 - Volume dimensions (x, y, z, time)
 - Voxel spacing
 - Data type and bit depth
@@ -76,12 +80,14 @@ Upload a brain MRI NIfTI file:
 | TIFF | `.tif`, `.tiff` | Tagged Image File Format |
 
 **Features**:
+
 - Supports multi-page/multi-frame images
 - Common in microscopy and scientific imaging
 - Can store extensive metadata
 - Lossless compression options
 
 **Metadata Extracted**:
+
 - Number of pages/frames (for stacks)
 - Dimensions (width, height, channels)
 - Color mode (RGB, grayscale, etc.)
@@ -96,7 +102,7 @@ Upload a microscopy TIFF stack:
 
 ## Data Formats
 
-### Structured Data
+<!-- ### Structured Data
 
 | Format | Extensions | Description |
 |--------|-----------|-------------|
@@ -113,7 +119,7 @@ Upload a microscopy TIFF stack:
 | Audio | `.mp3` | MPEG Audio Layer 3 |
 | Video | `.mp4` | MPEG-4 video |
 
-**Note**: Currently supported for upload but limited analysis capabilities.
+**Note**: Currently supported for upload but limited analysis capabilities. -->
 
 ## Format Detection
 
@@ -228,7 +234,6 @@ Default limits (configurable):
 Currently not supported:
 
 - **Proprietary Formats**: Manufacturer-specific formats (e.g., .PAR/.REC)
-- **Compressed Archives**: .zip, .tar, .rar (extract first)
 - **Video Processing**: Limited video analysis capability
 - **Raw Data**: Unformatted binary dumps without headers
 

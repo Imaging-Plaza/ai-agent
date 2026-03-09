@@ -328,19 +328,19 @@ jobs:
 
 ### Do's
 
-✅ **Test edge cases**: Empty inputs, invalid data, etc.
-✅ **Test error handling**: Verify exceptions are caught
-✅ **Use descriptive names**: `test_retrieval_with_empty_query` not `test1`
-✅ **Keep tests isolated**: Each test should be independent
-✅ **Use fixtures**: Avoid repeating setup code
+✅ **Test edge cases**: Empty inputs, invalid data, etc.  
+✅ **Test error handling**: Verify exceptions are caught  
+✅ **Use descriptive names**: `test_retrieval_with_empty_query` not `test1`  
+✅ **Keep tests isolated**: Each test should be independent  
+✅ **Use fixtures**: Avoid repeating setup code  
 ✅ **Mock expensive operations**: VLM calls, network requests
 
 ### Don'ts
 
-❌ **Don't test implementation details**: Test behavior, not internal state
-❌ **Don't make tests depend on each other**: Each should run independently
-❌ **Don't commit large test files**: Keep test data small
-❌ **Don't skip error checking**: Test both success and failure paths
+❌ **Don't test implementation details**: Test behavior, not internal state  
+❌ **Don't make tests depend on each other**: Each should run independently  
+❌ **Don't commit large test files**: Keep test data small  
+❌ **Don't skip error checking**: Test both success and failure paths  
 
 ## Performance Testing
 

@@ -55,6 +55,7 @@ graph TB
 ### 2. No Generation in Retrieval
 
 Stage 1 uses **no LLMs**:
+
 - Deterministic text search
 - Reproducible results
 - Fast iteration
@@ -63,6 +64,7 @@ Stage 1 uses **no LLMs**:
 ### 3. Single VLM Call in Selection
 
 Stage 2 makes **exactly one VLM call**:
+
 - Sees all candidates at once
 - Performs comparative reasoning
 - Returns complete rankings
@@ -71,6 +73,7 @@ Stage 2 makes **exactly one VLM call**:
 ### 4. Vision + Text Integration
 
 VLM receives:
+
 - **Visual**: PNG preview of image
 - **Textual**: Query, metadata, candidate descriptions
 - **Structured**: Candidate metadata table
@@ -192,6 +195,7 @@ class RAGImagingPipeline:
 ```
 
 **Responsibilities**:
+
 - File validation
 - Metadata extraction
 - Pipeline orchestration
@@ -202,12 +206,14 @@ class RAGImagingPipeline:
 **Text-based retrieval, no LLMs**
 
 Components:
+
 - `text_embedder.py`: BGE-M3 embedding model
 - `vector_index.py`: FAISS index management
 - `reranker.py`: CrossEncoder reranking
 - `software_doc.py`: Catalog schema and loading
 
 **Retrieval flow**:
+
 1. Embed query → vector
 2. FAISS search → top-N by similarity
 3. CrossEncoder → rerank with cross-attention
@@ -218,11 +224,13 @@ Components:
 **VLM-based tool selection**
 
 Components:
+
 - `generator.py`: VLMToolSelector class
 - `schema.py`: Pydantic models for responses
 - `prompts.py`: System prompts
 
 **Selection logic**:
+
 - Single VLM call with all candidates
 - Structured output (Pydantic schema)
 - Vision + text multimodal input
@@ -232,11 +240,13 @@ Components:
 **PydanticAI conversational agent**
 
 Components:
+
 - `agent.py`: Agent definition and tools
 - `state.py`: ChatState dataclass
 - `tools.py`: Agent tools (search, repo_info, demo_exec)
 
 **Tools**:
+
 - `search_alternative`: Request alternative search
 - `repo_info`: Fetch GitHub repository details
 - `run_gradio_demo`: Execute Gradio Space demos
@@ -256,6 +266,7 @@ Components:
 **Gradio interface**
 
 Components:
+
 - `app.py`: Gradio application
 - `components.py`: Reusable UI components
 - `handlers.py`: Message handlers
@@ -286,6 +297,7 @@ Clear separation of concerns:
 | `utils/` | Shared functionality | None (pure utilities) |
 
 **Benefits**:
+
 - Independent testing
 - Clear interfaces
 - Modular replacement
@@ -339,6 +351,7 @@ class AgentResponse(BaseModel):
 ```
 
 **Validation**:
+
 - Type checking via Pydantic
 - Enum constraints
 - Field aliases for LLM compatibility
@@ -380,7 +393,7 @@ def extract_custom_format(file_path: str) -> dict:
     return metadata
 ```
 
-## Performance Characteristics
+<!-- ## Performance Characteristics
 
 ### Latency Breakdown
 
@@ -401,21 +414,23 @@ Typical request (~3-5 seconds total):
 ### Scalability
 
 **Current**:
+
 - Single-user Gradio app
 - In-memory FAISS index
 - Synchronous processing
 
 **Production considerations**:
+
 - FastAPI backend for multi-user
 - Async VLM calls
 - Redis for session state
-- CDN for catalog + index
+- CDN for catalog + index -->
 
 ## Security Considerations
 
 ### User Data
 
-- **Images**: Sent to OpenAI API (preview PNG)
+- **Images**: Sent to OpenAI API (preview PNG) if gpt is selected
 - **Metadata**: Processed locally, sent to VLM as text
 - **Queries**: Sent to OpenAI API
 

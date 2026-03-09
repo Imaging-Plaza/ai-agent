@@ -41,7 +41,7 @@ git checkout -b fix/issue-description
 3. **Update documentation** if needed
 4. **Update CHANGELOG.md** following [Keep a Changelog](https://keepachangelog.com/) format
 
-### Code Style
+<!-- ### Code Style
 
 We use standard Python tools for code quality:
 
@@ -59,7 +59,7 @@ Linting:
 
 ```bash
 ruff check src/ tests/
-```
+``` -->
 
 #### Type Checking
 
@@ -105,6 +105,7 @@ feat: Add alternative search tool for agent
 ```
 
 **Format**:
+
 - `feat:` New features
 - `fix:` Bug fixes
 - `docs:` Documentation changes
@@ -146,18 +147,17 @@ How to test these changes
 ### High Priority
 
 - **Catalog expansion**: Add more imaging tools
-- **Demo integration**: Improve Gradio Space execution
+- **Demo integration**: Improve Gradio Space execution and add new spaces for tools
 - **Format support**: Add new image format handlers
-- **Documentation**: Improve guides and examples
 
-### Good First Issues
+<!-- ### Good First Issues
 
 Look for issues tagged `good-first-issue` on GitHub:
 
 - Bug fixes
 - Documentation improvements
 - Test coverage expansion
-- Example scripts
+- Example scripts -->
 
 ### Feature Requests
 
@@ -292,7 +292,6 @@ Releases follow semantic versioning:
 
 ## Getting Help
 
-- **Discord/Slack**: [Link if available]
 - **GitHub Discussions**: Ask questions
 - **GitHub Issues**: Report bugs
 

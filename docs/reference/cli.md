@@ -102,7 +102,7 @@ ai_agent sync
 ai_agent chat
 ```
 
-### Production Deployment
+<!-- ### Production Deployment
 
 ```bash
 # In your deployment script:
@@ -115,7 +115,7 @@ Or use environment variable control:
 ```bash
 export SYNC_EVERY_HOURS=0       # Disable auto-refresh in production
 ai_agent chat
-```
+``` -->
 
 ### Testing & Development
 

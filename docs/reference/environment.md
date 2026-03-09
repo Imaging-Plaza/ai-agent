@@ -199,7 +199,7 @@ Then in `.env`:
 CUSTOM_API_KEY=your-key-here
 ```
 
-## Advanced Configuration
+<!-- ## Advanced Configuration
 
 ### RERANK_TOP_N
 
@@ -244,7 +244,7 @@ MAX_EXPANSION_TERMS=10
 
 **Range**: 0-50
 
-**Impact**: More terms = broader search but potential noise
+**Impact**: More terms = broader search but potential noise -->
 
 ## .env File Example
 

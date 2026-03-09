@@ -1,4 +1,4 @@
-# Advanced Features
+# Advanced Features (not tested for now..)
 
 The AI Imaging Agent includes several advanced features for power users and specialized use cases.
 
@@ -17,6 +17,7 @@ Find lung segmentation tools [EXCLUDE:totalsegmentator|medicalsam]
 **Syntax**: `[EXCLUDE:tool1|tool2|tool3]`
 
 **Use cases**:
+
 - You've already tried certain tools
 - Exclude tools you don't have access to
 - Filter by licensing (exclude proprietary tools)
@@ -40,16 +41,19 @@ Find segmentation tools [NO_RERANK]
 ```
 
 **Benefits**:
+
 - ✅ Faster retrieval (~2x speedup)
 - ✅ Lower computational cost
 - ✅ Good for broad exploratory queries
 
 **Trade-offs**:
+
 - ❌ Potentially less accurate ranking
 - ❌ May include less relevant tools
 - ❌ Semantic matching only (no cross-attention)
 
 **When to use**:
+
 - Quick exploration
 - Very specific queries (already well-targeted)
 - When speed matters more than precision
@@ -63,6 +67,7 @@ Segment this image [REFINE]
 ```
 
 **Results in**:
+
 - Agent asks clarifying questions
 - More focused recommendations
 - Opportunity to specify requirements
@@ -96,6 +101,7 @@ What else is available?
 ```
 
 **What happens**:
+
 - Agent formulates alternative query
 - Uses semantic neighbors for expansion
 - Searches with different emphasis
@@ -129,6 +135,7 @@ Agent: [Searches with emphasis on "CT thorax processing", "respiratory imaging"]
 The UI provides a model selector dropdown:
 
 Available models (configurable in `config.yaml`):
+
 - **gpt-4o-mini**: Faster, lower cost
 - **gpt-4o**: Higher accuracy, multimodal
 - **gpt-5.1**: Latest capabilities (if available)
@@ -145,18 +152,21 @@ Available models (configurable in `config.yaml`):
 ### When to Switch Models
 
 **Use gpt-4o-mini when**:
+
 - Doing quick explorations
 - Cost is a concern
 - Tasks are straightforward
 - Query is well-specified
 
 **Use gpt-4o when**:
+
 - Complex visual analysis needed
 - Accuracy is critical
 - Ambiguous queries
 - Multi-step reasoning required
 
 **Use gpt-5.1 when**:
+
 - Maximum accuracy needed
 - Complex multi-modal tasks
 - Research/publication work
@@ -240,6 +250,7 @@ Expanded: "segment brain segmentation parcellation extraction
 ```
 
 **Based on**:
+
 - BGE-M3 embeddings
 - Catalog vocabulary
 - Cosine similarity >0.75
@@ -320,6 +331,7 @@ LOG_PROMPTS=1
 ```
 
 **Saves**:
+
 - VLM prompts sent to API
 - Images included in prompts
 - Response JSON
@@ -348,6 +360,7 @@ Always shown in chat (expandable):
 ```
 
 Shows:
+
 - Tool calls made
 - Parameters used
 - API responses
@@ -364,6 +377,7 @@ SYNC_EVERY_HOURS=24
 ```
 
 **Behavior**:
+
 - Background thread checks for catalog updates
 - Reloads FAISS index if changed
 - No UI interruption
@@ -378,6 +392,7 @@ ai_agent sync
 ```
 
 Updates:
+
 - Software catalog
 - Embeddings
 - FAISS index

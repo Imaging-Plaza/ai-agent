@@ -35,7 +35,7 @@ The retrieval stage quickly narrows down candidates:
 
 The agent analyzes candidates with full context:
 
-1. **Vision Analysis**: GPT-4o/4o-mini sees your image preview
+1. **Vision Analysis (only for VLM)**: GPT-4o/4o-mini (or your custom model) sees your image preview
 2. **Context Integration**: Considers query + metadata + candidates
 3. **Reasoning**: Explains why each tool matches
 4. **Scoring**: Assigns accuracy scores (0-100%)
@@ -92,6 +92,7 @@ Explanation: TotalSegmentator is specifically designed for whole-body CT segment
 ```
 
 Key points in explanations:
+
 - **Task Alignment**: How well it matches your goal
 - **Format Compatibility**: Support for your file format
 - **Relevant Features**: Specific capabilities that help
@@ -105,6 +106,7 @@ Direct link to a runnable example:
 ```
 
 Types of demos:
+
 - **HuggingFace Spaces**: Interactive Gradio/Streamlit apps
 - **Colab Notebooks**: Jupyter notebooks you can run
 - **Web Demos**: Hosted web interfaces
@@ -122,6 +124,7 @@ Modalities: CT, MRI, X-ray
 ```
 
 Common modalities:
+
 - **CT**: Computed Tomography
 - **MRI**: Magnetic Resonance Imaging
 - **XR**: X-ray radiography
@@ -150,20 +153,6 @@ Formats: DICOM, NIfTI, PNG, JPEG
 
 !!! tip "Format Importance"
     Tools that support your **exact format** are prioritized in ranking.
-
-#### License
-Software licensing information:
-
-```
-License: Apache-2.0
-```
-
-Common licenses:
-- **Apache-2.0**: Permissive, commercial use OK
-- **MIT**: Very permissive
-- **GPL-3.0**: Copyleft, derivative works must be GPL
-- **BSD**: Permissive variants
-- **Proprietary**: Restricted use
 
 #### Tags
 Categorization and keywords:
@@ -261,16 +250,19 @@ CT scan vs X-ray:
 
 ### All High Scores
 Most recommendations >80%:
+
 - **Good news!** Multiple excellent options
 - **Strategy**: Try top recommendation, then compare
 
 ### Mixed Scores
 Wide range (e.g., 90%, 65%, 45%):
+
 - **Top choice clear** - Focus on highest scorer
 - **Strategy**: Try #1, fall back to #2 if needed
 
 ### All Low Scores
 All recommendations <60%:
+
 - **Limited options** - Task may be specialized
 - **Strategy**: Try anyway, or rephrase query
 - **Alternative**: Ask for suggestions

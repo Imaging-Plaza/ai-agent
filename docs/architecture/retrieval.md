@@ -7,6 +7,7 @@ The retrieval stage is the first phase of the AI Imaging Agent's two-stage pipel
 **Goal**: Quickly narrow down the software catalog to most relevant candidates
 
 **Characteristics**:
+
 - ⚡ Fast (~100-300ms)
 - 🔢 Deterministic and reproducible
 - 🚫 No LLM calls
@@ -39,11 +40,13 @@ When users upload files, format tokens are added to the query:
 ```
 
 **Format tokens added**:
+
 - File extension (`format:DICOM`, `format:NIfTI`)
 - Image modality from metadata (`format:CT`, `format:MRI`)
 - Dimensionality (`format:2D`, `format:3D`, `format:4D`)
 
 **Why this helps**:
+
 - Matches tools that support specific formats
 - Boosts DICOM-compatible tools for DICOM input
 - Ensures dimension compatibility (3D tools for volumes)
@@ -89,18 +92,21 @@ expansion_terms = [
 ```
 
 **How it works**:
+
 1. Extract vocabulary from catalog (all tool names, descriptions, keywords)
 2. Embed vocabulary using BGE-M3
 3. At query time, find top-N nearest neighbors (cosine similarity)
 4. Add neighbors to query
 
 **Benefits**:
+
 - Automatic synonym handling
 - No manual dictionaries needed
 - Adapts to catalog changes
 - Handles domain-specific terminology
 
 **Parameters**:
+
 - Similarity threshold: 0.75
 - Max expansion terms: 10
 - Vocabulary updated on catalog sync
@@ -131,6 +137,7 @@ query3 = "segment analysis detection extraction processing"
 **Model**: `BAAI/bge-m3`
 
 **Characteristics**:
+
 - Multilingual (but used for English)
 - 1024-dimensional embeddings
 - Trained for retrieval tasks
@@ -163,6 +170,7 @@ faiss_index.add(tool_vector)
 ```
 
 **Index structure**:
+
 - FAISS IndexFlatIP (inner product = cosine similarity for normalized vectors)
 - ~150 tools in current catalog
 - Index size: ~600KB
@@ -188,11 +196,13 @@ scores, indices = faiss_index.search(
 ```
 
 **Search algorithm**:
+
 - IndexFlatIP: Exact search (brute force)
 - Fast for catalog size (~150 tools)
 - Could use IVF for larger catalogs (>10k tools)
 
 **Why top-20**:
+
 - More candidates than needed (default final: 8)
 - Provides options for reranking
 - Balances recall vs. later stage cost
@@ -220,11 +230,13 @@ candidate_scores = scores[:20].tolist()
 ### Why Rerank?
 
 **BiEncoder (BGE-M3)** limitations:
+
 - Encodes query and documents independently
 - No query-document interaction
 - Misses subtle relevance signals
 
 **CrossEncoder** benefits:
+
 - Jointly encodes query + document
 - Cross-attention between query and doc
 - More accurate relevance scoring
@@ -235,6 +247,7 @@ candidate_scores = scores[:20].tolist()
 **Model**: `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
 **Characteristics**:
+
 - Trained on MS-MARCO passage ranking
 - 6 layers, fast inference (~50ms per pair)
 - Direct relevance score (no embedding)
@@ -271,6 +284,7 @@ else:
 ```
 
 **Trade-off**:
+
 - ✅ Faster (~200ms saved)
 - ❌ Potentially less accurate
 - Good for: Quick exploration, well-specified queries
@@ -299,6 +313,7 @@ Each candidate passed to Stage 2:
 ```
 
 **Fields used by VLM**:
+
 - Essential for understanding tool capability
 - Formatted as table in VLM prompt
 - Enables comparative reasoning
@@ -314,6 +329,7 @@ ai_agent sync
 ```
 
 **Process**:
+
 1. Load catalog JSONL
 2. Embed each tool description
 3. Build FAISS index
@@ -353,10 +369,12 @@ When catalog changes:
 ### Caching
 
 **Model loading**:
+
 - BGE-M3 and CrossEncoder loaded once at startup
 - Kept in memory for entire session
 
 **Index loading**:
+
 - FAISS index loaded once
 - Small enough to fit in memory (~MB)
 
@@ -380,8 +398,6 @@ Models can use GPU if available:
 model = SentenceTransformer("BAAI/bge-m3", device="cuda")
 reranker = CrossEncoder("...", device="cuda")
 ```
-
-**Speedup**: ~5-10x for embedding/reranking
 
 ## Retrieval Metrics
 
