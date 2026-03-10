@@ -21,9 +21,9 @@ graph TB
     A[User Message + Files] --> B[PydanticAI Agent]
     B --> C{Agent Router}
     C -->|Tool Call| D[Agent Tools]
-    C -->|VLM Call| E[VLMToolSelector]
+    C -->|LLM Reasoning| E[GPT-4o/4o-mini]
     D --> B
-    E --> F[GPT-4o/4o-mini]
+    E --> F[ToolSelection Schema]
     F --> G[Structured Response]
     G --> B
     B --> H[Formatted Reply]
@@ -47,42 +47,54 @@ graph TB
 
 ```python
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai import OpenAIProvider
+from ai_agent.generator.prompts import get_agent_system_prompt
+from ai_agent.generator.schema import ToolSelection
+from ai_agent.agent.utils import AgentState
+
+provider = OpenAIProvider(api_key=os.getenv("OPENAI_API_KEY"))
+openai_model = OpenAIResponsesModel(model_name="gpt-4o-mini", provider=provider)
 
 agent = Agent(
-    model=OpenAIModel("gpt-4o-mini"),
-    system_prompt="""You are an expert assistant helping users find 
-    imaging analysis software. You have access to a curated catalog 
-    of tools and can recommend the best options based on user needs.""",
-    deps_type=ChatState,
-    result_type=str,
+    model=openai_model,
+    system_prompt=get_agent_system_prompt(num_choices=3),
+    deps_type=AgentState,
 )
 ```
 
 **Key parameters**:
 
-- `model`: VLM model to use (configurable)
-- `system_prompt`: Agent's role and behavior
-- `deps_type`: Conversation state type
-- `result_type`: Response format
+- `model`: VLM model to use (configurable via `config.yaml`)
+- `system_prompt`: Agent role, scoring rules, and output format (from `generator/prompts.py`)
+- `deps_type`: `AgentState` — tracks tool calls, quotas, and session overrides
+- `output_type`: `ToolSelection` — passed to `agent.run_sync()` to enforce structured JSON output (not set on the `Agent` constructor)
 
 ### Conversation State
 
 ```python
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Set
 
-@dataclass
-class ChatState:
-    """Maintains conversation context across turns."""
+class AgentState(BaseModel):
+    """Holds incremental tool call logs and runtime overrides."""
     
-    conversation_turn: int = 0
-    uploaded_files: list[str] = field(default_factory=list)
-    excluded_tools: list[str] = field(default_factory=list)
-    preview_images: list[str] = field(default_factory=list)
-    last_recommendations: list[dict] = field(default_factory=list)
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    tool_counts: Dict[str, int] = Field(default_factory=dict)
+    disabled_tools: Set[str] = Field(default_factory=set)
+    excluded_tools: List[str] = Field(default_factory=list)
+    
+    # Runtime overrides (session-only)
+    override_model: Optional[str] = None
+    override_base_url: Optional[str] = None
+    override_top_k: Optional[int] = None
+    override_num_choices: Optional[int] = None
+    
+    image_paths: List[str] = Field(default_factory=list)
+    original_formats: List[str] = Field(default_factory=list)
 ```
 
-**Passed to every tool call** via dependency injection.
+**Passed to every tool call** via dependency injection. Also carries per-tool call counts for quota enforcement.
 
 ## Agent Tools
 
@@ -93,24 +105,25 @@ Tools extend agent capabilities beyond chat:
 Request alternative search with different query formulation:
 
 ```python
-@agent.tool
+@agent.tool(retries=2, prepare=cap_prepare)
+@limit_tool_calls("search_alternative", cap=3)
 async def search_alternative(
-    ctx: RunContext[ChatState], 
-    alternative_query: str
-) -> str:
+    ctx: RunContext[AgentState], 
+    alternative_query: str,
+    excluded: List[str] | None = None,
+    top_k: int = 12,
+) -> List[dict]:
     """Search for tools using an alternative query formulation."""
     
-    # Call retrieval pipeline with new query
-    candidates = pipeline.retrieve(alternative_query)
-    
-    # Select with VLM
-    recommendations = vlm_selector.select(
-        query=alternative_query,
-        candidates=candidates,
-        images=ctx.deps.preview_images
+    inp = SearchAlternativeInput(
+        alternative_query=alternative_query,
+        excluded=excluded or [],
+        top_k=top_k,
+        original_formats=ctx.deps.original_formats,
+        image_paths=ctx.deps.image_paths,
     )
-    
-    return format_recommendations(recommendations)
+    out = tool_search_alternative(inp)
+    return [c.model_dump(mode="python") for c in out.candidates]
 ```
 
 **Usage**:
@@ -130,21 +143,17 @@ Agent: [Calls search_alternative with "pulmonary segmentation CT"]
 Fetch GitHub repository details:
 
 ```python
-@agent.tool
-async def repo_info(
-    ctx: RunContext[ChatState],
-    repo_url: str
-) -> str:
-    """Get detailed information about a GitHub repository."""
+@agent.tool(retries=2, prepare=cap_prepare)
+@limit_tool_calls("repo_info", cap=12)
+async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str | None = None) -> dict:
+    """Fetch a short summary of a GitHub repository."""
     
-    # Try DeepWiki MCP first (fast, pre-indexed)
-    try:
-        info = await fetch_from_deepwiki(repo_url)
-        return format_repo_info(info, source="deepwiki")
-    except Exception:
-        # Fallback to repocards library
-        info = fetch_from_repocards(repo_url)
-        return format_repo_info(info, source="repocards")
+    # Normalize to canonical GitHub URL
+    norm_url = coerce_github_url_or_none(url)
+    
+    # Call tool_repo_summary (tries DeepWiki MCP first, falls back to repocards)
+    out = await tool_repo_summary(RepoSummaryInput(url=norm_url, tool_name=tool_name))
+    return out.model_dump(mode="python")
 ```
 
 **Data sources**:
@@ -169,166 +178,143 @@ Agent: [Calls repo_info("https://github.com/wasserth/TotalSegmentator")]
       Topics: segmentation, medical-imaging, deep-learning
 ```
 
-### run_gradio_demo
+### run_example
 
-Execute Gradio Space demos (future/experimental):
+Execute Gradio Space demos (optional, experimental):
 
 ```python
-@agent.tool
-async def run_gradio_demo(
-    ctx: RunContext[ChatState],
-    space_url: str,
-    tool_name: str
-) -> str:
-    """Execute a tool's Gradio Space demo on user's image."""
+@agent.tool(retries=0, prepare=cap_prepare)
+@limit_tool_calls("run_example", cap=1)
+async def run_example(
+    ctx: RunContext[AgentState],
+    tool_name: str,
+    endpoint_url: str | None = None,
+    extra_text: str | None = None,
+) -> dict:
+    """Run an example / demo for a given tool via its Gradio space."""
     
-    # Upload image to Gradio Space
-    # Configure parameters
-    # Run inference
-    # Download results
-    
-    return execution_result
+    out = tool_run_example(RunExampleInput(
+        tool_name=tool_name,
+        endpoint_url=endpoint_url,
+        extra_text=extra_text,
+    ))
+    return out.model_dump(mode="python")
 ```
 
 **Status**: Partially implemented, limited to specific demo formats.
 
-## VLMToolSelector
+## Selection and Ranking
 
-Core selection logic using vision-language models.
+The PydanticAI agent performs tool selection and ranking directly as part of its LLM reasoning step. There is no separate `VLMToolSelector` class — the agent's system prompt (defined in `generator/prompts.py`) encodes the scoring rules, and the `ToolSelection` Pydantic schema (defined in `generator/schema.py`) enforces structured output.
 
-### Initialization
+### System Prompt
+
+The agent system prompt is assembled by `get_agent_system_prompt()` in `generator/prompts.py` and covers:
+
+- **Image analysis**: Instructions to analyze the attached preview image and reference visual observations in explanations
+- **Tool call sequence**: When to call `search_tools`, `search_alternative`, `repo_info`, and `run_example`
+- **Scoring rules**: Accuracy (0–100) = Task match (40) + Format compatibility (30) + Features (30)
+- **Output format**: Single JSON object matching the `ToolSelection` schema
 
 ```python
-from generator.generator import VLMToolSelector
+from ai_agent.generator.prompts import get_agent_system_prompt
 
-selector = VLMToolSelector(
-    model_name="gpt-4o-mini",
-    base_url=None,  # Default OpenAI endpoint
-    api_key=os.getenv("OPENAI_API_KEY")
-)
+# Generates a prompt that instructs the agent to return up to N ranked choices
+system_prompt = get_agent_system_prompt(num_choices=3)
 ```
 
 ### Selection Process
 
-#### Step 1: Prompt Construction
+#### Step 1: Tool Calls (Retrieval)
 
-**System Prompt**:
+The agent calls `search_tools` once (and optionally `search_alternative` up to 3 times) to retrieve candidate tools from the vector index:
+
 ```
-You are an expert imaging software consultant. Given a user query, 
-an image, and candidate tools, select and rank the best 3 tools.
-
-Consider:
-- Task alignment
-- Image content and characteristics  
-- File format compatibility
-- Modality support (CT, MRI, etc.)
-- Dimension compatibility (2D, 3D)
-
-Provide structured recommendations with explanations.
+Agent → search_tools(query="segment lungs", top_k=12)
+      ← [TotalSegmentator, MedSAM, nnU-Net, ...]
 ```
 
-**User Prompt**:
+#### Step 2: Verification
+
+For each finalist the agent plans to recommend, it calls `repo_info` to fetch up-to-date GitHub metadata:
+
 ```
-User query: Segment the lungs
-
-Image metadata:
-- Format: DICOM
-- Modality: CT
-- Dimensions: 512x512x300 (3D)
-- Spacing: 0.7x0.7x1.5 mm
-
-Candidate tools:
-1. TotalSegmentator
-   Description: Automated multi-organ segmentation for CT
-   Modalities: CT, MRI
-   Formats: DICOM, NIfTI
-   Dimensions: 3D
-   
-2. MedSAM
-   Description: Medical image segmentation with SAM
-   Modalities: CT, MRI, X-ray
-   Formats: PNG, JPEG, DICOM
-   Dimensions: 2D, 3D
-   
-[... more candidates ...]
+Agent → repo_info(url="https://github.com/wasserth/TotalSegmentator")
+      ← {stars: 1200, language: "Python", topics: [...], description: "..."}
 ```
 
-**Image Attachment**:
+#### Step 3: Structured Output
 
-- PNG preview of user's image
-- Converted from DICOM/NIfTI/etc.
-- Enables visual analysis
-
-#### Step 2: VLM Call
+The agent returns one JSON object (no prose) that is validated against the `ToolSelection` schema:
 
 ```python
-from pydantic_ai import Agent
-
-response = await agent.run(
-    user_prompt=user_prompt,
-    message_history=conversation_history,
-    files=[preview_image_path],
+run_result = agent_instance.run_sync(
+    user_prompt,       # text + optional BinaryContent image
+    deps=deps,         # AgentState with image_paths, excluded_tools, etc.
+    output_type=ToolSelection,
+    usage_limits=UsageLimits(tool_calls_limit=20),
 )
+result = run_result.output  # ToolSelection instance
 ```
 
 **Multimodal input**:
 
-- Text: Query + metadata + candidates
-- Image: Preview PNG
-- Context: Conversation history
+- Text: User task + hidden metadata (format hints, image dimensions)
+- Image: PNG preview bytes passed as `BinaryContent(data=image_bytes, media_type="image/png")`
+- Context: Conversation history prepended to the prompt
 
-#### Step 3: Structured Response
+### Structured Response Schema
 
-VLM returns structured JSON matching Pydantic schema:
+The `ToolSelection` Pydantic model (in `generator/schema.py`) validates the agent output:
 
 ```python
-from pydantic import BaseModel
+from ai_agent.generator.schema import (
+    ToolSelection, ToolChoice, Conversation,
+    ConversationStatus, NoToolReason
+)
 
-class ToolRecommendation(BaseModel):
-    rank: int
+class ToolChoice(BaseModel):
     name: str
-    accuracy_score: int  # 0-100
-    explanation: str
-    reason: ToolReason
-    demo_url: str | None
+    rank: int
+    accuracy: float          # 0-100
+    why: str
+    demo_link: Optional[str] = None
 
-class AgentResponse(BaseModel):
+class Conversation(BaseModel):
     status: ConversationStatus
-    recommendations: list[ToolRecommendation]
-    message: str | None
+    question: Optional[str] = None   # required if status=needs_clarification
+    context: Optional[str] = None    # required if status=needs_clarification
+    options: Optional[List[str]] = None
+
+class ToolSelection(BaseModel):
+    conversation: Conversation
+    choices: List[ToolChoice] = []
+    explanation: Optional[str] = None
+    reason: Optional[NoToolReason] = None
 ```
 
-**Example response**:
+**Example response** (`ToolSelection`):
 ```json
 {
-  "status": "complete",
-  "recommendations": [
+  "conversation": {"status": "complete", "question": null, "context": null},
+  "choices": [
     {
       "rank": 1,
       "name": "TotalSegmentator",
-      "accuracy_score": 95,
-      "explanation": "TotalSegmentator is specifically designed for...",
-      "reason": "task_match",
-      "demo_url": "https://huggingface.co/spaces/..."
+      "accuracy": 95.0,
+      "why": "Specifically designed for automated multi-organ CT segmentation...",
+      "demo_link": "https://huggingface.co/spaces/..."
     },
     {
       "rank": 2,
       "name": "MedSAM",
-      "accuracy_score": 85,
-      "explanation": "MedSAM provides flexible segmentation...",
-      "reason": "format_match",
-      "demo_url": "https://huggingface.co/spaces/..."
-    },
-    {
-      "rank": 3,
-      "name": "nnU-Net",
-      "accuracy_score": 80,
-      "explanation": "nnU-Net is a robust segmentation framework...",
-      "reason": "general_capability",
-      "demo_url": null
+      "accuracy": 85.0,
+      "why": "Flexible SAM-based segmentation supporting DICOM input...",
+      "demo_link": "https://huggingface.co/spaces/..."
     }
   ],
-  "message": null
+  "explanation": null,
+  "reason": null
 }
 ```
 
@@ -337,23 +323,23 @@ class AgentResponse(BaseModel):
 Pydantic validates:
 
 - All required fields present
-- Types correct (int, str, enum)
-- Enums within allowed values
-- Scores within 0-100 range
+- Types correct (`int`, `float`, `str`, enum)
+- `accuracy` within 0–100 range
+- `ConversationStatus` is one of the allowed enum values
+- `NoToolReason` is a valid enum value when `choices` is empty
 
-**If validation fails**: Request regeneration or use fallback format.
+`ToolSelection.normalize()` also enforces consistency rules automatically (e.g. setting `status=complete` when choices are returned, `status=needs_clarification` when a question is present).
 
 ## Conversation States
 
 State machine for conversation flow:
 
 ```python
-from enum import Enum
+from ai_agent.generator.schema import ConversationStatus
 
 class ConversationStatus(str, Enum):
-    COMPLETE = "complete"              # Recommendations provided
-    NEEDS_CLARIFICATION = "clarify"    # Agent needs more info
-    NO_TOOL_TERMINAL = "no_tool"       # No suitable tools found
+    COMPLETE = "complete"                    # Recommendations provided (or no tool found)
+    NEEDS_CLARIFICATION = "needs_clarification"  # Agent needs more info
 ```
 
 ### Complete
@@ -362,9 +348,10 @@ Normal successful response:
 
 ```python
 {
-    "status": "complete",
-    "recommendations": [...],
-    "message": null
+    "conversation": {"status": "complete", "question": null, "context": null},
+    "choices": [...],
+    "explanation": null,
+    "reason": null
 }
 ```
 
@@ -380,9 +367,15 @@ Agent requests more information:
 
 ```python
 {
-    "status": "clarify",
-    "recommendations": [],
-    "message": "I found several segmentation tools. Which specific organ would you like to segment?"
+    "conversation": {
+        "status": "needs_clarification",
+        "question": "Which specific organ would you like to segment?",
+        "context": "Several segmentation tools available; target organ narrows choices.",
+        "options": ["Lungs", "Brain", "Liver", "Other (briefly specify)"]
+    },
+    "choices": [],
+    "explanation": null,
+    "reason": null
 }
 ```
 
@@ -394,33 +387,31 @@ Agent requests more information:
 **Example flow**:
 ```
 User: Segment this MRI
-Agent: [STATUS: clarify] Which organ would you like to segment?
+Agent: [STATUS: needs_clarification] Which organ would you like to segment?
 User: The brain
 Agent: [STATUS: complete] Here are brain segmentation tools...
 ```
 
 ### No Tool Terminal
 
-No suitable tools in catalog:
+No suitable tools in catalog — `status` is still `complete`, but `choices` is empty and a `reason` + `explanation` are provided:
 
 ```python
 {
-    "status": "no_tool",
-    "recommendations": [],
-    "message": "I couldn't find tools for audio processing in the imaging catalog."
+    "conversation": {"status": "complete", "question": null, "context": null},
+    "choices": [],
+    "reason": "no_task_match",
+    "explanation": "No tools in the catalog handle audio processing. This catalog covers imaging analysis software."
 }
 ```
 
-**Triggers**:
-- Task outside imaging domain
-- Highly specialized need not in catalog
-- All candidates filtered out
+Available `NoToolReason` values: `no_suitable_tool`, `no_modality_match`, `no_task_match`, `no_dimension_match`, `invalid_files`.
 
 ## Ranking Logic
 
 ### Scoring Factors
 
-VLM considers:
+The agent considers:
 
 #### High Priority
 1. **Task Match**: Tool designed for this specific task
@@ -499,40 +490,37 @@ agent_model:
 
 ## Error Handling
 
-### VLM Errors
+### Agent Errors
 
-**Timeout**:
+**Tool quota exceeded** (handled gracefully in `run_agent`):
 ```python
-try:
-    response = await agent.run(prompt, timeout=30.0)
-except TimeoutError:
-    return fallback_response("VLM call timed out")
+except UsageLimitExceeded:
+    # Returns a ToolSelection with empty choices and an explanation
+    result = ToolSelection(
+        conversation=Conversation(status=ConversationStatus.COMPLETE, ...),
+        choices=[],
+        explanation="Tool call limit reached. Try a more specific query.",
+    )
 ```
 
-**Invalid Response**:
-```python
-try:
-    validated = AgentResponse.model_validate(response)
-except ValidationError:
-    # Request regeneration with schema
-    return retry_with_schema()
-```
+**Invalid structured output**:
+
+PydanticAI automatically retries the LLM call (up to `retries=2` per tool) if the model returns output that fails `ToolSelection` validation. The `ToolSelection.normalize()` model validator also auto-corrects minor inconsistencies.
 
 **API Errors**:
 ```python
-except OpenAIError as e:
-    log.error(f"OpenAI API error: {e}")
-    return error_response("Service temporarily unavailable")
+except Exception as e:
+    log.warning(f"Agent execution encountered an error: {e}")
+    raise  # propagated to the UI layer
 ```
 
 ### Graceful Degradation
 
-If VLM fails:
+If the agent fails after all retries:
 
-1. Return top retrieval candidates without ranking
-2. Use retrieval scores as fallback
-3. Provide generic explanations
-4. Suggest manual exploration
+1. Return empty `choices` with an `explanation` describing what was searched
+2. UI surfaces the explanation so users can refine their query
+3. Suggest manual exploration of the catalog
 
 <!-- ## Performance
 
@@ -574,21 +562,31 @@ responses = await asyncio.gather(*[
 
 ### Unit Tests
 
-Test VLM selection with mocked responses:
+Test agent selection with PydanticAI's built-in test model:
 
 ```python
-def test_vlm_selection():
-    selector = VLMToolSelector(model="test-mock")
+from pydantic_ai import Agent
+from pydantic_ai.models.test import TestModel
+from ai_agent.generator.schema import ToolSelection, Conversation, ConversationStatus, ToolChoice
+from ai_agent.agent.utils import AgentState
+
+def test_agent_selection():
+    test_model = TestModel()
+    test_agent = Agent(model=test_model, deps_type=AgentState)
     
-    result = selector.select(
-        query="segment lungs",
-        candidates=mock_candidates,
-        images=["test.png"]
+    mock_output = ToolSelection(
+        conversation=Conversation(status=ConversationStatus.COMPLETE),
+        choices=[
+            ToolChoice(name="TotalSegmentator", rank=1, accuracy=95.0, why="Best CT segmenter")
+        ]
     )
     
-    assert result.status == "complete"
-    assert len(result.recommendations) == 3
-    assert result.recommendations[0].rank == 1
+    with test_agent.override(model=test_model):
+        result = test_agent.run_sync("segment lungs", deps=AgentState(), output_type=ToolSelection)
+    
+    assert result.output.conversation.status == ConversationStatus.COMPLETE
+    assert len(result.output.choices) == 1
+    assert result.output.choices[0].rank == 1
 ```
 
 ### Integration Tests
@@ -597,16 +595,21 @@ Test with real VLM (expensive, slow):
 
 ```python
 @pytest.mark.integration
-async def test_real_vlm():
-    selector = VLMToolSelector(model="gpt-4o-mini")
+def test_real_agent():
+    from ai_agent.agent.agent import run_agent
     
-    result = await selector.select_async(
-        query="segment cat",
-        candidates=real_candidates,
-        images=["cat.jpg"]
+    with open("tests/data/sample.png", "rb") as f:
+        image_bytes = f.read()
+    
+    result = run_agent(
+        task="segment the lungs",
+        image_paths=["tests/data/sample.dcm"],
+        image_bytes=image_bytes,
     )
     
-    assert "cat" in result.recommendations[0].explanation.lower()
+    assert result.conversation.status == ConversationStatus.COMPLETE
+    assert len(result.choices) > 0
+    assert all(0 <= c.accuracy <= 100 for c in result.choices)
 ```
 
 ## Next Steps
