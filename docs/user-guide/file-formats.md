@@ -10,10 +10,8 @@ The AI Imaging Agent supports a wide range of file formats for medical and scien
 |--------|-----------|-------------|
 | PNG | `.png` | Portable Network Graphics - lossless compression |
 | JPEG | `.jpg`, `.jpeg` | Joint Photographic Experts Group - lossy compression |
-| WebP | `.webp` | Modern web image format |
-| BMP | `.bmp` | Bitmap image file |
-| GIF | `.gif` | Graphics Interchange Format |
 
+Currently, only PNG and JPEG are accepted for standard images. Other web formats (e.g. WebP, BMP, GIF) should be converted to PNG or JPEG before upload.
 **Best for**: General photographs, screenshots, web images
 
 ### Medical Imaging Formats
