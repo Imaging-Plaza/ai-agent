@@ -282,7 +282,7 @@ CONFIG_PATH=config.yaml
 
 ### Automatic Loading
 
-The application automatically loads`.env` from the repository root:
+The application automatically loads `.env` from the repository root:
 
 ```python
 from dotenv import load_dotenv
