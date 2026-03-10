@@ -1,6 +1,8 @@
-# Testing
+# Testing (still under development)
 
 The AI Imaging Agent uses pytest for testing. This guide covers running tests and writing new ones.
+
+**Note:** We are still developing some tests for the agent, hence this part is not relevant for now.
 
 ## Running Tests
 
@@ -172,7 +174,7 @@ def test_with_fixtures(pipeline, sample_dicom):
     assert result is not None
 ```
 
-## Mocking
+<!-- ## Mocking
 
 ### Mocking VLM Calls
 
@@ -221,7 +223,7 @@ def test_file_validation():
         is_valid = validate_file("fake.dcm")
         
         assert is_valid
-```
+``` -->
 
 ## Test Data
 
@@ -255,7 +257,7 @@ Keep sample files small:
 - **NIfTI**: Small volume (e.g., 64×64×64)
 - **Images**: PNG/JPG under 1 MB
 
-## Coverage
+<!-- ## Coverage
 
 ### Measuring Coverage
 
@@ -293,7 +295,7 @@ omit = ["tests/*", "*/migrations/*"]
 precision = 2
 show_missing = true
 skip_covered = false
-```
+``` -->
 
 ## Continuous Integration
 
