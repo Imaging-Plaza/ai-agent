@@ -221,18 +221,18 @@ Components:
 
 ### generator/
 
-**VLM-based tool selection**
+**VLM-based tool selection building blocks**
 
 Components:
 
-- `generator.py`: VLMToolSelector class
-- `schema.py`: Pydantic models for responses
-- `prompts.py`: System prompts
+- `schema.py`: Pydantic models for agent responses and tool recommendations
+- `prompts.py`: System and tool-selection prompts used by the PydanticAI agent
 
 **Selection logic**:
 
+- Implemented in the PydanticAI agent (`agent/agent.py`) using these schemas and prompts
 - Single VLM call with all candidates
-- Structured output (Pydantic schema)
+- Structured output (Pydantic schemas) with ranked recommendations
 - Vision + text multimodal input
 
 ### agent/
