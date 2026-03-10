@@ -178,17 +178,18 @@ Inputs:
 class RAGImagingPipeline:
     def __init__(self, catalog_path, index_dir):
         self.retriever = TextRetriever(...)
-        self.generator = VLMToolSelector(...)
+        # Stage 2 (selection/ranking) is handled by the PydanticAI agent
+        # configured in generator/prompts.py using models from generator/schema.py
     
     def recommend(self, query, files):
         # Stage 1: Retrieval
         candidates = self.retriever.retrieve(query)
         
-        # Stage 2: Selection
-        recommendations = self.generator.select(
+        # Stage 2: Selection via PydanticAI agent
+        recommendations = run_selection_agent(
             query=query,
             candidates=candidates,
-            images=files
+            files=files,
         )
         
         return recommendations
