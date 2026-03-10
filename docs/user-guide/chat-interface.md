@@ -201,10 +201,10 @@ The sidebar shows all uploaded files with:
 
 Medical images are automatically converted:
 
-- **DICOM**: First slice extracted as PNG
-- **NIfTI**: Middle slice (sagittal, coronal, or axial)
-- **TIFF Stacks**: First frame
-- **Standard Images**: Original format
+- **DICOM**: PNG previews; 3D series use orthogonal composite views (MIPs + central slices) rather than a single slice
+- **NIfTI**: PNG previews built from orthogonal composite views of the volume
+- **TIFF Stacks**: PNG previews built from orthogonal composite views of the stack
+- **Standard 2D Images**: Resized PNG preview of the original image
 
 Previews are used for VLM analysis while preserving original format metadata.
 
