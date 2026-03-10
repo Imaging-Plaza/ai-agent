@@ -3,7 +3,7 @@ name: mkdocs-ci
 on:
   push:
     branches:
-      - feature/docs
+      - develop
 
 permissions:
   contents: read
@@ -46,7 +46,7 @@ jobs:
           path: ./site
 
   deploy:
-    if: github.ref == 'refs/heads/feature/docs'
+    if: github.ref == 'refs/heads/develop'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
