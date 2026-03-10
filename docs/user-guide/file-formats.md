@@ -212,7 +212,7 @@ The VLM considers:
 - **Dimension Compatibility**: 2D tool for 2D images, 3D for volumes
 - **Modality Specificity**: CT tools for CT images, MRI for MRI
 
-## File Size Limits
+<!-- ## File Size Limits
 
 Default limits (configurable):
 
@@ -225,7 +225,7 @@ Default limits (configurable):
 | Other Files | 50 MB | General limit |
 
 !!! warning "Large Files"
-    Very large files may take longer to process. Consider downsampling or cropping if possible.
+    Very large files may take longer to process. Consider downsampling or cropping if possible. -->
 
 ## Unsupported Formats
 

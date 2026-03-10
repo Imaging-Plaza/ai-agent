@@ -243,7 +243,7 @@ candidate_scores = scores[:20].tolist()
 
 ### Reranking Model
 
-**Model**: `cross-encoder/ms-marco-MiniLM-L-6-v2`
+**Model**: `BAAI/bge-reranker-v2-m3`
 
 **Characteristics**:
 
@@ -256,7 +256,7 @@ candidate_scores = scores[:20].tolist()
 ```python
 from sentence_transformers import CrossEncoder
 
-reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+reranker = CrossEncoder("BAAI/bge-reranker-v2-m3")
 
 # Score each (query, candidate) pair
 pairs = [(query, candidate.description) for candidate in candidates]
