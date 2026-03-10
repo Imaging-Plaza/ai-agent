@@ -170,23 +170,23 @@ Medical and scientific images are converted to PNG previews for VLM analysis:
 
 | Original Format | Preview Generation |
 |----------------|-------------------|
-| DICOM | Middle slice extracted as PNG |
-| NIfTI 3D | Sagittal middle slice |
-| NIfTI 4D | Middle volume, middle slice |
-| TIFF Stack | First frame |
-| Standard Images | Original (no conversion) |
+| DICOM (2D) | Single-frame converted to PNG |
+| DICOM / NIfTI 3D volumes | Orthogonal 3‑view composite PNG (axial, sagittal, coronal) using middle slices and/or maximum intensity projections (MIPs) |
+| NIfTI 4D (time series) | Middle timepoint volume rendered as an orthogonal 3‑view composite (middle slices and/or MIPs) |
+| TIFF Stack | Orthogonal 3‑view composite for 3D stacks; otherwise contact sheet or animated GIF preview when appropriate |
+| Standard Images | Single-view PNG (content preserved; may be resized/normalized) |
 
 **Important**: Preview generation is for visual analysis only. Original format metadata is preserved and used for compatibility matching.
 
 ### Multi-Slice Handling
 
-For 3D volumes, slice selection depends on orientation:
+For 3D volumes, the agent typically builds an orthogonal 3‑view composite preview:
 
 - **Axial**: Horizontal slices (z-axis)
 - **Sagittal**: Side view (x-axis)
 - **Coronal**: Front view (y-axis)
 
-The agent selects the middle slice of the volume for preview.
+Each view may combine the middle slice with a maximum intensity projection (MIP) to capture both anatomical context and bright structures. When a 3‑view composite cannot be generated (e.g., unusual stack layout), the agent may fall back to a contact sheet or an animated GIF preview of multiple slices.
 
 ## Format Compatibility Matching
 
