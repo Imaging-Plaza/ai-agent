@@ -5,7 +5,7 @@ site_url: https://imaging-plaza.github.io/ai-agent/
 
 repo_name: imaging-plaza/ai-agent
 repo_url: https://github.com/imaging-plaza/ai-agent
-edit_uri: edit/main/docs/
+edit_uri: edit/develop/docs/
 
 theme:
   name: material
