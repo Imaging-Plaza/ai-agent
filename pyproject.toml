@@ -52,4 +52,5 @@ dev = [
   "black",
   "mypy",
   "types-requests",
+  "mkdocs-material",
 ]
