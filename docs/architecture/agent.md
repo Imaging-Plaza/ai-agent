@@ -562,7 +562,7 @@ responses = await asyncio.gather(*[
 
 ### Unit Tests
 
-Test agent selection with PydanticAI's built-in test model:
+Test agent selection with PydanticAI's built-in test model (your catalog should contain the choice provided below, i.e. the `TotalSegmentator` tool):
 
 ```python
 from pydantic_ai import Agent
@@ -598,12 +598,12 @@ Test with real VLM (expensive, slow):
 def test_real_agent():
     from ai_agent.agent.agent import run_agent
     
-    with open("tests/data/sample.png", "rb") as f:
+    with open("tests/data/sample.tif", "rb") as f:
         image_bytes = f.read()
     
     result = run_agent(
-        task="segment the lungs",
-        image_paths=["tests/data/sample.dcm"],
+        task="I want to segment the lungs of this CT scan",
+        image_paths=["tests/data/sample.tif"],
         image_bytes=image_bytes,
     )
     
