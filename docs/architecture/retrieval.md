@@ -18,11 +18,10 @@ The retrieval stage is the first phase of the AI Imaging Agent's two-stage pipel
 ```mermaid
 graph LR
     A[User Query] --> B[Query Enhancement]
-    B --> C[Query Expansion]
-    C --> D[Embedding]
-    D --> E[FAISS Search]
-    E --> F[CrossEncoder Rerank]
-    F --> G[Top-K Candidates]
+    B --> C[Embedding]
+    C --> D[FAISS Search]
+    D --> E[CrossEncoder Rerank]
+    E --> F[Top-K Candidates]
 ```
 
 ## Step 1: Query Enhancement
