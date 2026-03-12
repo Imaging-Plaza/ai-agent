@@ -6,6 +6,7 @@ import os, re, logging
 from .utils import get_pipeline
 from ai_agent.utils.utils import _best_runnable_link
 from ai_agent.utils.previews import _build_preview_for_vlm
+from ai_agent.utils.temp_file_manager import register_temp_file
 from gradio_client import Client, handle_file
 import tempfile
 from pathlib import Path
@@ -69,7 +70,7 @@ def _download_to_temp(url: str) -> Optional[str]:
         with tempfile.NamedTemporaryFile(delete=False, prefix="demo_result_", suffix=ext) as fd:
             fd.write(r.content)
             fd.flush()
-            return fd.name
+            return register_temp_file(fd.name)
     except Exception:
         return None
 

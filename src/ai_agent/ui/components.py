@@ -11,6 +11,7 @@ from ai_agent.retriever.software_doc import SoftwareDoc
 from .handlers import respond
 from .visualizations import create_tool_usage_chart, create_tool_timeline, create_disabled_tools_display
 from .utils import get_available_models, get_default_model_display_name
+from .state import format_stats_markdown
 
 log = logging.getLogger("chat_components")
 
@@ -165,6 +166,25 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     avatar_images=("👤", "🤖"),
                 )
                 
+                # Tool approval box (appears inline when approval needed)
+                with gr.Group(visible=False) as approval_box:
+                    gr.Markdown("### 🤖 Tool Recommendation")
+                    approve_tool_btn = gr.Button(
+                        "🚀 Run Tool",
+                        variant="primary",
+                        size="lg",
+                        scale=1,
+                    )
+                
+                # File downloads section
+                download_files = gr.File(
+                    label="📥 Download Results",
+                    file_count="multiple",
+                    type="filepath",
+                    visible=True,
+                    height=100,
+                )
+                
                 with gr.Row():
                     with gr.Column(scale=8):
                         msg_input = gr.Textbox(
@@ -252,7 +272,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     user_msg["content"] = file_list
             
             history.append(user_msg)
-            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update()
+            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), gr.update()
             
             # If files were uploaded, build and show preview immediately
             if files:
@@ -281,14 +301,14 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                                     "content": {"path": preview_path},
                                 }
                             )
-                            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update()
+                            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), gr.update()
                     except Exception as e:
                         log.warning("Preview generation failed: %r", e)
             
             # Show "thinking" indicator for agent processing
             thinking_msg = {"role": "assistant", "content": "🤔 Finding tools..."}
             history.append(thinking_msg)
-            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update()
+            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), gr.update()
             
             # Call respond function with settings
             try:
@@ -309,6 +329,9 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 # Add assistant response with rich media
                 # Build text content first
                 text_content = reply.text
+                
+                # Add stats if available
+                text_content += format_stats_markdown(reply.stats)
                 
                 # Add file links
                 if reply.files:
@@ -346,6 +369,19 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 timeline_chart = create_tool_timeline(state_dict_updated.get("tool_calls", []))
                 disabled_text = create_disabled_tools_display(state_dict_updated.get("tool_calls", []))
                 
+                # Extract downloadable files
+                downloaded_files = [path for path, _label in reply.files] if reply.files else None
+                
+                # Determine button visibility and label using registry
+                box_visible = new_state.pending_tool_approval is not None
+                if box_visible and new_state.pending_tool_approval:
+                    from ai_agent.agent.tools.mcp import get_tool_display_name, get_tool_icon
+                    display_name = get_tool_display_name(new_state.pending_tool_approval)
+                    icon = get_tool_icon(new_state.pending_tool_approval)
+                    button_label = f"{icon} Run {display_name}"
+                else:
+                    button_label = "🚀 Run Tool"
+                
                 yield (
                     history,
                     state_dict_updated,
@@ -353,6 +389,9 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     gr.update(value=timeline_chart),
                     gr.update(value=disabled_text),
                     gr.update(value=state_dict_updated),
+                    downloaded_files,
+                    gr.update(visible=box_visible),  # approval_box
+                    gr.update(value=button_label),   # approve_tool_btn
                 )
             
             except Exception as e:
@@ -367,19 +406,56 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     ),
                 }
                 history.append(error_msg)
-                yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update()
+                yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), gr.update()
         
         def clear_chat():
             """Reset everything."""
             empty_chart = create_tool_usage_chart([])
             empty_timeline = create_tool_timeline([])
-            return [], {}, empty_chart, empty_timeline, "✅ No tools disabled", gr.update(value={})
+            return [], {}, empty_chart, empty_timeline, "✅ No tools disabled", gr.update(value={}), None, gr.update(visible=False), gr.update()
+        
+        def handle_tool_approval(history: List[dict], state_dict: dict):
+            """Handle tool approval button click - executes the pending tool."""
+            from .handlers import execute_tool_with_approval
+            from .state import ChatState
+            
+            state = ChatState.from_dict(state_dict)
+            
+            if not state.pending_tool_approval:
+                return history, state_dict, None, gr.update(visible=False), gr.update()
+            
+            # Execute the tool
+            reply, new_state = execute_tool_with_approval(
+                state.pending_tool_approval,
+                state.pending_tool_params,
+                state
+            )
+            
+            # Build response text with stats
+            text_content = reply.text
+            text_content += format_stats_markdown(reply.stats)
+            
+            # Add text message
+            history.append({"role": "assistant", "content": text_content})
+            
+            # Add images
+            for img_path in reply.images:
+                if os.path.exists(img_path):
+                    history.append({"role": "assistant", "content": {"path": img_path}})
+            
+            # Extract downloadable files
+            downloaded_files = [path for path, _label in reply.files] if reply.files else None
+            
+            # Update state and hide button
+            state_dict_updated = new_state.to_dict()
+            
+            return history, state_dict_updated, downloaded_files, gr.update(visible=False), gr.update()
         
         # Wire up events
         submit_btn.click(
             handle_chat,
             inputs=[msg_input, chatbot, file_input, chat_state, model_dropdown, top_k_slider, num_choices_slider],
-            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display],
+            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display, download_files, approval_box, approve_tool_btn],
         ).then(
             lambda: ("", None),  # Clear inputs
             inputs=None,
@@ -389,17 +465,23 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         msg_input.submit(
             handle_chat,
             inputs=[msg_input, chatbot, file_input, chat_state, model_dropdown, top_k_slider, num_choices_slider],
-            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display],
+            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display, download_files, approval_box, approve_tool_btn],
         ).then(
             lambda: ("", None),  # Clear inputs
             inputs=None,
             outputs=[msg_input, file_input],
         )
         
+        approve_tool_btn.click(
+            handle_tool_approval,
+            inputs=[chatbot, chat_state],
+            outputs=[chatbot, chat_state, download_files, approval_box, approve_tool_btn],
+        )
+        
         clear_btn.click(
             clear_chat,
             inputs=None,
-            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display],
+            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display, download_files, approval_box, approve_tool_btn],
         )
     
     return demo

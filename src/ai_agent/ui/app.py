@@ -52,6 +52,11 @@ from ai_agent.api.pipeline import RAGImagingPipeline
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.ui.components import create_chat_interface
 
+# ============================================================================
+# Tool registration
+# ============================================================================
+from ai_agent.agent.tools import ensure_tools_registered
+ensure_tools_registered()
 
 # ============================================================================
 # Pipeline initialization

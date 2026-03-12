@@ -13,12 +13,11 @@ from pydantic_ai.messages import BinaryContent
 from ai_agent.generator.prompts import get_agent_system_prompt
 from ai_agent.generator.schema import ToolSelection, Conversation, ConversationStatus
 from ai_agent.utils.config import get_config
-from .models import AgentToolSelection, ToolRunLog
+from .models import AgentToolSelection, ToolRunLog, UsageStats
 from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
 from ai_agent.agent.utils import coerce_github_url_or_none
 from .tools.search_tool import tool_search_tools, SearchToolsInput
 from .tools.search_alternative_tool import tool_search_alternative, SearchAlternativeInput
-from .tools.gradio_space_tool import tool_run_example, RunExampleInput
 from .utils import AgentState, limit_tool_calls, cap_prepare
 from ai_agent.utils.image_meta import summarize_image_metadata, detect_ext_token
 
@@ -216,39 +215,6 @@ async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str | None
     return out.model_dump(mode="python")
 
 
-@agent.tool(retries=0, prepare=cap_prepare)
-@limit_tool_calls("run_example", cap=1)
-async def run_example(
-    ctx: RunContext[AgentState],
-    tool_name: str,
-    endpoint_url: str | None = None,
-    extra_text: str | None = None,
-) -> dict:
-    """
-    Run an example / demo for a given tool via its Gradio space.
-
-    Thin wrapper around tools.gradio_space_tool.tool_run_example().
-    """
-    out = tool_run_example(
-        RunExampleInput(
-            tool_name=tool_name,
-            endpoint_url=endpoint_url,
-            extra_text=extra_text,
-        )
-    )
-    ctx.deps.tool_calls.append(
-        {
-            "tool": "run_example",
-            "tool_name": tool_name,
-            "ran": getattr(out, "ran", False),
-            "endpoint_url": getattr(out, "endpoint_url", endpoint_url),
-            "api_name": getattr(out, "api_name", None),
-            "timestamp": datetime.now().isoformat(),
-        }
-    )
-    return out.model_dump(mode="python")
-
-
 # ---------------------------------------------------------------------------
 # High level entry point: run the agent on (text query + image)
 # ---------------------------------------------------------------------------
@@ -387,7 +353,6 @@ def run_agent(
         agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
         agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
         agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
-        agent_instance.tool(run_example, retries=0, prepare=cap_prepare)
 
     elif num_choices is not None and num_choices != 3:
         log.info(
@@ -403,7 +368,6 @@ def run_agent(
         agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
         agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
         agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
-        agent_instance.tool(run_example, retries=0, prepare=cap_prepare)
 
     else:
         log.info(f"♻️  Using global agent (model: {effective_model}, num_choices: {effective_num_choices})")
@@ -456,6 +420,7 @@ def run_agent(
         # Handle global tool quota limit (UsageLimitExceeded) and other errors gracefully
         error_msg = str(e)
         log.warning(f"⚠️  Agent execution encountered an error: {error_msg}")
+        run_result = None  # Ensure run_result is defined for usage stats extraction
         
         # Check if this is a usage limit error (global tool quota)
         if "UsageLimitExceeded" in str(type(e).__name__) or "tool_calls_limit" in error_msg.lower():
@@ -490,13 +455,24 @@ def run_agent(
             )
         )
 
-    # ---- 8) Wrap into high-level AgentToolSelection ------------------------
+    # ---- 8) Extract usage statistics if available -------------------------
+    usage_stats = None
+    if run_result and hasattr(run_result, "usage") and run_result.usage:
+        usage = run_result.usage()
+        usage_stats = UsageStats(
+            total_tokens=usage.total_tokens,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+        )
+    
+    # ---- 9) Wrap into high-level AgentToolSelection ------------------------
     return AgentToolSelection(
         conversation=result.conversation,
         choices=result.choices,
         explanation=result.explanation,
         reason=result.reason,
         tool_calls=tool_logs,
+        usage=usage_stats,
     )
 
 

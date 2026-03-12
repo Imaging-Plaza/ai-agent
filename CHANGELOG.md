@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+- **Agent run_example tool**: Removed autonomous tool execution capability from agent. Agent now only recommends tools - all execution requires explicit user approval via approval buttons. This enforces consistent security/UX model where users maintain full control over tool execution. The underlying `gradio_space_tool.py` remains for UI-initiated demo execution.
+
 ### Added
 - **New chat-based interface** (`ai_agent chat`) with conversational AI assistant
   - Chatbot component with rich media rendering (images, files, JSON, code blocks)
@@ -34,6 +37,30 @@ All notable changes to this project will be documented in this file.
 - **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
 - **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection).
 - **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
+- **3D Lungs Segmentation Tool**: New MCP tool (`agent/tools/lungs_segmentation_tool.py`) that integrates with HuggingFace Space (https://qchapp-3d-lungs-segmentation.hf.space/) for 3D U-Net based lung segmentation in CT volumes. Supports DICOM, NIfTI, and TIFF stack inputs with robust file materialization strategy handling multiple Gradio output formats (FileData dict, URL string, local path, server path).
+- **Tool Usage Analytics**: Real-time visualization in chat UI showing tool call frequency bar chart and timeline plot. Tracks all tool executions with timestamps and success/failure status. Provides users with transparency about which tools are being used during their session.
+- **Downloadable Results Section**: New `download_files` component (gr.File with `file_count="multiple"`) positioned below chatbot for easy access to tool outputs. Files returned by tools (e.g., segmentation masks) are automatically extracted and presented as downloadable items separate from inline previews.
+- **Inline Tool Approval Button**: Button-based tool execution approval appears dynamically in chat flow within a styled group box. Shows "🤖 Tool Recommendation" header with contextual button label (e.g., "🚀 Run Lungs Segmentation") only when tool approval is pending. Replaces previous text-based approval pattern for better UX and extensibility.
+- **Tool Registry System** (`agent/tools/mcp/registry.py`): Centralized tool registration pattern that eliminates tool-specific UI code
+  - `ToolConfig` dataclass for declarative tool configuration with field mappings
+  - `TOOL_REGISTRY` global dictionary for dynamic tool lookup
+  - `CATALOG_NAME_TO_TOOL` reverse mapping dict to handle catalog name → tool name resolution
+  - **Catalog name mapping**: Tools can specify `catalog_names` list to map dataset names (e.g., "lungs-segmentation") to internal tool names (e.g., "lungs_segmentation")
+  - **Clean registration pattern**: Single `ensure_tools_registered()` call in app.py replaces individual tool imports
+  - Generic extraction functions: `extract_preview()`, `extract_downloads()`, `extract_metadata()`
+  - Helper functions: `register_tool()`, `get_tool()`, `list_tools()`, `get_tool_display_name()`, `get_tool_icon()`
+  - `get_tool()` automatically resolves both registry names and catalog names for seamless integration with RAG recommendations
+  - Supports lazy loading to avoid loading heavy dependencies at import time
+- **MCP Tools Subpackage** (`agent/tools/mcp/`): Organized separation of registered imaging tools (MCP protocol) from agent utilities. Base models, registry, and imaging tools (e.g., lungs_segmentation) now in dedicated subpackage for clarity.
+- **Base Tool Models** (`agent/tools/mcp/base.py`): Standard Pydantic schemas for tool consistency
+  - `BaseToolOutput`: Standard fields across all tools (success, error, compute_time_seconds, result_preview, result_origin, metadata_text, notes)
+  - `BaseToolInput`: Minimal base class for tool inputs
+  - `ImageToolInput`: Common pattern for image-based tools with image_path and description fields
+- **Tool Registration**: Lungs segmentation tool self-registers with complete field mappings
+  - Preview field: `result_preview`
+  - Download fields: `result_origin`
+  - Metadata field: `metadata_text`
+  - Notes field: `notes`
 
 ### Changed
 - CLI now supports `ai_agent chat`
@@ -60,6 +87,31 @@ All notable changes to this project will be documented in this file.
 - **UI redesign**: File upload moved to dedicated right panel for cleaner workflow
 - **Visual hierarchy**: Header with gradient green banner and logo
 - **Button styling**: Primary actions use Imaging Plaza green theme colors
+- **Tool Approval Workflow**: Replaced text-based approval (responding "yes"/"sure"/"ok" in chat) with explicit button-based approval. Tool execution now requires clicking a dedicated approval button that appears inline in the chat, improving clarity and preventing accidental tool execution.
+- **Chat Output Structure**: Extended Gradio component outputs from 6 to 9 values to support new approval box and download files components. All event handlers (`submit_btn.click`, `msg_input.submit`, `approve_tool_btn.click`, `clear_btn.click`) now consistently yield/return all 9 outputs: chatbot history, state, 3 charts, state display, downloads, approval box visibility, and approval button label.
+- **Tool Approval Button Position**: Moved approval button from standalone position below input controls to inline group box between chatbot and downloads section. Button now appears as part of "🤖 Tool Recommendation" box with dynamic label showing tool name (e.g., "🚀 Run Lungs Segmentation").
+- **Generic Tool Execution** (`ui/handlers.py`): Replaced tool-specific `execute_lungs_segmentation()` with generic `execute_tool_with_approval()`
+  - Dynamic tool lookup via `get_tool(tool_name)` - NO hardcoded tool names
+  - Dynamic input construction: `tool_config.input_model(**params)` - works for any Pydantic schema
+  - Dynamic tool execution: `tool_config.executor(input_obj)` - calls registered executor
+  - Generic field extraction using registry field mappings - NO tool-specific code
+  - Works for ANY tool that registers in TOOL_REGISTRY
+  - Eliminates need for tool-specific if/else chains
+  - **Architectural benefit**: Adding 70+ tools requires ZERO changes to handlers.py
+- **Dynamic Button Labels** (`ui/components.py`): Button text now uses registry helper functions
+  - `get_tool_display_name()` and `get_tool_icon()` provide consistent labels
+  - Replaces hardcoded string formatting: `tool_name.replace('_', ' ').title()`
+  - Button shows proper display name and icon from ToolConfig
+- **Lazy Tool Loading** (`agent/tools/__init__.py`): Only export registry, not all tools
+  - Prevents loading heavy dependencies (nibabel, pydicom) at package import
+  - Tools imported explicitly where needed (e.g., in `ui/app.py`)
+  - Added `ensure_tools_registered()` function for explicit bulk loading
+  - Fixes import hangs caused by eager tool loading
+- **Tool Import Location** (`ui/app.py`): Import lungs_segmentation_tool to trigger registration before UI launch
+- **LungsSegmentationOutput Schema**: Enhanced with separate `result_origin` (original format file for download), `result_preview` (PNG preview for display), `metadata_text` (file metadata string), and `api_name` fields. Maintains backward compatibility with `result_path` field (now set to preview when available, else origin).
+- **Download vs Display Separation**: Tool results now distinguish between files for download (`result_origin` - TIFF/NIfTI/DICOM) and inline display (`result_preview` - PNG). Downloads section shows original format files while chat shows converted previews for better compatibility.
+- **HuggingFace Space Client Timeout**: Extended timeout to 300 seconds (5 minutes) via `httpx_kwargs={"timeout": 300.0}` parameter in `_make_gradio_client()` to handle slow Space cold starts and large medical imaging file uploads/downloads without timing out. Includes graceful fallback for older gradio_client versions without `httpx_kwargs` support.
+- **Tool Execution Handler**: `execute_tool_with_approval()` in handlers.py now uses `result_preview` for inline images and `result_origin` for downloadable files, ensuring users get both viewable previews in chat and original format files for download.
 
 ### Removed
 - **VLMToolSelector**: Deleted unused `generator/generator.py` containing VLMToolSelector class. The pydantic-ai agent handles all tool selection directly.
@@ -77,6 +129,10 @@ All notable changes to this project will be documented in this file.
 - **Clear Button**: Disabled during processing to prevent race conditions with ongoing requests.
 - **Alternative Tool Requests**: All recommended tools are now automatically added to the exclusion list (banlist) and properly passed to the agent through AgentState, ensuring follow-up requests like "I would like another tool" correctly return different tools.
 - **History Table**: Follow-up requests (without files) no longer create duplicate history entries. Only primary requests with files are logged to the History table.
+- **Duplicate Function Definition**: Removed duplicate `clear_chat()` function definition in `components.py` that was causing syntax errors.
+- **Text-Based Tool Approval Logic**: Removed legacy `_is_affirmative()` check in `handlers.py` that was conflicting with new button-based approval system. Tool execution now only triggered by explicit button click, preventing ambiguous user messages from unintentionally executing tools.
+- **Gradio Component Compatibility**: Changed `gr.Box` to `gr.Group` for approval button container to ensure compatibility with Gradio 5.42.0 (gr.Box not available in this version).
+- **Component Output Count**: Fixed inconsistent yield statements throughout `handle_chat()` generator function - all yields now consistently return 9 values (chatbot, state, 3 charts, state display, downloads, approval box visibility, button label) to match event handler output declarations.
 
 ## [0.1.3] - 2025-10-22
 

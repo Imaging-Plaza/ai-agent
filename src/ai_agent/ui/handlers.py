@@ -1,11 +1,22 @@
 import logging
 import os
+import time
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
 
 from ai_agent.agent.agent import run_agent
 from ai_agent.agent.tools.gradio_space_tool import tool_run_example, RunExampleInput
+from ai_agent.agent.tools.mcp import (
+    get_tool, 
+    get_tool_display_name, 
+    get_tool_icon,
+    extract_preview,
+    extract_downloads,
+    extract_metadata,
+    extract_output_field,
+    TOOL_REGISTRY,
+)
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.utils.file_validator import FileValidator
 from ai_agent.utils.tags import strip_tags, parse_exclusions
@@ -17,6 +28,117 @@ from .state import ChatState, ChatMessage
 from .formatters import format_tool_card
 
 log = logging.getLogger("chat_handlers")
+
+
+def execute_tool_with_approval(
+    tool_name: str,
+    tool_params: Dict[str, Any],
+    state: ChatState,
+) -> Tuple[ChatMessage, ChatState]:
+    """
+    Generic tool execution handler - works for ANY registered tool.
+    
+    Uses the tool registry to dynamically dispatch to the correct tool
+    and extract results in a standardized way. No tool-specific code needed!
+    
+    Args:
+        tool_name: Name of the tool to execute
+        tool_params: Parameters for the tool
+        state: Current chat state
+        
+    Returns:
+        (ChatMessage with result, updated ChatState)
+    """    
+    reply = ChatMessage()
+    start_time = time.time()
+    
+    # Get tool configuration from registry
+    tool_config = get_tool(tool_name)
+    if not tool_config:
+        log.error(f"Unknown tool: {tool_name}")
+        reply.text = f"❌ Error: Unknown tool '{tool_name}'"
+        state.pending_tool_approval = None
+        state.pending_tool_params = {}
+        return reply, state
+    
+    log.info(f"Executing {tool_name} tool with params: {tool_params}")
+    reply.text = f"{tool_config.icon} Running {tool_config.display_name}...\n\n"
+    
+    try:
+        # Augment params with state data if needed (e.g., image_path from last upload)
+        if "image_path" in tool_params and not tool_params["image_path"]:
+            if state.last_files:
+                tool_params["image_path"] = state.last_files[0]
+        
+        # Build input object dynamically using the tool's input model
+        input_obj = tool_config.input_model(**tool_params)
+        
+        # Execute the tool
+        result = tool_config.executor(input_obj)
+        
+        compute_time = time.time() - start_time
+        
+        # Extract standard fields using registry configuration
+        success = extract_output_field(result, tool_config.success_field)
+        error = extract_output_field(result, tool_config.error_field)
+        compute_time_seconds = extract_output_field(result, tool_config.compute_time_field) or 0.0
+        notes = extract_output_field(result, tool_config.notes_field)
+        
+        # Track execution in state (generic)
+        state.tool_calls.append({
+            "tool": tool_name,
+            "success": success,
+            "compute_time_seconds": compute_time_seconds,
+            "error": error,
+            "timestamp": datetime.now().isoformat(),
+            **tool_params  # Store all params for debugging
+        })
+        
+        # Add stats to reply
+        reply.stats = {
+            "compute_time": compute_time_seconds,
+            "total_time": compute_time,
+        }
+        
+        if success:
+            reply.text += f"✅ {tool_config.display_name} completed!\n\n"
+            
+            # Extract and add preview image (generic)
+            preview_path = extract_preview(result, tool_name)
+            if preview_path and os.path.exists(preview_path):
+                reply.images.append(preview_path)
+            
+            # Extract and add downloadable files (generic)
+            download_paths = extract_downloads(result, tool_name)
+            for download_path in download_paths:
+                if os.path.exists(download_path):
+                    reply.files.append((download_path, f"Download {tool_config.display_name} result"))
+            
+            # Add metadata if available
+            metadata = extract_metadata(result, tool_name)
+            if metadata:
+                reply.text += f"_{metadata}_\n\n"
+            
+            # Add notes if available
+            if notes:
+                reply.text += f"_{notes}_\n\n"
+        else:
+            reply.text += f"❌ {tool_config.display_name} failed.\n\n"
+            if error:
+                reply.text += f"**Error:** {error}\n\n"
+        
+    except Exception as e:
+        log.exception(f"Tool {tool_name} execution failed")
+        reply.text += f"❌ Error: {e}\n\n"
+        compute_time = time.time() - start_time
+        reply.stats = {"total_time": compute_time}
+    
+    # Clear pending approval
+    state.pending_tool_approval = None
+    state.pending_tool_params = {}
+    state.conversation_history.append(f"Assistant: {reply.text}")
+    
+    return reply, state
 
 
 def respond(
@@ -99,8 +221,10 @@ def respond(
                 reply.text += f"✅ Demo completed!\n\n"
                 reply.images.append(preview_path)
                 
+                # Add original result file for download if available
                 if demo_result.result_origin:
                     reply.files.append((demo_result.result_origin, "Download result"))
+        
             else:
                 note = demo_result.notes or "No output image returned"
                 reply.text += f"ℹ️ Demo ran but {note}"
@@ -267,6 +391,17 @@ def respond(
     
     result_dict = agent_result.to_legacy_dict()
     
+    # Extract usage stats if available
+    usage_info = result_dict.get("usage")
+    if usage_info:
+        reply.stats = {
+            "tokens": {
+                "total": usage_info.get("total_tokens", 0),
+                "input": usage_info.get("input_tokens", 0),
+                "output": usage_info.get("output_tokens", 0),
+            }
+        }
+    
     # Record tool calls
     if "tool_calls" in result_dict:
         state.tool_calls.extend(result_dict["tool_calls"])
@@ -321,14 +456,30 @@ def respond(
             else:
                 reply.text += f"**{i}. {tool_name}** — {accuracy:.1f}%\n\n_{why}_\n\n"
         
-        # Offer demo for top tool
-        demo_url = top_tool.get("demo_link", "")
-        if demo_url:
+        # Check if top tool is registered in registry and requires approval
+        tool_config = get_tool(top_tool["name"])
+        demo_url = top_tool.get("demo_link") or ""
+        
+        if tool_config and tool_config.requires_approval:
+            # Tool is registered and requires approval - use registry-based execution
+            image_path = effective_paths[0] if effective_paths else None
+            state.pending_tool_approval = tool_config.name
+            state.pending_tool_params = {
+                "image_path": image_path,
+                "description": f"Recommended by agent: {top_tool.get('why', '')}",
+            }
+            reply.text += f"\n🚀 **Ready to run {tool_config.display_name}?**\n\n"
+            reply.text += f"📁 **Image:** {os.path.basename(image_path) if image_path else 'Unknown'}\n"
+            if demo_url:
+                reply.text += f"🔗 **Endpoint:** {demo_url}\n\n"
+            reply.text += f"_Press the **'{tool_config.icon} Run Tool'** button below, or ask about other tools in the chat instead._"
+        elif demo_url:
+            # Tool has demo but not registered - use generic demo flow
             state.pending_demo_tool = top_tool["name"]
             state.pending_demo_url = demo_url
             reply.text += f"\n💡 **Would you like me to run the demo for {top_tool['name']}?**\n"
             reply.text += f"🔗 Demo: {demo_url}\n\n"
-            reply.text += "_Reply 'yes' to run the demo, or continue with another request._"
+            reply.text += "_Press the **'🚀 Run Demo'** button to run the demo, or continue with another request._"
     else:
         # No suitable tools
         reason = result_dict.get("reason", "")
