@@ -31,6 +31,6 @@ def ensure_tools_registered():
     from .search_alternative_tool import tool_search_alternative
     from .repo_info_tool import tool_repo_summary
     from .gradio_space_tool import tool_run_example
-    
+
     # Import MCP tools
     ensure_mcp_tools_registered()

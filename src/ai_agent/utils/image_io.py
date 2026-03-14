@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import time
-import os
 import tempfile
 import zipfile
 import numpy as np
@@ -13,13 +12,14 @@ import nibabel as nib
 from typing import Tuple, Dict, Any
 from pydicom.pixels import apply_modality_lut, apply_voi_lut
 
+
 def is_dicom_path(path: str | Path) -> bool:
     """Improved DICOM detection"""
     p = Path(path)
     if p.is_dir():
         # Check if directory contains any .dcm files
-        return any(f.suffix.lower() == '.dcm' for f in p.rglob('*'))
-    
+        return any(f.suffix.lower() == ".dcm" for f in p.rglob("*"))
+
     # For single files, do proper DICOM validation
     try:
         pydicom.dcmread(str(p), stop_before_pixels=True)
@@ -27,12 +27,17 @@ def is_dicom_path(path: str | Path) -> bool:
     except Exception:
         return False
 
+
 def _safe_rmtree(p: Path) -> None:
     """Remove temp directory if it was created by us (safety guard)."""
     try:
         p = Path(p)
         troot = Path(tempfile.gettempdir())
-        if p.is_dir() and p.parent == troot and (p.name.startswith("dicom_zip_") or p.name.startswith("preview_")):
+        if (
+            p.is_dir()
+            and p.parent == troot
+            and (p.name.startswith("dicom_zip_") or p.name.startswith("preview_"))
+        ):
             shutil.rmtree(p, ignore_errors=True)
     except Exception:
         pass
@@ -58,17 +63,17 @@ def maybe_unzip(path: str | Path) -> Path:
     p = Path(path)
     if p.is_dir() or p.suffix.lower() != ".zip":
         return p
-    
+
     try:
         _cleanup_old_dicom_zips(hours=6)
 
         tmp = Path(tempfile.mkdtemp(prefix="dicom_zip_"))
         with zipfile.ZipFile(p) as z:
             # Check if zip contains DICOM files
-            has_dicom = any(name.lower().endswith('.dcm') for name in z.namelist())
+            has_dicom = any(name.lower().endswith(".dcm") for name in z.namelist())
             if not has_dicom:
                 raise ValueError("ZIP file contains no DICOM files")
-            
+
             # Extract with path sanitization
             for item in z.namelist():
                 if ".." not in item:  # Basic path traversal protection
@@ -76,6 +81,7 @@ def maybe_unzip(path: str | Path) -> Path:
         return tmp
     except Exception as e:
         raise ValueError(f"Failed to process ZIP file: {str(e)}")
+
 
 def load_nifti(path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
     img = nib.load(str(path))
@@ -88,6 +94,7 @@ def load_nifti(path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
         "zooms": zooms,
         "datatype": str(hdr.get_data_dtype()),
     }
+
 
 def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
     root = Path(dir_or_file)
@@ -110,6 +117,7 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
 
     # If the first file is multi-frame, load frames from it
     first = dsets[0]
+
     def _prep_pixels(ds):
         arr = ds.pixel_array  # may be (frames, rows, cols) or (rows, cols)
         # Apply LUTs/windowing for proper display range
@@ -126,16 +134,16 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
         # Handle MONOCHROME1 (invert)
         if getattr(ds, "PhotometricInterpretation", "").upper() == "MONOCHROME1":
             # invert per frame
-            arr = (arr.max() - arr)
+            arr = arr.max() - arr
 
         return arr
 
     if getattr(first, "NumberOfFrames", None):
         arr = _prep_pixels(first)
         # ensure (H, W, Z)
-        if arr.ndim == 3:             # (frames, rows, cols)
+        if arr.ndim == 3:  # (frames, rows, cols)
             arr = np.transpose(arr, (1, 2, 0))
-        elif arr.ndim == 2:           # (rows, cols)
+        elif arr.ndim == 2:  # (rows, cols)
             arr = arr[..., None]
         vol = arr
         dsets = [first]  # meta from first
@@ -148,7 +156,11 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
             except Exception:
                 inst = 0
             ipp = getattr(ds, "ImagePositionPatient", None)
-            z = float(ipp[2]) if (isinstance(ipp, (list, tuple)) and len(ipp) == 3) else 0.0
+            z = (
+                float(ipp[2])
+                if (isinstance(ipp, (list, tuple)) and len(ipp) == 3)
+                else 0.0
+            )
             return (inst, z)
 
         dsets.sort(key=sort_key)
@@ -156,7 +168,9 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
 
         # each frame is (H,W); make (H,W,Z)
         H, W = int(frames[0].shape[-2]), int(frames[0].shape[-1])
-        vol = np.stack([f if f.ndim == 2 else f[0] for f in frames], axis=-1).astype(np.float32)
+        vol = np.stack([f if f.ndim == 2 else f[0] for f in frames], axis=-1).astype(
+            np.float32
+        )
 
     # Normalize to [0,1] for consistent downstream PNG saving
     vmin = np.nanmin(vol)
@@ -178,8 +192,16 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
         try:
             # use IPP difference if available
             z0 = float(getattr(dsets[0], "ImagePositionPatient", [0, 0, 0])[2])
-            z1 = float(getattr(dsets[min(1, len(dsets)-1)], "ImagePositionPatient", [0, 0, 0])[2])
-            sz = abs(z1 - z0) if z1 != z0 else float(getattr(dsets[0], "SliceThickness", 1.0))
+            z1 = float(
+                getattr(
+                    dsets[min(1, len(dsets) - 1)], "ImagePositionPatient", [0, 0, 0]
+                )[2]
+            )
+            sz = (
+                abs(z1 - z0)
+                if z1 != z0
+                else float(getattr(dsets[0], "SliceThickness", 1.0))
+            )
         except Exception:
             sz = float(getattr(dsets[0], "SliceThickness", 1.0))
     else:
@@ -187,8 +209,8 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
 
     meta = {
         "format": "DICOM",
-        "shape": vol.shape,               # (H, W, Z)
-        "spacing": (sy, sx, sz),          # mm
+        "shape": vol.shape,  # (H, W, Z)
+        "spacing": (sy, sx, sz),  # mm
         "Modality": getattr(dsets[0], "Modality", None),
         "BodyPartExamined": getattr(dsets[0], "BodyPartExamined", None),
         "SeriesDescription": getattr(dsets[0], "SeriesDescription", None),
@@ -196,7 +218,9 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
         "StudyDescription": getattr(dsets[0], "StudyDescription", None),
         "PatientSex": getattr(dsets[0], "PatientSex", None),
         "PatientAge": getattr(dsets[0], "PatientAge", None),
-        "PhotometricInterpretation": getattr(dsets[0], "PhotometricInterpretation", None),
+        "PhotometricInterpretation": getattr(
+            dsets[0], "PhotometricInterpretation", None
+        ),
         "NumberOfFrames": getattr(dsets[0], "NumberOfFrames", None),
         "BitsStored": getattr(dsets[0], "BitsStored", None),
     }
@@ -214,7 +238,11 @@ def load_any(path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
         p = maybe_unzip(path)
         # Track whether we created a temp extraction dir
         pt = Path(p)
-        if pt.is_dir() and pt.parent == Path(tempfile.gettempdir()) and pt.name.startswith("dicom_zip_"):
+        if (
+            pt.is_dir()
+            and pt.parent == Path(tempfile.gettempdir())
+            and pt.name.startswith("dicom_zip_")
+        ):
             temp_dir = pt
 
         # Handle DICOM
@@ -224,15 +252,12 @@ def load_any(path: str | Path) -> Tuple[np.ndarray, Dict[str, Any]]:
 
         # Handle NIfTI
         s = str(p).lower()
-        if s.endswith('.nii') or s.endswith('.nii.gz'):
+        if s.endswith(".nii") or s.endswith(".nii.gz"):
             return load_nifti(p)
 
         # Handle regular images
         arr = iio.imread(str(p))
-        meta = {
-            "format": Path(p).suffix.upper().lstrip("."),
-            "shape": arr.shape
-        }
+        meta = {"format": Path(p).suffix.upper().lstrip("."), "shape": arr.shape}
         return arr.astype(np.float32), meta
     except Exception as e:
         raise ValueError(f"Failed to load image {path}: {str(e)}")

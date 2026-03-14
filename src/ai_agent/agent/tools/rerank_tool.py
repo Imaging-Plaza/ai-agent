@@ -2,26 +2,30 @@ from __future__ import annotations
 
 from typing import List, Dict, Any
 from pydantic import BaseModel
-import os, re
+import os
+import re
 
 from ai_agent.retriever.software_doc import SoftwareDoc
 from .utils import get_pipeline
+
 
 class RerankInput(BaseModel):
     query: str
     candidate_names: List[str]
     top_k: int = int(os.getenv("TOP_K", "5"))
 
+
 class RerankOutput(BaseModel):
     reranked: List[Dict[str, Any]]
     used_model: bool
 
+
 def tool_rerank(inp: RerankInput) -> RerankOutput:
     pipe = get_pipeline()
-    
+
     # Use original query (similarity expansion happens in search tools)
     query = inp.query
-    
+
     # reconstruct minimal hit dicts for reranker from catalog
     hits: List[Dict[str, Any]] = []
     for name in inp.candidate_names:
@@ -46,11 +50,16 @@ def tool_rerank(inp: RerankInput) -> RerankOutput:
     scored = []
     for h in hits:
         doc: SoftwareDoc = h["doc"]
-        text = " ".join(filter(None, [doc.name, " ".join(doc.tasks), doc.description or ""])).lower()
+        text = " ".join(
+            filter(None, [doc.name, " ".join(doc.tasks), doc.description or ""])
+        ).lower()
         score = 0.0
         for tok in set(re.findall(r"[a-z0-9]+", q)):
             if tok in text:
                 score += 1.0
         scored.append((doc.name, score))
     scored.sort(key=lambda x: -x[1])
-    return RerankOutput(reranked=[{"name": n, "score": s} for n, s in scored[: inp.top_k]], used_model=False)
+    return RerankOutput(
+        reranked=[{"name": n, "score": s} for n, s in scored[: inp.top_k]],
+        used_model=False,
+    )

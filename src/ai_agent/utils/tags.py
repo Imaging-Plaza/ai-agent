@@ -6,11 +6,13 @@ from typing import List
 TAG_RE = re.compile(r"\[(?:REFINE|EXCLUDE:[^\]]*|EXCLUDED:[^\]]*)\]")
 EXCLUDE_RE = re.compile(r"\[(?:EXCLUDE|EXCLUDED):([^\]]+)\]")
 
+
 def strip_tags(text: str) -> str:
     """Remove all control tags from text."""
     if not text:
         return text
     return TAG_RE.sub("", text).strip()
+
 
 def parse_exclusions(text: str) -> List[str]:
     """Return names from [EXCLUDE:a|b] or [EXCLUDED:a|b] (empty if none)."""

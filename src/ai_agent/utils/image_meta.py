@@ -1,14 +1,15 @@
 # utils/image_meta.py
 from __future__ import annotations
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List
 
 import nibabel as nib
 import pydicom
 from PIL import Image
-import tifffile as tiff 
+import tifffile as tiff
 
 # ---- small helpers -----------------------------------------------------------
+
 
 def _filesize_str(p: Path) -> str:
     try:
@@ -21,54 +22,62 @@ def _filesize_str(p: Path) -> str:
         pass
     return "?"
 
+
 def _is_nifti_path(p: Path) -> bool:
     s = p.name.lower()
     return s.endswith(".nii") or s.endswith(".nii.gz")
+
 
 def _is_dicom_file(p: Path) -> bool:
     """More robust DICOM detection"""
     try:
         # First try extension
-        if p.suffix.lower() == '.dcm':
+        if p.suffix.lower() == ".dcm":
             return True
-            
+
         # Then try DICM magic number
-        with open(p, 'rb') as f:
+        with open(p, "rb") as f:
             f.seek(128)
-            if f.read(4) == b'DICM':
+            if f.read(4) == b"DICM":
                 return True
-                
+
         # Finally try loading with pydicom
         try:
             ds = pydicom.dcmread(str(p), stop_before_pixels=True, force=True)
-            return hasattr(ds, 'SOPClassUID')
+            return hasattr(ds, "SOPClassUID")
         except:
             pass
-            
+
         return False
     except Exception:
         return False
+
 
 def _is_dicom_path(p: Path) -> bool:
     if p.is_dir():
         return True  # heuristic: treat dirs as DICOM series candidates
     return _is_dicom_file(p)
 
+
 # ---- summarizers -------------------------------------------------------------
+
 
 def _summarize_nifti(p: Path) -> Optional[str]:
     try:
         img = nib.load(str(p))
         hdr = img.header
         shape = tuple(int(x) for x in img.shape)
-        zooms = tuple(float(z) for z in hdr.get_zooms()[:len(shape)])
+        zooms = tuple(float(z) for z in hdr.get_zooms()[: len(shape)])
         dtype = str(hdr.get_data_dtype())
-        return f"NIfTI {len(shape)}D {shape} @ " + \
-               (("×".join(f"{z:.2f}" for z in zooms[:3]) + " mm") if zooms else "?") + \
-               f" dtype={dtype} filename={p.name} size={_filesize_str(p)}"
+        return (
+            f"NIfTI {len(shape)}D {shape} @ "
+            + (("×".join(f"{z:.2f}" for z in zooms[:3]) + " mm") if zooms else "?")
+            + f" dtype={dtype} filename={p.name} size={_filesize_str(p)}"
+        )
     except Exception:
         # fall back to a minimal line
         return f"NIfTI ?D ? filename={p.name} size={_filesize_str(p)}"
+
 
 def _summarize_dicom(path: Path) -> Optional[str]:
     """
@@ -80,6 +89,7 @@ def _summarize_dicom(path: Path) -> Optional[str]:
       - Cine-style objects reported as 'frames'; add fps when possible.
       - Treat empty strings like missing values.
     """
+
     # ---------- helpers ----------
     def _nz(v):
         """None or empty/whitespace -> None; else strip strings."""
@@ -107,8 +117,9 @@ def _summarize_dicom(path: Path) -> Optional[str]:
         try:
             if seq and len(seq) > 0:
                 item = seq[0]
-                return _first(getattr(item, "CodeMeaning", None),
-                              getattr(item, "CodeValue", None))
+                return _first(
+                    getattr(item, "CodeMeaning", None), getattr(item, "CodeValue", None)
+                )
         except Exception:
             pass
         return None
@@ -125,9 +136,11 @@ def _summarize_dicom(path: Path) -> Optional[str]:
                     ps = getattr(p, "PixelSpacing", None)
                     if isinstance(ps, (list, tuple)) and len(ps) == 2:
                         sy, sx = _safe_float(ps[0]), _safe_float(ps[1])
-                    sz = _first(_safe_float(getattr(p, "SpacingBetweenSlices", None)),
-                                _safe_float(getattr(p, "SliceThickness", None)))
-            if (sy is None or sx is None):
+                    sz = _first(
+                        _safe_float(getattr(p, "SpacingBetweenSlices", None)),
+                        _safe_float(getattr(p, "SliceThickness", None)),
+                    )
+            if sy is None or sx is None:
                 pfg = getattr(ds, "PerFrameFunctionalGroupsSequence", None)
                 if pfg and len(pfg) > 0:
                     for it in pfg[:8]:
@@ -139,8 +152,12 @@ def _summarize_dicom(path: Path) -> Optional[str]:
                                 sy = _safe_float(ps[0]) if sy is None else sy
                                 sx = _safe_float(ps[1]) if sx is None else sx
                             if sz is None:
-                                sz = _first(_safe_float(getattr(p, "SpacingBetweenSlices", None)),
-                                            _safe_float(getattr(p, "SliceThickness", None)))
+                                sz = _first(
+                                    _safe_float(
+                                        getattr(p, "SpacingBetweenSlices", None)
+                                    ),
+                                    _safe_float(getattr(p, "SliceThickness", None)),
+                                )
                             if sy is not None and sx is not None:
                                 break
         except Exception:
@@ -153,12 +170,16 @@ def _summarize_dicom(path: Path) -> Optional[str]:
             if sfg and len(sfg) > 0:
                 fas = getattr(sfg[0], "FrameAnatomySequence", None)
                 if fas and len(fas) > 0:
-                    return _code_meaning(getattr(fas[0], "AnatomicRegionSequence", None))
+                    return _code_meaning(
+                        getattr(fas[0], "AnatomicRegionSequence", None)
+                    )
             pfg = getattr(ds, "PerFrameFunctionalGroupsSequence", None)
             if pfg and len(pfg) > 0:
                 fas = getattr(pfg[0], "FrameAnatomySequence", None)
                 if fas and len(fas) > 0:
-                    return _code_meaning(getattr(fas[0], "AnatomicRegionSequence", None))
+                    return _code_meaning(
+                        getattr(fas[0], "AnatomicRegionSequence", None)
+                    )
         except Exception:
             pass
         return None
@@ -175,7 +196,10 @@ def _summarize_dicom(path: Path) -> Optional[str]:
         for fp in files:
             try:
                 ds = pydicom.dcmread(str(fp), stop_before_pixels=True, force=True)
-                if getattr(ds, "SOPClassUID", None) is None and '_is_dicom_file' in globals():
+                if (
+                    getattr(ds, "SOPClassUID", None) is None
+                    and "_is_dicom_file" in globals()
+                ):
                     if not _is_dicom_file(fp):
                         continue
                 dsets.append(ds)
@@ -226,14 +250,18 @@ def _summarize_dicom(path: Path) -> Optional[str]:
                             zvals.append(z)
                 if len(zvals) >= 2:
                     zvals.sort()
-                    diffs = [abs(zvals[i + 1] - zvals[i]) for i in range(len(zvals) - 1)]
+                    diffs = [
+                        abs(zvals[i + 1] - zvals[i]) for i in range(len(zvals) - 1)
+                    ]
                     if diffs:
                         sz = sum(diffs) / len(diffs)
             except Exception:
                 pass
         if not cine_like and sz is None:
-            sz = _first(getattr(ds0, "SpacingBetweenSlices", None),
-                        getattr(ds0, "SliceThickness", None))
+            sz = _first(
+                getattr(ds0, "SpacingBetweenSlices", None),
+                getattr(ds0, "SliceThickness", None),
+            )
             sz = _safe_float(sz)
 
         # body / series (with better fallbacks)
@@ -243,14 +271,14 @@ def _summarize_dicom(path: Path) -> Optional[str]:
             _anatomy_from_fgs(ds0),
             getattr(ds0, "RequestedProcedureDescription", None),
             getattr(ds0, "StudyDescription", None),
-            "?"
+            "?",
         )
         series = _first(
             getattr(ds0, "SeriesDescription", None),
             getattr(ds0, "ProtocolName", None),
             getattr(ds0, "PerformedProcedureStepDescription", None),
             getattr(ds0, "StudyDescription", None),
-            "?"
+            "?",
         )
 
         # cine timing
@@ -267,7 +295,7 @@ def _summarize_dicom(path: Path) -> Optional[str]:
                 try:
                     ftv = getattr(ds0, "FrameTimeVector", None)
                     if ftv:
-                        vals = [ _safe_float(v) for v in list(ftv)[:16] ]
+                        vals = [_safe_float(v) for v in list(ftv)[:16]]
                         vals = [v for v in vals if v and v > 0]
                         if vals:
                             fps = 1000.0 / (sum(vals) / len(vals))
@@ -297,6 +325,7 @@ def _summarize_dicom(path: Path) -> Optional[str]:
         scope = "DIR" if path.is_dir() else "FILE"
         return f"DICOM {scope} name={path.name}"
 
+
 def _summarize_image(p: Path) -> Optional[str]:
     """
     Summarize PNG/JPEG/TIFF (including TIFF stacks) via Pillow.
@@ -317,16 +346,22 @@ def _summarize_image(p: Path) -> Optional[str]:
                         dtype_txt = f" dtype={getattr(arr, 'dtype', '')}"
                         comp = getattr(page, "compression", None)
                         if comp:
-                            comp_txt = f" compression={getattr(comp, 'name', str(comp))}"
+                            comp_txt = (
+                                f" compression={getattr(comp, 'name', str(comp))}"
+                            )
                 except Exception:
                     pass
             return f"{fmt} {'stack' if n>1 else 'image'} frames={n} size={size} mode={mode}{dtype_txt}{comp_txt} filename={p.name} size={_filesize_str(p)}"
     except Exception:
         return f"{p.suffix.upper().lstrip('.')} ? filename={p.name} size={_filesize_str(p)}"
 
+
 # ---- public API --------------------------------------------------------------
 
-def summarize_image_metadata(paths: Optional[List[str]] | Optional[str]) -> Optional[str]:
+
+def summarize_image_metadata(
+    paths: Optional[List[str]] | Optional[str],
+) -> Optional[str]:
     """
     Build a short, human-readable summary for one path or a list of paths.
     - DICOM dir/file: uses pydicom (tags only) and estimates slices & spacing.
@@ -348,10 +383,14 @@ def summarize_image_metadata(paths: Optional[List[str]] | Optional[str]) -> Opti
             elif _is_nifti_path(p):
                 parts.append(_summarize_nifti(p) or f"NIfTI name={p.name}")
             else:
-                parts.append(_summarize_image(p) or f"{p.suffix.upper().lstrip('.')} name={p.name}")
+                parts.append(
+                    _summarize_image(p)
+                    or f"{p.suffix.upper().lstrip('.')} name={p.name}"
+                )
         except Exception as e:
             parts.append(f"Unreadable '{s}': {e.__class__.__name__}")
     return " | ".join(parts)
+
 
 def detect_ext_token(paths: Optional[List[str]] | Optional[str]) -> Optional[str]:
     """

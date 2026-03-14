@@ -11,10 +11,14 @@ class CrossEncoderReranker:
     Strong re-ranker. Default: BAAI/bge-reranker-v2-m3 (multilingual).
     """
 
-    def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3", device: Optional[str] = None):
+    def __init__(
+        self, model_name: str = "BAAI/bge-reranker-v2-m3", device: Optional[str] = None
+    ):
         self.model = CrossEncoder(model_name, device=device)
 
-    def rerank(self, query: str, texts: List[str], top_k: int) -> List[Tuple[int, float]]:
+    def rerank(
+        self, query: str, texts: List[str], top_k: int
+    ) -> List[Tuple[int, float]]:
         """
         Returns list of (index_in_texts, score) sorted by score desc.
         """

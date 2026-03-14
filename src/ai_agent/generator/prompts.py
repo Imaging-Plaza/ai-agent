@@ -95,6 +95,7 @@ USAGE PATTERN:
       """
 )
 
+
 def get_selector_system_prompt(num_choices: int = 3) -> str:
     """Generate the system prompt with dynamic num_choices."""
     return SELECTOR_SYSTEM.format(num_choices=num_choices)

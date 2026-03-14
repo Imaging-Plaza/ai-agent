@@ -21,7 +21,7 @@ class SoftwareDoc(BaseModel):
     repo_url: Optional[str] = None
     description: Optional[str] = None
     documentation: Optional[str] = None
-    
+
     @field_validator("name", mode="before")
     @classmethod
     def _coerce_name_from_list(cls, v):
@@ -37,17 +37,27 @@ class SoftwareDoc(BaseModel):
     keywords: List[str] = Field(default_factory=list)
 
     # Anatomy / dims
-    dims: List[int] = Field(default_factory=list)  # derived from supportingData[*].hasDimensionality when absent
-    anatomy: List[str] = Field(default_factory=list)  # derived from supportingData[*].bodySite when absent
+    dims: List[int] = Field(
+        default_factory=list
+    )  # derived from supportingData[*].hasDimensionality when absent
+    anatomy: List[str] = Field(
+        default_factory=list
+    )  # derived from supportingData[*].bodySite when absent
 
     # Tech details
-    programming_language: Optional[str] = Field(default=None, alias="programmingLanguage")
-    software_requirements: List[str] = Field(default_factory=list, alias="softwareRequirements")
+    programming_language: Optional[str] = Field(
+        default=None, alias="programmingLanguage"
+    )
+    software_requirements: List[str] = Field(
+        default_factory=list, alias="softwareRequirements"
+    )
     gpu_required: Optional[bool] = Field(default=None, alias="requiresGPU")
     is_free: Optional[bool] = Field(default=None, alias="isAccessibleForFree")
     is_based_on: List[str] = Field(default_factory=list, alias="isBasedOn")
     plugin_of: List[str] = Field(default_factory=list, alias="isPluginModuleOf")
-    related_organizations: List[str] = Field(default_factory=list, alias="relatedToOrganization")
+    related_organizations: List[str] = Field(
+        default_factory=list, alias="relatedToOrganization"
+    )
     license: Optional[str] = None
 
     # Misc
@@ -86,7 +96,7 @@ class SoftwareDoc(BaseModel):
         dims_collected: List[int] = []
         anatomy_collected: List[str] = []
         mod_extra: List[str] = []
-        fmt_tokens: List[str] = [] 
+        fmt_tokens: List[str] = []
 
         def push_dim(x):
             try:
@@ -273,11 +283,17 @@ class SoftwareDoc(BaseModel):
     @classmethod
     def _coerce_scalar_from_list(cls, v):
         if isinstance(v, list):
-            vals = sorted({str(x).strip() for x in v if isinstance(x, str) and x.strip()})
+            vals = sorted(
+                {str(x).strip() for x in v if isinstance(x, str) and x.strip()}
+            )
             if not vals:
                 return None
             pick = vals[0]
-            return cls._canon_lang(pick) if "programming_language" in cls.__fields__ else pick
+            return (
+                cls._canon_lang(pick)
+                if "programming_language" in cls.__fields__
+                else pick
+            )
         if isinstance(v, str):
             return cls._canon_lang(v) if "programming_language" in cls.__fields__ else v
         return v
@@ -364,48 +380,48 @@ class SoftwareDoc(BaseModel):
     def to_retrieval_text(self) -> str:
         """
         Generate text representation for retrieval.
-        
+
         Strategy:
         1. Include all semantic fields without expansion (expansion happens at query-time)
         2. Repeat critical fields (tasks, modality, anatomy) for better matching
         3. Keep less critical metadata at the end for context
         """
         parts = []
-        
+
         # Name (high importance)
         if self.name:
             parts.append(self.name)
-        
+
         # Tasks (repeated 3x) - HIGHEST PRIORITY
         if self.tasks:
             tasks_str = " ".join(self.tasks)
             parts.extend([tasks_str, tasks_str, tasks_str])
-        
+
         # Anatomy (repeated 2x)
         if self.anatomy:
             anatomy_str = " ".join(self.anatomy)
             parts.extend([anatomy_str, anatomy_str])
-        
+
         # Modality (repeated 2x)
         if self.modality:
             modality_str = " ".join(self.modality)
             parts.extend([modality_str, modality_str])
-        
+
         # Dimensions (as-is from catalog)
         if self.dims:
             dim_terms = [f"{d}D" for d in self.dims]
             parts.append(" ".join(dim_terms))
-        
+
         # Category and keywords
         if self.category:
             parts.append(" ".join(self.category))
         if self.keywords:
             parts.append(" ".join(self.keywords))
-        
+
         # Description (provides context)
         if self.description:
             parts.append(self.description)
-        
+
         # Secondary metadata
         if self.programming_language:
             parts.append(f"language:{self.programming_language}")
@@ -413,5 +429,5 @@ class SoftwareDoc(BaseModel):
             parts.append(f"plugin:{' '.join(self.plugin_of)}")
         if self.is_based_on:
             parts.append(f"based_on:{' '.join(self.is_based_on)}")
-        
+
         return " ".join(p for p in parts if p)

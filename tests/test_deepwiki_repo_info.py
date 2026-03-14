@@ -17,9 +17,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import Optional
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
-from pydantic import BaseModel
+from unittest.mock import AsyncMock, patch, Mock
 
 import pytest
 
@@ -29,11 +27,11 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 # Mock the problematic imports before importing the modules
-sys.modules['retriever'] = Mock()
-sys.modules['retriever.software_doc'] = Mock()
-sys.modules['retriever.reranker'] = Mock()
-sys.modules['api'] = Mock()
-sys.modules['api.pipeline'] = Mock()
+sys.modules["retriever"] = Mock()
+sys.modules["retriever.software_doc"] = Mock()
+sys.modules["retriever.reranker"] = Mock()
+sys.modules["api"] = Mock()
+sys.modules["api.pipeline"] = Mock()
 
 from ai_agent.agent.tools.repo_info_tool import (
     RepoSummaryInput,
@@ -46,7 +44,6 @@ from ai_agent.agent.tools.deepwiki_tool import (
     get_wiki_contents,
 )
 from ai_agent.agent.utils import coerce_github_url_or_none, _coerce_owner_repo_ref
-
 
 # ======================== Fixtures ========================
 
@@ -74,7 +71,9 @@ def mock_deepwiki_failure():
 @pytest.fixture
 def mock_repocards_response():
     """Mock repocards.get_repo_info response."""
-    return "# Test Repository (via repocards)\n\nREADME content from repocards fallback."
+    return (
+        "# Test Repository (via repocards)\n\nREADME content from repocards fallback."
+    )
 
 
 # ======================== DeepWiki Tool Tests ========================
@@ -83,18 +82,21 @@ def mock_repocards_response():
 @pytest.mark.asyncio
 async def test_deepwiki_success():
     """Test successful DeepWiki wiki contents retrieval."""
-    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerSSE") as mock_server_class:
+    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerStreamableHTTP") as mock_server_class:
         # Setup mock server
         mock_server = AsyncMock()
         mock_server.__aenter__ = AsyncMock(return_value=mock_server)
         mock_server.__aexit__ = AsyncMock(return_value=None)
         mock_server.direct_call_tool = AsyncMock(
-            return_value=["# Repository Documentation\n\nThis is test content from DeepWiki."]
+            return_value=[
+                "# Repository Documentation\n\nThis is test content from DeepWiki."
+            ]
         )
         mock_server_class.return_value = mock_server
 
         # Test
         result = await get_wiki_contents(DeepWikiInput(url="owner/repo"))
+        print(result)
 
         assert result.success is True
         assert result.contents is not None
@@ -105,7 +107,7 @@ async def test_deepwiki_success():
 @pytest.mark.asyncio
 async def test_deepwiki_timeout():
     """Test DeepWiki timeout handling."""
-    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerSSE") as mock_server_class:
+    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerStreamableHTTP") as mock_server_class:
         mock_server = AsyncMock()
         mock_server.__aenter__ = AsyncMock(return_value=mock_server)
         mock_server.__aexit__ = AsyncMock(return_value=None)
@@ -121,7 +123,7 @@ async def test_deepwiki_timeout():
 @pytest.mark.asyncio
 async def test_deepwiki_empty_response():
     """Test DeepWiki returning empty/None content."""
-    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerSSE") as mock_server_class:
+    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerStreamableHTTP") as mock_server_class:
         mock_server = AsyncMock()
         mock_server.__aenter__ = AsyncMock(return_value=mock_server)
         mock_server.__aexit__ = AsyncMock(return_value=None)
@@ -137,7 +139,7 @@ async def test_deepwiki_empty_response():
 @pytest.mark.asyncio
 async def test_deepwiki_connection_error():
     """Test DeepWiki connection errors."""
-    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerSSE") as mock_server_class:
+    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerStreamableHTTP") as mock_server_class:
         mock_server_class.side_effect = ConnectionError("Connection refused")
 
         result = await get_wiki_contents(DeepWikiInput(url="owner/repo"))
@@ -201,7 +203,9 @@ class TestURLCoercion:
 
     def test_coerce_owner_repo_ref_with_tree(self):
         """Test _coerce_owner_repo_ref with tree/branch."""
-        owner, repo, ref = _coerce_owner_repo_ref("https://github.com/owner/repo/tree/develop")
+        owner, repo, ref = _coerce_owner_repo_ref(
+            "https://github.com/owner/repo/tree/develop"
+        )
         assert owner == "owner"
         assert repo == "repo"
         assert ref == "develop"
@@ -243,12 +247,15 @@ async def test_repo_info_deepwiki_failure_fallback_to_repocards(
     mock_deepwiki_failure, mock_repocards_response
 ):
     """Test repo_info tool falls back to repocards when DeepWiki fails."""
-    with patch(
-        "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
-        new_callable=AsyncMock,
-    ) as mock_deepwiki, patch(
-        "ai_agent.agent.tools.repo_info_tool.repocards.get_repo_info"
-    ) as mock_repocards:
+    with (
+        patch(
+            "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
+            new_callable=AsyncMock,
+        ) as mock_deepwiki,
+        patch(
+            "ai_agent.agent.tools.repo_info_tool.repocards.get_repo_info"
+        ) as mock_repocards,
+    ):
         mock_deepwiki.return_value = mock_deepwiki_failure
         mock_repocards.return_value = mock_repocards_response
 
@@ -264,12 +271,15 @@ async def test_repo_info_deepwiki_failure_fallback_to_repocards(
 @pytest.mark.asyncio
 async def test_repo_info_deepwiki_exception_fallback():
     """Test repo_info tool handles DeepWiki exceptions and falls back."""
-    with patch(
-        "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
-        new_callable=AsyncMock,
-    ) as mock_deepwiki, patch(
-        "ai_agent.agent.tools.repo_info_tool.repocards.get_repo_info"
-    ) as mock_repocards:
+    with (
+        patch(
+            "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
+            new_callable=AsyncMock,
+        ) as mock_deepwiki,
+        patch(
+            "ai_agent.agent.tools.repo_info_tool.repocards.get_repo_info"
+        ) as mock_repocards,
+    ):
         mock_deepwiki.side_effect = Exception("DeepWiki connection error")
         mock_repocards.return_value = "# Fallback content"
 
@@ -282,12 +292,15 @@ async def test_repo_info_deepwiki_exception_fallback():
 @pytest.mark.asyncio
 async def test_repo_info_both_fail_error_response():
     """Test repo_info tool when both DeepWiki and repocards fail."""
-    with patch(
-        "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
-        new_callable=AsyncMock,
-    ) as mock_deepwiki, patch(
-        "ai_agent.agent.tools.repo_info_tool.repocards.get_repo_info"
-    ) as mock_repocards:
+    with (
+        patch(
+            "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
+            new_callable=AsyncMock,
+        ) as mock_deepwiki,
+        patch(
+            "ai_agent.agent.tools.repo_info_tool.repocards.get_repo_info"
+        ) as mock_repocards,
+    ):
         mock_deepwiki.return_value = DeepWikiContentsOutput(
             success=False, error="DeepWiki failed"
         )
@@ -399,12 +412,15 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_empty_url(self):
         """Test handling of empty URL string."""
-        with patch(
-            "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
-            new_callable=AsyncMock,
-        ) as mock_deepwiki, patch(
-            "ai_agent.agent.tools.repo_info_tool.repocards.get_repo_info"
-        ) as mock_repocards:
+        with (
+            patch(
+                "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
+                new_callable=AsyncMock,
+            ) as mock_deepwiki,
+            patch(
+                "ai_agent.agent.tools.repo_info_tool.repocards.get_repo_info"
+            ) as mock_repocards,
+        ):
             mock_deepwiki.side_effect = ValueError("BAD_REPO_URL")
             mock_repocards.side_effect = Exception("Invalid URL")
 
@@ -438,7 +454,7 @@ async def test_deepwiki_timeout_duration():
     """Test that DeepWiki timeout is properly configured."""
     import time
 
-    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerSSE") as mock_server_class:
+    with patch("ai_agent.agent.tools.deepwiki_tool.MCPServerStreamableHTTP") as mock_server_class:
         mock_server = AsyncMock()
         mock_server.__aenter__ = AsyncMock(return_value=mock_server)
         mock_server.__aexit__ = AsyncMock(return_value=None)

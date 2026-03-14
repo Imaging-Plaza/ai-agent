@@ -6,6 +6,7 @@ Test script to check if EPFL openai/gpt-oss-120b model supports vision/images.
 import os
 import sys
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # Check environment
@@ -25,10 +26,13 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.messages import ImageUrl
 from pydantic import BaseModel
 
+
 class SimpleResponse(BaseModel):
     """Simple response for testing."""
+
     description: str
     has_image: bool
+
 
 # Create EPFL provider and model
 print("🔄 Creating EPFL model client...")
@@ -72,19 +76,30 @@ try:
     result = agent.run_sync(
         [
             "Describe what you see in this image.",
-            ImageUrl(red_pixel, media_type="image/png", vendor_metadata={"detail": "high"}),
+            ImageUrl(
+                red_pixel, media_type="image/png", vendor_metadata={"detail": "high"}
+            ),
         ],
         output_type=SimpleResponse,
     )
-    print(f"✅ Multimodal request completed")
+    print("✅ Multimodal request completed")
     print(f"   Response: {result.output.description}")
     print(f"   Model detected image: {result.output.has_image}")
-    
+
     # Check for negative responses indicating image not seen
-    negative_phrases = ["no image", "not attached", "no picture", "can't see", "cannot see", "didn't receive"]
+    negative_phrases = [
+        "no image",
+        "not attached",
+        "no picture",
+        "can't see",
+        "cannot see",
+        "didn't receive",
+    ]
     response_lower = result.output.description.lower()
-    
-    if result.output.has_image and not any(phrase in response_lower for phrase in negative_phrases):
+
+    if result.output.has_image and not any(
+        phrase in response_lower for phrase in negative_phrases
+    ):
         print()
         print("✅ SUCCESS: openai/gpt-oss-120b SUPPORTS vision!")
         print("   The model received and processed the image.")
@@ -93,7 +108,7 @@ try:
         print("❌ FAILED: openai/gpt-oss-120b does NOT support vision")
         print("   The model accepted the API call but ignored the image.")
         print("   Response indicates no image was seen.")
-        
+
 except Exception as e:
     print(f"❌ Multimodal request failed: {e}")
     print()

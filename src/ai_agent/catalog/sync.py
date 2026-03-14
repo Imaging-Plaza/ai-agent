@@ -17,8 +17,8 @@ from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.retriever.text_embedder import LocalBGEEmbedder
 from ai_agent.retriever.vector_index import IndexItem, VectorIndex
 
-
 log = logging.getLogger("ai_agent.catalog.sync")
+
 
 # --------------------------- helpers ---------------------------
 def _load_query() -> str:
@@ -43,11 +43,14 @@ def _load_query() -> str:
     graph = (os.getenv("GRAPHDB_GRAPH") or "").strip()
     if not graph or "://" not in graph:
         log.error("GRAPHDB_GRAPH must be an absolute IRI; got: %r", graph)
-        raise RuntimeError("Set GRAPHDB_GRAPH (or GRAPH_NAME/GRAPH_URI) to an absolute IRI for {graph}.")
+        raise RuntimeError(
+            "Set GRAPHDB_GRAPH (or GRAPH_NAME/GRAPH_URI) to an absolute IRI for {graph}."
+        )
 
     q = template.format_map({"graph": graph})
     log.debug("Final SPARQL query prepared (length=%d chars)", len(q))
     return q
+
 
 def _norm_doc_for_diff(d: SoftwareDoc) -> Dict[str, Any]:
     def _sorted_unique(xs):
@@ -76,14 +79,23 @@ def _norm_doc_for_diff(d: SoftwareDoc) -> Dict[str, Any]:
         "os": _sorted_unique(d.os),
     }
 
+
 def _sha1_docs(docs: list[SoftwareDoc]) -> str:
     norm = [_norm_doc_for_diff(x) for x in docs]
-    s = json.dumps(sorted(norm, key=lambda x: x["name"].lower()), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    s = json.dumps(
+        sorted(norm, key=lambda x: x["name"].lower()),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
     return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
-def _diff_norm_docs(old_norm: list[Dict[str, Any]], new_norm: list[Dict[str, Any]]) -> Dict[str, Any]:
-    old_map = { (x.get("name") or "").strip(): x for x in old_norm }
-    new_map = { (x.get("name") or "").strip(): x for x in new_norm }
+
+def _diff_norm_docs(
+    old_norm: list[Dict[str, Any]], new_norm: list[Dict[str, Any]]
+) -> Dict[str, Any]:
+    old_map = {(x.get("name") or "").strip(): x for x in old_norm}
+    new_map = {(x.get("name") or "").strip(): x for x in new_norm}
 
     added = sorted(set(new_map) - set(old_map))
     removed = sorted(set(old_map) - set(new_map))
@@ -148,7 +160,8 @@ def _read_docs(jsonl_path: Path) -> list[SoftwareDoc]:
                     "description": data.get("description"),
                     "applicationCategory": data.get("applicationCategory"),
                     "featureList": data.get("featureList"),
-                    "imagingModality": data.get("imagingModality") or data.get("modality"),
+                    "imagingModality": data.get("imagingModality")
+                    or data.get("modality"),
                     "keywords": data.get("keywords"),
                     "programmingLanguage": data.get("programmingLanguage"),
                     "softwareRequirements": data.get("softwareRequirements"),
@@ -177,7 +190,13 @@ def _read_docs(jsonl_path: Path) -> list[SoftwareDoc]:
     except Exception:
         log.exception("Error reading JSONL: %s", jsonl_path)
 
-    log.info("[jsonl->docs] %s: total=%d, docs=%d, invalid=%d", jsonl_path, total, made, invalid)
+    log.info(
+        "[jsonl->docs] %s: total=%d, docs=%d, invalid=%d",
+        jsonl_path,
+        total,
+        made,
+        invalid,
+    )
     return docs
 
 
@@ -240,12 +259,17 @@ def convert_jsonld_to_jsonl(in_jsonld: Path, out_jsonl: Path) -> int:
     except Exception:
         return -1
 
+
 # --------------------------- public API ---------------------------
-def sync_once(*, out_jsonld: Path | None = None, out_jsonl: Path | None = None) -> Dict[str, Any]:
+def sync_once(
+    *, out_jsonld: Path | None = None, out_jsonl: Path | None = None
+) -> Dict[str, Any]:
     endpoint = os.getenv("GRAPHDB_URL")
     query = _load_query()
 
-    out_jsonld = Path(out_jsonld or os.getenv("OUTPUT_JSONLD", "dataset/catalog.jsonld"))
+    out_jsonld = Path(
+        out_jsonld or os.getenv("OUTPUT_JSONLD", "dataset/catalog.jsonld")
+    )
     out_jsonl = Path(out_jsonl or os.getenv("OUTPUT_JSONL", "dataset/catalog.jsonl"))
 
     log.info("Fetching JSON-LD from %s", endpoint)
@@ -283,18 +307,28 @@ def sync_once(*, out_jsonld: Path | None = None, out_jsonl: Path | None = None) 
             prev_digest = ""
 
     digest = _sha1_docs(docs)
-    changed = (digest != prev_digest)
+    changed = digest != prev_digest
 
     try:
         if norm_path.exists():
             norm_path.replace(prev_norm_path)
-        norm_path.write_text(json.dumps(norm_docs_sorted, ensure_ascii=False, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+        norm_path.write_text(
+            json.dumps(
+                norm_docs_sorted,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
         digest_path.write_text(digest, encoding="utf-8")
     except Exception:
         log.debug("Could not write semantic snapshot or digest")
 
     if not changed:
-        log.info("Catalog unchanged (semantic sha1=%s); skipping FAISS update", digest[:12])
+        log.info(
+            "Catalog unchanged (semantic sha1=%s); skipping FAISS update", digest[:12]
+        )
         return {
             "jsonld_path": str(out_jsonld),
             "jsonl_path": str(out_jsonl),
@@ -305,7 +339,9 @@ def sync_once(*, out_jsonld: Path | None = None, out_jsonl: Path | None = None) 
 
     diff = _diff_norm_docs(prev_norm, norm_docs_sorted)
     try:
-        diff_path.write_text(json.dumps(diff, ensure_ascii=False, indent=2), encoding="utf-8")
+        diff_path.write_text(
+            json.dumps(diff, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     except Exception:
         log.debug("Could not write diff to %s", diff_path)
 
@@ -316,10 +352,15 @@ def sync_once(*, out_jsonld: Path | None = None, out_jsonl: Path | None = None) 
         add_s = ", ".join(diff["added"][:5]) + (" ..." if add_n > 5 else "")
         rem_s = ", ".join(diff["removed"][:5]) + (" ..." if rem_n > 5 else "")
         chg_s = ", ".join(diff["changed"][:5]) + (" ..." if chg_n > 5 else "")
-        log.info("Catalog changes: added=%d, removed=%d, changed=%d", add_n, rem_n, chg_n)
-        if add_s: log.info("  added (sample): %s", add_s)
-        if rem_s: log.info("  removed (sample): %s", rem_s)
-        if chg_s: log.info("  changed (sample): %s", chg_s)
+        log.info(
+            "Catalog changes: added=%d, removed=%d, changed=%d", add_n, rem_n, chg_n
+        )
+        if add_s:
+            log.info("  added (sample): %s", add_s)
+        if rem_s:
+            log.info("  removed (sample): %s", rem_s)
+        if chg_s:
+            log.info("  changed (sample): %s", chg_s)
         log.info("Full diff written to %s", diff_path)
 
     index_dir = Path(os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
@@ -338,7 +379,10 @@ def sync_once(*, out_jsonld: Path | None = None, out_jsonl: Path | None = None) 
         idx.save(index_dir)
         log.info(
             "FAISS index updated in %s: added=%d, updated=%d, removed=%d",
-            index_dir, delta["added"], delta["updated"], delta["removed"]
+            index_dir,
+            delta["added"],
+            delta["updated"],
+            delta["removed"],
         )
     else:
         log.info("FAISS index unchanged after diff")
@@ -352,5 +396,10 @@ def sync_once(*, out_jsonld: Path | None = None, out_jsonl: Path | None = None) 
         "index_dir": str(index_dir),
         "faiss_delta": delta,
         "faiss_docs": len(items),
-        "catalog_diff": {"added": add_n, "removed": rem_n, "changed": chg_n, "diff_path": str(diff_path)},
+        "catalog_diff": {
+            "added": add_n,
+            "removed": rem_n,
+            "changed": chg_n,
+            "diff_path": str(diff_path),
+        },
     }

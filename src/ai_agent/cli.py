@@ -15,6 +15,7 @@ log = logging.getLogger("ai_agent.cli")
 from ai_agent.catalog.sync import sync_once
 from ai_agent.ui import get_pipeline, refresh_ui_docs_from_index, launch
 
+
 # --------------------------- catalog background refresher ---------------------------
 def _background_refresh():
     """If SYNC_EVERY_HOURS > 0, refresh in the background while UI runs."""
@@ -28,7 +29,11 @@ def _background_refresh():
         while True:
             try:
                 res = sync_once()
-                log.info("[auto-refresh] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
+                log.info(
+                    "[auto-refresh] %s → %s",
+                    res.get("count", "?"),
+                    res.get("jsonl_path"),
+                )
 
                 pipe = get_pipeline()
 
@@ -38,7 +43,9 @@ def _background_refresh():
                         log.info("[auto-refresh] reloaded FAISS index")
                         refresh_ui_docs_from_index()
                     else:
-                        log.warning("[auto-refresh] reload failed; serving previous index")
+                        log.warning(
+                            "[auto-refresh] reload failed; serving previous index"
+                        )
                 else:
                     log.info("[auto-refresh] catalog unchanged; FAISS not touched")
             except Exception:
@@ -50,6 +57,7 @@ def _background_refresh():
 
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
+
 
 # --------------------------- custom tasks ---------------------------
 def run_chat():
@@ -69,7 +77,9 @@ def run_chat():
             else:
                 log.warning("[startup-refresh] reload failed; serving previous index")
         else:
-            log.info("[startup-refresh] catalog unchanged; keeping existing FAISS index")
+            log.info(
+                "[startup-refresh] catalog unchanged; keeping existing FAISS index"
+            )
     except Exception:
         log.exception("[startup-sync] failed")
 
@@ -90,13 +100,14 @@ def run_sync():
         log.exception("[sync] failed")
         raise
 
+
 # --------------------------- main entry ---------------------------
 def main():
     p = argparse.ArgumentParser(description="AI Agent CLI")
     p.add_argument(
-        "mode", 
-        choices=["chat", "sync"], 
-        help="'chat' launches the chat UI; 'sync' runs one catalog refresh."
+        "mode",
+        choices=["chat", "sync"],
+        help="'chat' launches the chat UI; 'sync' runs one catalog refresh.",
     )
     args = p.parse_args()
 
@@ -107,6 +118,7 @@ def main():
     else:
         p.print_help()
         sys.exit(f"Unsupported mode: {args.mode}")
+
 
 if __name__ == "__main__":
     main()

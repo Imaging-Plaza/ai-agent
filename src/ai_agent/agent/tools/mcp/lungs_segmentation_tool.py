@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Optional, Any, Dict, Tuple
-from pydantic import BaseModel, Field
 import os
 import logging
 import tempfile
@@ -18,16 +17,19 @@ from ai_agent.agent.tools.mcp.base import BaseToolOutput, ImageToolInput
 
 log = logging.getLogger("agent.lungs_segmentation")
 
+
 # ---------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------
 class LungsSegmentationInput(ImageToolInput):
     """Input for 3D lungs segmentation tool."""
+
     pass  # Inherits image_path and description from ImageToolInput
 
 
 class LungsSegmentationOutput(BaseToolOutput):
     """Output from 3D lungs segmentation tool."""
+
     # All standard fields inherited from BaseToolOutput:
     # - success, error, compute_time_seconds, notes
     # - result_preview, result_origin, result_path
@@ -71,7 +73,11 @@ def tool_lungs_segmentation(inp: LungsSegmentationInput) -> LungsSegmentationOut
     hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
 
     try:
-        log.info("Running lungs segmentation on %s (endpoint: %s)", inp.image_path, LUNGS_SEGMENTATION_ENDPOINT)
+        log.info(
+            "Running lungs segmentation on %s (endpoint: %s)",
+            inp.image_path,
+            LUNGS_SEGMENTATION_ENDPOINT,
+        )
 
         client = _make_gradio_client(LUNGS_SEGMENTATION_ENDPOINT, hf_token)
 
@@ -149,7 +155,7 @@ def _make_gradio_client(endpoint: str, hf_token: Optional[str]) -> Client:
     """
     # Set extended timeout for both connection and operations (5 minutes for large files)
     httpx_kwargs = {"timeout": 300.0}
-    
+
     # Newer versions use token=, older versions used hf_token=
     if hf_token:
         try:
@@ -160,7 +166,7 @@ def _make_gradio_client(endpoint: str, hf_token: Optional[str]) -> Client:
                 return Client(endpoint, hf_token=hf_token)
             except TypeError:
                 return Client(endpoint)
-    
+
     try:
         return Client(endpoint, httpx_kwargs=httpx_kwargs)
     except TypeError:
@@ -180,7 +186,9 @@ def _safe_build_preview(origin_path: str) -> Tuple[Optional[str], Optional[str]]
         return None, None
 
 
-def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None, _depth: int = 0) -> Optional[str]:
+def _materialize_any(
+    obj: Any, client: Client, hf_token: Optional[str] = None, _depth: int = 0
+) -> Optional[str]:
     """
     Convert common Gradio outputs into a local file path.
 
@@ -190,7 +198,7 @@ def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None, _
       - dict (FileData-like) containing url/path/name/filepath
       - list/tuple containing any of the above
       - server path '/tmp/...' -> attempt Gradio file endpoint (may 403)
-      
+
     Args:
         obj: Object to materialize
         client: Gradio client
@@ -204,7 +212,9 @@ def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None, _
 
     # list/tuple: most Gradio outputs are single-element lists
     if isinstance(obj, (list, tuple)) and obj:
-        return _materialize_any(obj[0], client=client, hf_token=hf_token, _depth=_depth + 1)
+        return _materialize_any(
+            obj[0], client=client, hf_token=hf_token, _depth=_depth + 1
+        )
 
     # dict: FileData-like is best case (url provided)
     if isinstance(obj, dict):
@@ -218,7 +228,9 @@ def _materialize_any(obj: Any, client: Client, hf_token: Optional[str] = None, _
         for k in ("path", "filepath", "file", "name"):
             v = obj.get(k)
             if isinstance(v, str) and v:
-                return _materialize_any(v, client=client, hf_token=hf_token, _depth=_depth + 1)
+                return _materialize_any(
+                    v, client=client, hf_token=hf_token, _depth=_depth + 1
+                )
 
         return None
 
@@ -256,7 +268,9 @@ def _download_to_temp(url: str, hf_token: Optional[str] = None) -> Optional[str]
         headers["Authorization"] = f"Bearer {hf_token}"
 
     try:
-        with requests.get(url, headers=headers, timeout=120, stream=True, allow_redirects=True) as r:
+        with requests.get(
+            url, headers=headers, timeout=120, stream=True, allow_redirects=True
+        ) as r:
             if r.status_code != 200:
                 log.error("Download failed: url=%s status=%s", url, r.status_code)
                 return None
@@ -264,18 +278,27 @@ def _download_to_temp(url: str, hf_token: Optional[str] = None) -> Optional[str]
             # Check Content-Length if available
             content_length = r.headers.get("content-length")
             if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
-                log.error("File too large: %s bytes (max %s)", content_length, MAX_DOWNLOAD_SIZE)
+                log.error(
+                    "File too large: %s bytes (max %s)",
+                    content_length,
+                    MAX_DOWNLOAD_SIZE,
+                )
                 return None
 
             ext = _guess_ext(url, r.headers.get("content-type", ""))
 
-            with tempfile.NamedTemporaryFile(delete=False, prefix="lungs_seg_", suffix=ext) as f:
+            with tempfile.NamedTemporaryFile(
+                delete=False, prefix="lungs_seg_", suffix=ext
+            ) as f:
                 downloaded_size = 0
                 for chunk in r.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         downloaded_size += len(chunk)
                         if downloaded_size > MAX_DOWNLOAD_SIZE:
-                            log.error("Download exceeded size limit: %s bytes", downloaded_size)
+                            log.error(
+                                "Download exceeded size limit: %s bytes",
+                                downloaded_size,
+                            )
                             f.close()
                             os.remove(f.name)
                             return None
@@ -287,7 +310,9 @@ def _download_to_temp(url: str, hf_token: Optional[str] = None) -> Optional[str]
         return None
 
 
-def _download_from_gradio_file_endpoint(client: Client, server_path: str, hf_token: Optional[str] = None) -> Optional[str]:
+def _download_from_gradio_file_endpoint(
+    client: Client, server_path: str, hf_token: Optional[str] = None
+) -> Optional[str]:
     """
     Last-resort fallback when API returns '/tmp/...' but no URL.
     Often blocked with 403 unless Space allows that directory or writes into Gradio temp/cache.
@@ -306,7 +331,9 @@ def _download_from_gradio_file_endpoint(client: Client, server_path: str, hf_tok
         params["session_hash"] = session_hash
 
     try:
-        r = requests.get(file_url, headers=headers, params=params, timeout=60, stream=True)
+        r = requests.get(
+            file_url, headers=headers, params=params, timeout=60, stream=True
+        )
         if r.status_code == 403:
             # Common: file exists but not allowed to be served
             detail: Any
@@ -324,7 +351,9 @@ def _download_from_gradio_file_endpoint(client: Client, server_path: str, hf_tok
         # Check Content-Length before downloading
         content_length = r.headers.get("content-length")
         if content_length and int(content_length) > MAX_DOWNLOAD_SIZE:
-            log.error("File too large: %s bytes (max %s)", content_length, MAX_DOWNLOAD_SIZE)
+            log.error(
+                "File too large: %s bytes (max %s)", content_length, MAX_DOWNLOAD_SIZE
+            )
             return None
 
         # Read content with size check
@@ -342,9 +371,15 @@ def _download_from_gradio_file_endpoint(client: Client, server_path: str, hf_tok
             return None
 
         ext = os.path.splitext(server_path)[1] or ".tif"
-        with tempfile.NamedTemporaryFile(delete=False, prefix="lungs_seg_", suffix=ext) as f:
+        with tempfile.NamedTemporaryFile(
+            delete=False, prefix="lungs_seg_", suffix=ext
+        ) as f:
             f.write(content)
-            log.info("Downloaded %s bytes from gradio file endpoint -> %s", len(content), f.name)
+            log.info(
+                "Downloaded %s bytes from gradio file endpoint -> %s",
+                len(content),
+                f.name,
+            )
             return register_temp_file(f.name)
 
     except Exception as e:
@@ -357,6 +392,7 @@ def _guess_ext(url: str, content_type: str) -> str:
     Guess file extension from URL path or Content-Type.
     """
     from urllib.parse import urlparse
+
     path = urlparse(url).path.lower()
 
     if path.endswith(".nii.gz"):
@@ -383,22 +419,24 @@ def _guess_ext(url: str, content_type: str) -> str:
 # ---------------------------------------------------------------------
 # Tool Registration
 # ---------------------------------------------------------------------
-register_tool(ToolConfig(
-    name="lungs_segmentation",
-    display_name="3D Lungs Segmentation",
-    icon="🫁",
-    catalog_names=["lungs-segmentation"],  # Catalog name from dataset/catalog.jsonl
-    input_model=LungsSegmentationInput,
-    output_model=LungsSegmentationOutput,
-    executor=tool_lungs_segmentation,
-    supports_images=True,
-    supports_files=True,
-    requires_approval=True,
-    preview_field="result_preview",
-    download_fields="result_origin",  # Could also be ["result_origin", "other_file"]
-    metadata_field="metadata_text",
-    notes_field="notes",
-    success_field="success",
-    error_field="error",
-    compute_time_field="compute_time_seconds",
-))
+register_tool(
+    ToolConfig(
+        name="lungs_segmentation",
+        display_name="3D Lungs Segmentation",
+        icon="🫁",
+        catalog_names=["lungs-segmentation"],  # Catalog name from dataset/catalog.jsonl
+        input_model=LungsSegmentationInput,
+        output_model=LungsSegmentationOutput,
+        executor=tool_lungs_segmentation,
+        supports_images=True,
+        supports_files=True,
+        requires_approval=True,
+        preview_field="result_preview",
+        download_fields="result_origin",  # Could also be ["result_origin", "other_file"]
+        metadata_field="metadata_text",
+        notes_field="notes",
+        success_field="success",
+        error_field="error",
+        compute_time_field="compute_time_seconds",
+    )
+)

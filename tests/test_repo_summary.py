@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from pathlib import Path
 from typing import List
 import sys
@@ -40,6 +39,7 @@ from agent.tools.repo_info_tool import (
     tool_repo_summary,
     RepoSummaryInput,
 )
+
 
 def main():
     parser = argparse.ArgumentParser(description="Smoke test for repo summary tool")

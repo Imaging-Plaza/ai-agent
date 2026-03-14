@@ -9,7 +9,11 @@ from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.retriever.software_doc import SoftwareDoc
 
 from .handlers import respond
-from .visualizations import create_tool_usage_chart, create_tool_timeline, create_disabled_tools_display
+from .visualizations import (
+    create_tool_usage_chart,
+    create_tool_timeline,
+    create_disabled_tools_display,
+)
 from .utils import get_available_models, get_default_model_display_name
 from .state import format_stats_markdown
 
@@ -18,25 +22,31 @@ log = logging.getLogger("chat_components")
 # Load model configurations from config.yaml
 MODEL_CONFIGS = get_available_models()
 
+
 def get_model_config(model_display_name: str) -> Dict[str, Optional[str]]:
     """Get model configuration from display name."""
     return MODEL_CONFIGS.get(
         model_display_name,
-        {"name": model_display_name, "base_url": None, "provider": "Unknown", "api_key_env": "OPENAI_API_KEY"}
+        {
+            "name": model_display_name,
+            "base_url": None,
+            "provider": "Unknown",
+            "api_key_env": "OPENAI_API_KEY",
+        },
     )
 
 
 def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
     """
     Create the chat-based Gradio interface.
-    
+
     Args:
         doc_index: Mapping of tool name -> SoftwareDoc for formatting
-    
+
     Returns:
         Gradio Blocks interface
     """
-    
+
     # Custom CSS for Imaging Plaza theme
     custom_css = """
     /* Imaging Plaza EPFL Green Theme */
@@ -99,7 +109,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
         padding: 1rem;
     }
     """
-    
+
     with gr.Blocks(
         title="Imaging Plaza - AI Assistant",
         theme=gr.themes.Soft(
@@ -124,7 +134,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     </div>
                 </div>
             """)
-        
+
         # Settings section (collapsed by default)
         with gr.Accordion("⚙️ Settings", open=False):
             with gr.Row():
@@ -152,7 +162,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     label="Number of Recommendations",
                     info="Tools to recommend to user",
                 )
-        
+
         with gr.Row(equal_height=True):
             # ================================================================
             # LEFT: Chat section
@@ -165,7 +175,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     show_copy_button=True,
                     avatar_images=("👤", "🤖"),
                 )
-                
+
                 # Tool approval box (appears inline when approval needed)
                 with gr.Group(visible=False) as approval_box:
                     gr.Markdown("### 🤖 Tool Recommendation")
@@ -175,7 +185,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                         size="lg",
                         scale=1,
                     )
-                
+
                 # File downloads section
                 download_files = gr.File(
                     label="📥 Download Results",
@@ -184,7 +194,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     visible=True,
                     height=100,
                 )
-                
+
                 with gr.Row():
                     with gr.Column(scale=8):
                         msg_input = gr.Textbox(
@@ -200,53 +210,74 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                             label="📎 Attach files",
                             file_count="multiple",
                             file_types=[
-                                ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp",
-                                ".tif", ".tiff", ".dcm", ".nii", ".nii.gz",
-                                ".csv", ".json", ".xml",
-                                ".mp3", ".wav", ".mp4", ".avi",
+                                ".png",
+                                ".jpg",
+                                ".jpeg",
+                                ".webp",
+                                ".gif",
+                                ".bmp",
+                                ".tif",
+                                ".tiff",
+                                ".dcm",
+                                ".nii",
+                                ".nii.gz",
+                                ".csv",
+                                ".json",
+                                ".xml",
+                                ".mp3",
+                                ".wav",
+                                ".mp4",
+                                ".avi",
                             ],
                         )
-                
+
                 with gr.Row():
                     submit_btn = gr.Button("Send", variant="primary", scale=2)
                     clear_btn = gr.Button("Clear chat", scale=1)
-            
+
             # ================================================================
             # RIGHT: Analytics and State section
             # ================================================================
             with gr.Column(scale=3, visible=True):
                 # Tool usage visualizations
                 gr.Markdown("### 📊 Tool Usage Statistics")
-                
+
                 tool_usage_plot = gr.Plot(
                     label="Tool Call Frequency",
                     show_label=False,
                 )
-                
+
                 tool_timeline_plot = gr.Plot(
                     label="Tool Call Timeline",
                     show_label=False,
                 )
-                
+
                 disabled_tools_text = gr.Markdown(
                     value="✅ No tools disabled",
                     label="Disabled Tools",
                 )
-                
+
                 # Collapsible state display
                 with gr.Accordion("🔧 Raw Conversation State", open=False):
                     state_display = gr.JSON(
                         value={},
                         show_label=False,
                     )
-        
+
         chat_state = gr.State({})
-        
+
         # ====================================================================
         # Event Handlers
         # ====================================================================
-        def handle_chat(message: str, history: List[dict], files: List, state_dict: dict,
-                       model: str, top_k: int, num_choices: int):
+        def handle_chat(
+            message: str,
+            history: List[dict],
+            files: List,
+            state_dict: dict,
+            model: str,
+            top_k: int,
+            num_choices: int,
+        ):
             """
             Handle chat message with streaming response.
             Yields updated history and state after each step.
@@ -254,10 +285,10 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
             # Convert Gradio messages format to internal format if needed
             if not history:
                 history = []
-            
+
             # Show user message immediately
             user_msg = {"role": "user", "content": message or ""}
-            
+
             # Add file attachments to user message
             if files:
                 file_list = "\n".join(
@@ -270,10 +301,12 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     user_msg["content"] = f"{message}\n\n{file_list}"
                 else:
                     user_msg["content"] = file_list
-            
+
             history.append(user_msg)
-            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), gr.update()
-            
+            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
+                visible=False
+            ), gr.update()
+
             # If files were uploaded, build and show preview immediately
             if files:
                 file_paths = []
@@ -282,7 +315,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                         file_paths.append(f)
                     elif hasattr(f, "name"):
                         file_paths.append(f.name)
-                
+
                 if file_paths:
                     # Build preview
                     try:
@@ -301,15 +334,19 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                                     "content": {"path": preview_path},
                                 }
                             )
-                            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), gr.update()
+                            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
+                                visible=False
+                            ), gr.update()
                     except Exception as e:
                         log.warning("Preview generation failed: %r", e)
-            
+
             # Show "thinking" indicator for agent processing
             thinking_msg = {"role": "assistant", "content": "🤔 Finding tools..."}
             history.append(thinking_msg)
-            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), gr.update()
-            
+            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
+                visible=False
+            ), gr.update()
+
             # Call respond function with settings
             try:
                 reply, new_state = respond(
@@ -321,24 +358,24 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     top_k=int(top_k),
                     num_choices=int(num_choices),
                 )
-                
+
                 # Remove thinking indicator
                 if history and history[-1] == thinking_msg:
                     history.pop()
-                
+
                 # Add assistant response with rich media
                 # Build text content first
                 text_content = reply.text
-                
+
                 # Add stats if available
-                text_content += format_stats_markdown(reply.stats)
-                
+                text_content += format_stats_markdown(reply.stats or {})
+
                 # Add file links
                 if reply.files:
                     text_content += "\n\n" + "\n".join(
                         [f"📎 [{label}]({path})" for path, label in reply.files]
                     )
-                
+
                 # Add JSON
                 if reply.json_data:
                     text_content += (
@@ -346,42 +383,56 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                         + json.dumps(reply.json_data, indent=2)
                         + "\n```"
                     )
-                
+
                 # Add code blocks
                 for lang, code in reply.code_blocks:
                     text_content += f"\n\n```{lang}\n{code}\n```"
-                
+
                 # Add text message first
                 history.append({"role": "assistant", "content": text_content})
-                
+
                 # Add each image as a separate message for proper Gradio rendering
                 for img_path in reply.images:
                     if os.path.exists(img_path):
                         history.append(
                             {"role": "assistant", "content": {"path": img_path}}
                         )
-                
+
                 # Update state displays
                 state_dict_updated = new_state.to_dict()
-                
+
                 # Generate visualizations
-                usage_chart = create_tool_usage_chart(state_dict_updated.get("tool_calls", []))
-                timeline_chart = create_tool_timeline(state_dict_updated.get("tool_calls", []))
-                disabled_text = create_disabled_tools_display(state_dict_updated.get("tool_calls", []))
-                
+                usage_chart = create_tool_usage_chart(
+                    state_dict_updated.get("tool_calls", [])
+                )
+                timeline_chart = create_tool_timeline(
+                    state_dict_updated.get("tool_calls", [])
+                )
+                disabled_text = create_disabled_tools_display(
+                    state_dict_updated.get("tool_calls", [])
+                )
+
                 # Extract downloadable files
-                downloaded_files = [path for path, _label in reply.files] if reply.files else None
-                
+                downloaded_files = (
+                    [path for path, _label in reply.files] if reply.files else None
+                )
+
                 # Determine button visibility and label using registry
                 box_visible = new_state.pending_tool_approval is not None
                 if box_visible and new_state.pending_tool_approval:
-                    from ai_agent.agent.tools.mcp import get_tool_display_name, get_tool_icon
-                    display_name = get_tool_display_name(new_state.pending_tool_approval)
+                    from ai_agent.agent.tools.mcp import (
+                        get_tool_display_name,
+                        get_tool_icon,
+                    )
+
+                    display_name = get_tool_display_name(
+                        new_state.pending_tool_approval
+                    )
                     icon = get_tool_icon(new_state.pending_tool_approval)
                     button_label = f"{icon} Run {display_name}"
                 else:
                     button_label = "🚀 Run Tool"
-                
+
                 yield (
                     history,
                     state_dict_updated,
@@ -391,9 +442,9 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     gr.update(value=state_dict_updated),
                     downloaded_files,
                     gr.update(visible=box_visible),  # approval_box
-                    gr.update(value=button_label),   # approve_tool_btn
+                    gr.update(value=button_label),  # approve_tool_btn
                 )
-            
+
             except Exception as e:
                 log.exception("Error in chat handler")
                 if history:
@@ -406,82 +457,152 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     ),
                 }
                 history.append(error_msg)
-                yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), gr.update()
-        
+                yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
+                    visible=False
+                ), gr.update()
+
         def clear_chat():
             """Reset everything."""
             empty_chart = create_tool_usage_chart([])
             empty_timeline = create_tool_timeline([])
-            return [], {}, empty_chart, empty_timeline, "✅ No tools disabled", gr.update(value={}), None, gr.update(visible=False), gr.update()
-        
+            return (
+                [],
+                {},
+                empty_chart,
+                empty_timeline,
+                "✅ No tools disabled",
+                gr.update(value={}),
+                None,
+                gr.update(visible=False),
+                gr.update(),
+            )
+
         def handle_tool_approval(history: List[dict], state_dict: dict):
             """Handle tool approval button click - executes the pending tool."""
             from .handlers import execute_tool_with_approval
             from .state import ChatState
-            
+
             state = ChatState.from_dict(state_dict)
-            
+
             if not state.pending_tool_approval:
                 return history, state_dict, None, gr.update(visible=False), gr.update()
-            
+
             # Execute the tool
             reply, new_state = execute_tool_with_approval(
-                state.pending_tool_approval,
-                state.pending_tool_params,
-                state
+                state.pending_tool_approval, state.pending_tool_params, state
             )
-            
+
             # Build response text with stats
             text_content = reply.text
-            text_content += format_stats_markdown(reply.stats)
-            
+            text_content += format_stats_markdown(reply.stats or {})
+
             # Add text message
             history.append({"role": "assistant", "content": text_content})
-            
+
             # Add images
             for img_path in reply.images:
                 if os.path.exists(img_path):
                     history.append({"role": "assistant", "content": {"path": img_path}})
-            
+
             # Extract downloadable files
-            downloaded_files = [path for path, _label in reply.files] if reply.files else None
-            
+            downloaded_files = (
+                [path for path, _label in reply.files] if reply.files else None
+            )
+
             # Update state and hide button
             state_dict_updated = new_state.to_dict()
-            
-            return history, state_dict_updated, downloaded_files, gr.update(visible=False), gr.update()
-        
+
+            return (
+                history,
+                state_dict_updated,
+                downloaded_files,
+                gr.update(visible=False),
+                gr.update(),
+            )
+
         # Wire up events
         submit_btn.click(
             handle_chat,
-            inputs=[msg_input, chatbot, file_input, chat_state, model_dropdown, top_k_slider, num_choices_slider],
-            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display, download_files, approval_box, approve_tool_btn],
+            inputs=[
+                msg_input,
+                chatbot,
+                file_input,
+                chat_state,
+                model_dropdown,
+                top_k_slider,
+                num_choices_slider,
+            ],
+            outputs=[
+                chatbot,
+                chat_state,
+                tool_usage_plot,
+                tool_timeline_plot,
+                disabled_tools_text,
+                state_display,
+                download_files,
+                approval_box,
+                approve_tool_btn,
+            ],
         ).then(
             lambda: ("", None),  # Clear inputs
             inputs=None,
             outputs=[msg_input, file_input],
         )
-        
+
         msg_input.submit(
             handle_chat,
-            inputs=[msg_input, chatbot, file_input, chat_state, model_dropdown, top_k_slider, num_choices_slider],
-            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display, download_files, approval_box, approve_tool_btn],
+            inputs=[
+                msg_input,
+                chatbot,
+                file_input,
+                chat_state,
+                model_dropdown,
+                top_k_slider,
+                num_choices_slider,
+            ],
+            outputs=[
+                chatbot,
+                chat_state,
+                tool_usage_plot,
+                tool_timeline_plot,
+                disabled_tools_text,
+                state_display,
+                download_files,
+                approval_box,
+                approve_tool_btn,
+            ],
         ).then(
             lambda: ("", None),  # Clear inputs
             inputs=None,
             outputs=[msg_input, file_input],
         )
-        
+
         approve_tool_btn.click(
             handle_tool_approval,
             inputs=[chatbot, chat_state],
-            outputs=[chatbot, chat_state, download_files, approval_box, approve_tool_btn],
+            outputs=[
+                chatbot,
+                chat_state,
+                download_files,
+                approval_box,
+                approve_tool_btn,
+            ],
         )
-        
+
         clear_btn.click(
             clear_chat,
             inputs=None,
-            outputs=[chatbot, chat_state, tool_usage_plot, tool_timeline_plot, disabled_tools_text, state_display, download_files, approval_box, approve_tool_btn],
+            outputs=[
+                chatbot,
+                chat_state,
+                tool_usage_plot,
+                tool_timeline_plot,
+                disabled_tools_text,
+                state_display,
+                download_files,
+                approval_box,
+                approve_tool_btn,
+            ],
         )
-    
+
     return demo

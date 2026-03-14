@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import os, logging
+import os
+import logging
 from datetime import datetime
 from typing import List
 
@@ -17,7 +18,10 @@ from .models import AgentToolSelection, ToolRunLog, UsageStats
 from .tools.repo_info_tool import tool_repo_summary, RepoSummaryInput
 from ai_agent.agent.utils import coerce_github_url_or_none
 from .tools.search_tool import tool_search_tools, SearchToolsInput
-from .tools.search_alternative_tool import tool_search_alternative, SearchAlternativeInput
+from .tools.search_alternative_tool import (
+    tool_search_alternative,
+    SearchAlternativeInput,
+)
 from .utils import AgentState, limit_tool_calls, cap_prepare
 from ai_agent.utils.image_meta import summarize_image_metadata, detect_ext_token
 
@@ -68,6 +72,7 @@ agent = Agent(
 # Tool adapters for the agent
 # ---------------------------------------------------------------------------
 
+
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("search_tools", cap=1)
 async def search_tools(
@@ -93,7 +98,9 @@ async def search_tools(
     original_formats = getattr(ctx.deps, "original_formats", []) or []
     image_paths = getattr(ctx.deps, "image_paths", []) or []
 
-    effective_top_k = ctx.deps.override_top_k if ctx.deps.override_top_k is not None else top_k
+    effective_top_k = (
+        ctx.deps.override_top_k if ctx.deps.override_top_k is not None else top_k
+    )
 
     inp = SearchToolsInput(
         query=query,
@@ -111,7 +118,7 @@ async def search_tools(
             "count": len(out.candidates),
             "original_formats": original_formats,
             "excluded": all_excluded,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
     )
 
@@ -154,7 +161,7 @@ async def search_alternative(
             "count": len(out.candidates),
             "original_formats": original_formats,
             "excluded": all_excluded,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
     )
 
@@ -163,7 +170,9 @@ async def search_alternative(
 
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("repo_info", cap=12)
-async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str | None = None) -> dict:
+async def repo_info(
+    ctx: RunContext[AgentState], url: str, tool_name: str | None = None
+) -> dict:
     """
     Fetch a short summary of a GitHub repository.
 
@@ -171,16 +180,18 @@ async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str | None
     that it was skipped. If a tool_name is provided and the URL is not
     a GitHub URL, the tool will attempt to look up the GitHub URL from
     the catalog.
-    
+
     Args:
         url: Repository URL or GitHub owner/repo format
         tool_name: Optional tool name to look up in catalog if URL is not GitHub
     """
     norm_url = coerce_github_url_or_none(url)
-    
+
     # If URL is not a GitHub URL and tool_name is provided, try catalog lookup
     if not norm_url and tool_name:
-        log.info(f"Non-GitHub URL provided, tool_name={tool_name}, attempting catalog lookup")
+        log.info(
+            f"Non-GitHub URL provided, tool_name={tool_name}, attempting catalog lookup"
+        )
         # The tool_repo_summary will handle the catalog lookup
         norm_url = url  # Pass through, tool_repo_summary will handle it
     elif not norm_url:
@@ -190,16 +201,24 @@ async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str | None
             "skipped": True,
             "reason": "NON_GITHUB_URL",
             "hint": "Pass a GitHub repo URL or 'owner/repo' to repo_info(url). Optionally provide tool_name for catalog lookup.",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
         ctx.deps.tool_calls.append(payload)
         return {k: v for k, v in payload.items() if k != "tool"}
 
     try:
-        out = await tool_repo_summary(RepoSummaryInput(url=norm_url, tool_name=tool_name))
+        out = await tool_repo_summary(
+            RepoSummaryInput(url=norm_url, tool_name=tool_name)
+        )
     except Exception as e:
         ctx.deps.tool_calls.append(
-            {"tool": "repo_info", "url": norm_url, "tool_name": tool_name, "error": str(e), "timestamp": datetime.now().isoformat()}
+            {
+                "tool": "repo_info",
+                "url": norm_url,
+                "tool_name": tool_name,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat(),
+            }
         )
         raise
 
@@ -209,7 +228,7 @@ async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str | None
             "url": norm_url,
             "tool_name": tool_name,
             "truncated": getattr(out, "truncated", False),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
     )
     return out.model_dump(mode="python")
@@ -251,7 +270,11 @@ def run_agent(
     tool_logs: List[ToolRunLog] = []
 
     # ---- 1) Derive image-based metadata and format hints --------------------
-    meta_str = image_metadata if image_metadata is not None else (summarize_image_metadata(image_paths) or "")
+    meta_str = (
+        image_metadata
+        if image_metadata is not None
+        else (summarize_image_metadata(image_paths) or "")
+    )
     fmt_str = detect_ext_token(image_paths) or ""
     original_formats = [t.lower() for t in fmt_str.split()] if fmt_str else []
 
@@ -273,7 +296,12 @@ def run_agent(
         hidden_meta += "\n(Formats Hint: " + ",".join(original_formats) + ")"
     if meta_str:
         short_meta = " ".join(x.strip() for x in meta_str.splitlines() if x.strip())
-        hidden_meta += "\n(Image Metadata: " + short_meta[:500] + ("…" if len(short_meta) > 500 else "") + ")"
+        hidden_meta += (
+            "\n(Image Metadata: "
+            + short_meta[:500]
+            + ("…" if len(short_meta) > 500 else "")
+            + ")"
+        )
     if top_k is not None:
         hidden_meta += f"\n(Search top_k: {top_k})"
 
@@ -303,7 +331,9 @@ def run_agent(
         key_env_name = api_key_env if api_key_env else "OPENAI_API_KEY"
         runtime_api_key = os.getenv(key_env_name)
         if not runtime_api_key:
-            raise ValueError(f"{key_env_name} not found in environment. Cannot use this model.")
+            raise ValueError(
+                f"{key_env_name} not found in environment. Cannot use this model."
+            )
         effective_base_url = base_url  # Can be None for OpenAI
         log.info(f"✓ Using {key_env_name} for model {effective_model}")
         log.debug(f"{key_env_name} is set: {bool(runtime_api_key)}")
@@ -335,13 +365,17 @@ def run_agent(
             base_url=effective_base_url,
             api_key=runtime_api_key,
         )
-        
+
         # Use OpenAIChatModel (chat/completions) for custom endpoints, OpenAIResponsesModel for default OpenAI
         if effective_base_url:
             log.info("Using OpenAIChatModel (chat/completions API) for custom endpoint")
-            runtime_model = OpenAIChatModel(model_name=effective_model, provider=runtime_provider)
+            runtime_model = OpenAIChatModel(
+                model_name=effective_model, provider=runtime_provider
+            )
         else:
-            runtime_model = OpenAIResponsesModel(model_name=effective_model, provider=runtime_provider)
+            runtime_model = OpenAIResponsesModel(
+                model_name=effective_model, provider=runtime_provider
+            )
 
         agent_instance = Agent(
             model=runtime_model,
@@ -370,7 +404,9 @@ def run_agent(
         agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
 
     else:
-        log.info(f"♻️  Using global agent (model: {effective_model}, num_choices: {effective_num_choices})")
+        log.info(
+            f"♻️  Using global agent (model: {effective_model}, num_choices: {effective_num_choices})"
+        )
 
     log.debug(
         f"Prompt length: {len(prompt)} chars, has_image_paths: {bool(image_paths)}, has_image_bytes: {bool(image_bytes)}"
@@ -389,7 +425,9 @@ def run_agent(
             ),
         ]
     else:
-        log.warning("⚠️  No image bytes provided - the model will not see the image preview")
+        log.warning(
+            "⚠️  No image bytes provided - the model will not see the image preview"
+        )
         user_prompt = prompt
 
     # ---- 6) Run the agent --------------------------------------------------
@@ -402,7 +440,9 @@ def run_agent(
         )
         result = run_result.output
 
-        log.info(f"✅ Agent execution complete - choices returned: {len(result.choices)}")
+        log.info(
+            f"✅ Agent execution complete - choices returned: {len(result.choices)}"
+        )
 
         # Log usage (helpful, but may not explicitly expose image-specific counters)
         if run_result.usage:
@@ -414,28 +454,35 @@ def run_agent(
 
         # Warn if using non-OpenAI endpoint with images
         if image_bytes and effective_base_url:
-            log.warning("⚠️  Using custom endpoint - confirm the selected model supports vision.")
+            log.warning(
+                "⚠️  Using custom endpoint - confirm the selected model supports vision."
+            )
 
     except Exception as e:
         # Handle global tool quota limit (UsageLimitExceeded) and other errors gracefully
         error_msg = str(e)
         log.warning(f"⚠️  Agent execution encountered an error: {error_msg}")
         run_result = None  # Ensure run_result is defined for usage stats extraction
-        
+
         # Check if this is a usage limit error (global tool quota)
-        if "UsageLimitExceeded" in str(type(e).__name__) or "tool_calls_limit" in error_msg.lower():
-            log.warning("Global tool call quota reached - continuing with partial results")
+        if (
+            "UsageLimitExceeded" in str(type(e).__name__)
+            or "tool_calls_limit" in error_msg.lower()
+        ):
+            log.warning(
+                "Global tool call quota reached - continuing with partial results"
+            )
 
             result = ToolSelection(
                 conversation=Conversation(
                     status=ConversationStatus.COMPLETE,
                     context="The agent reached the maximum number of tool calls allowed. Please try a more specific query or break down your request into smaller parts.",
                     question=None,
-                    options=None
+                    options=None,
                 ),
                 choices=[],
                 explanation="Tool call limit reached during execution. Try refining your query.",
-                reason=None
+                reason=None,
             )
         else:
             raise
@@ -445,7 +492,9 @@ def run_agent(
         tool_name = tc.get("tool")
         timestamp = tc.get("timestamp")
         error = tc.get("error")
-        inputs = {k: v for k, v in tc.items() if k not in ("tool", "timestamp", "error")}
+        inputs = {
+            k: v for k, v in tc.items() if k not in ("tool", "timestamp", "error")
+        }
         tool_logs.append(
             ToolRunLog(
                 tool=tool_name,
@@ -464,7 +513,7 @@ def run_agent(
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
         )
-    
+
     # ---- 9) Wrap into high-level AgentToolSelection ------------------------
     return AgentToolSelection(
         conversation=result.conversation,

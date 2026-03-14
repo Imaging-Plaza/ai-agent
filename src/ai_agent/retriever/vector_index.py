@@ -42,7 +42,9 @@ def _fingerprint_doc(doc: SoftwareDoc) -> str:
         "programming_language": (doc.programming_language or "").strip(),
         "license": (doc.license or "").strip(),
         "software_requirements": _sorted_unique(doc.software_requirements),
-        "gpu_required": bool(doc.gpu_required) if doc.gpu_required is not None else None,
+        "gpu_required": (
+            bool(doc.gpu_required) if doc.gpu_required is not None else None
+        ),
         "is_free": bool(doc.is_free) if doc.is_free is not None else None,
         "is_based_on": _sorted_unique(doc.is_based_on),
         "plugin_of": _sorted_unique(doc.plugin_of),
@@ -143,7 +145,9 @@ class VectorIndex:
             hits.append({"id": sid, "doc": self.docs[sid], "score": float(score)})
         if reranker and hits:
             texts = [h["doc"].to_retrieval_text() for h in hits]
-            reranked = reranker.rerank(query_text, texts, top_k=min(rerank_top_k, len(hits)))
+            reranked = reranker.rerank(
+                query_text, texts, top_k=min(rerank_top_k, len(hits))
+            )
             return [hits[i] | {"rerank_score": s} for i, s in reranked]
         return hits
 
@@ -172,6 +176,7 @@ class VectorIndex:
             self.upsert(to_update)
         added_n, updated_n, removed_n = len(to_add), len(to_update), len(to_remove)
         if added_n or updated_n or removed_n:
+
             def sample_ids(seq, n: int = 5):
                 if not seq:
                     return []
@@ -181,7 +186,9 @@ class VectorIndex:
 
             log.info(
                 "Catalog changed: added=%d, updated=%d, removed=%d",
-                added_n, updated_n, removed_n
+                added_n,
+                updated_n,
+                removed_n,
             )
             add_sample = sample_ids(to_add)
             upd_sample = sample_ids(to_update)
@@ -190,21 +197,21 @@ class VectorIndex:
                 log.info(
                     "  added ids (sample): %s%s",
                     ", ".join(add_sample),
-                    " ..." if added_n > len(add_sample) else ""
+                    " ..." if added_n > len(add_sample) else "",
                 )
             if upd_sample:
                 log.info(
                     "  updated ids (sample): %s%s",
                     ", ".join(upd_sample),
-                    " ..." if updated_n > len(upd_sample) else ""
+                    " ..." if updated_n > len(upd_sample) else "",
                 )
             if rem_sample:
                 log.info(
                     "  removed ids (sample): %s%s",
                     ", ".join(rem_sample),
-                    " ..." if removed_n > len(rem_sample) else ""
+                    " ..." if removed_n > len(rem_sample) else "",
                 )
-        
+
         return {"added": added_n, "updated": updated_n, "removed": removed_n}
 
     def save(self, dirpath: str | Path) -> None:
@@ -219,9 +226,11 @@ class VectorIndex:
             "version": 1,
             "embedder": {
                 "type": self.embedder.__class__.__name__,
-                "model_name": getattr(getattr(self.embedder, "model", None), "model_card", None)
-                               or getattr(self.embedder, "model_name", None)
-                               or "unknown",
+                "model_name": getattr(
+                    getattr(self.embedder, "model", None), "model_card", None
+                )
+                or getattr(self.embedder, "model_name", None)
+                or "unknown",
                 "dim": self.embedder.dim,
                 "query_prefix": getattr(self.embedder, "query_prefix", ""),
                 "doc_prefix": getattr(self.embedder, "doc_prefix", ""),
@@ -230,13 +239,17 @@ class VectorIndex:
             },
             "next_faiss_id": self._next_faiss_id,
             "id_to_faiss": self.id_to_faiss,
-            "docs": {sid: self.docs[sid].model_dump(mode="json", exclude_none=True)
-                     for sid in self.docs},
+            "docs": {
+                sid: self.docs[sid].model_dump(mode="json", exclude_none=True)
+                for sid in self.docs
+            },
             "fingerprints": self.fingerprints,
             "fingerprint_version": self.FINGERPRINT_VERSION,
         }
         with open(p / "meta.json", "w", encoding="utf-8") as f:
-            json.dump(meta, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+            json.dump(
+                meta, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            )
 
     @classmethod
     def load(cls, dirpath: str | Path, embedder: TextEmbedder) -> "VectorIndex":
@@ -263,15 +276,21 @@ class VectorIndex:
         if found != expected:
             idx.fingerprints = {}
         else:
-            idx.fingerprints = {str(k): str(v) for k, v in meta.get("fingerprints", {}).items()}
+            idx.fingerprints = {
+                str(k): str(v) for k, v in meta.get("fingerprints", {}).items()
+            }
 
         if meta.get("embedder", {}).get("dim") != embedder.dim:
             raise ValueError(
                 f"Embedder dim mismatch: saved={meta.get('embedder', {}).get('dim')} vs current={embedder.dim}"
             )
         idx._next_faiss_id = int(meta.get("next_faiss_id", 1))
-        idx.id_to_faiss = {str(k): int(v) for k, v in meta.get("id_to_faiss", {}).items()}
+        idx.id_to_faiss = {
+            str(k): int(v) for k, v in meta.get("id_to_faiss", {}).items()
+        }
         idx.faiss_to_id = {int(v): str(k) for k, v in idx.id_to_faiss.items()}
-        idx.docs = {sid: SoftwareDoc(**payload) for sid, payload in meta.get("docs", {}).items()}
-        
+        idx.docs = {
+            sid: SoftwareDoc(**payload) for sid, payload in meta.get("docs", {}).items()
+        }
+
         return idx

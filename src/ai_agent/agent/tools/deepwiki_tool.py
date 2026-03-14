@@ -19,14 +19,15 @@ DEEPWIKI_HTTP_URL = "https://mcp.deepwiki.com/mcp"
 DEEPWIKI_TIMEOUT = 60
 
 
-
 class DeepWikiInput(BaseModel):
     """Input for DeepWiki operations."""
+
     url: str  # GitHub repository URL or owner/repo format
 
 
 class DeepWikiContentsOutput(BaseModel):
     """Output from read_wiki_contents."""
+
     success: bool
     contents: Optional[str] = None
     error: Optional[str] = None
@@ -55,11 +56,11 @@ async def get_wiki_contents(input: DeepWikiInput) -> DeepWikiContentsOutput:
             if isinstance(result, str):
                 # Direct string result
                 text = result
-            elif hasattr(result, 'content'):
+            elif hasattr(result, "content"):
                 # MCP ToolResult with content field
                 text_parts = []
                 for item in result.content:
-                    if hasattr(item, 'text'):
+                    if hasattr(item, "text"):
                         text_parts.append(item.text)
                     elif isinstance(item, str):
                         text_parts.append(item)
@@ -76,7 +77,9 @@ async def get_wiki_contents(input: DeepWikiInput) -> DeepWikiContentsOutput:
                     truncated=truncated,
                 )
 
-            return DeepWikiContentsOutput(success=False, error="No content returned from DeepWiki")
+            return DeepWikiContentsOutput(
+                success=False, error="No content returned from DeepWiki"
+            )
 
     except asyncio.TimeoutError:
         log.warning(f"DeepWiki timed out after {DEEPWIKI_TIMEOUT}s for {repo}")

@@ -56,6 +56,7 @@ from ai_agent.ui.components import create_chat_interface
 # Tool registration
 # ============================================================================
 from ai_agent.agent.tools import ensure_tools_registered
+
 ensure_tools_registered()
 
 # ============================================================================
@@ -107,8 +108,9 @@ get_pipeline()
 # ============================================================================
 def _bind_host() -> str:
     """Determine bind host based on environment."""
-    if os.getenv("BIND_HOST"):
-        return os.getenv("BIND_HOST")
+    bind_host = os.getenv("BIND_HOST")
+    if bind_host:
+        return bind_host
     in_docker = os.path.exists("/.dockerenv")
     return "0.0.0.0" if in_docker else "127.0.0.1"
 
@@ -118,10 +120,15 @@ def launch():
     host = _bind_host()
     preferred = int(os.getenv("PORT", "7860"))
     max_tries = int(os.getenv("PORT_TRIES", "10"))
-    allow_fallback = str(os.getenv("ALLOW_PORT_FALLBACK", "1")).lower() in ("1", "true", "yes", "on")
-    
+    allow_fallback = str(os.getenv("ALLOW_PORT_FALLBACK", "1")).lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
     ui = create_chat_interface(_DOC_BY_NAME)
-    
+
     last_err = None
     for attempt in range(max_tries if allow_fallback else 1):
         port = preferred + attempt
@@ -134,7 +141,11 @@ def launch():
                 share=bool(os.getenv("SHARE", False)),
             )
             if attempt > 0:
-                log.info("Launched on fallback port %d (preferred %d was busy)", port, preferred)
+                log.info(
+                    "Launched on fallback port %d (preferred %d was busy)",
+                    port,
+                    preferred,
+                )
             return
         except OSError as e:
             last_err = e
@@ -142,7 +153,7 @@ def launch():
             if not busy or attempt == (max_tries - 1) or not allow_fallback:
                 raise
             log.warning("Port %d busy; trying %d", port, port + 1)
-    
+
     if last_err:
         raise last_err
 

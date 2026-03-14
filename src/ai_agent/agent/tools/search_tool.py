@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from ai_agent.generator.schema import CandidateDoc
 from .utils import get_pipeline
 
+
 class SearchToolsInput(BaseModel):
     query: str
     excluded: List[str] = Field(default_factory=list)
@@ -13,8 +14,10 @@ class SearchToolsInput(BaseModel):
     original_formats: List[str] = Field(default_factory=list)
     image_paths: List[str] = Field(default_factory=list)
 
+
 class SearchToolsOutput(BaseModel):
     candidates: List[CandidateDoc]
+
 
 def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
     """
@@ -46,8 +49,7 @@ def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
 
     # 3) Remove any "OriginalFormats:" line from the semantic query
     clean_lines = [
-        ln for ln in q.splitlines()
-        if not ln.lower().startswith("originalformats:")
+        ln for ln in q.splitlines() if not ln.lower().startswith("originalformats:")
     ]
     base_query = " ".join(ln.strip() for ln in clean_lines if ln.strip())
 
@@ -91,9 +93,7 @@ def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
         if not d:
             continue
         try:
-            candidates.append(
-                CandidateDoc.model_validate(d.model_dump(mode="python"))
-            )
+            candidates.append(CandidateDoc.model_validate(d.model_dump(mode="python")))
         except Exception:
             continue
 

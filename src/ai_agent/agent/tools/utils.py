@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
-import os, json
+import os
+import json
 from urllib.parse import urlparse
 
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.api.pipeline import RAGImagingPipeline
 
-
 _PIPE: Optional[RAGImagingPipeline] = None
 _DOCS: List[SoftwareDoc] = []
 MAX_CHARS = 20000
 
+
 def get_catalog_docs() -> List[SoftwareDoc]:
     """
     Load and return catalog docs without initializing the full pipeline.
-    
+
     This is a lightweight alternative to get_pipeline() for catalog-only operations
     that don't need the embedder, reranker, or index.
     """
@@ -23,6 +24,7 @@ def get_catalog_docs() -> List[SoftwareDoc]:
     if not _DOCS:
         # Load catalog docs
         from pathlib import Path
+
         catalog = os.getenv("SOFTWARE_CATALOG", "data/sample.jsonl")
         p = Path(catalog)
         docs: List[SoftwareDoc] = []
@@ -36,14 +38,16 @@ def get_catalog_docs() -> List[SoftwareDoc]:
                     docs.append(SoftwareDoc.model_validate(o))
             except Exception:
                 for line in text.splitlines():
-                    line=line.strip()
-                    if not line: continue
+                    line = line.strip()
+                    if not line:
+                        continue
                     try:
                         docs.append(SoftwareDoc.model_validate(json.loads(line)))
                     except Exception:
                         continue
         _DOCS = docs
     return _DOCS
+
 
 def get_pipeline() -> RAGImagingPipeline:
     global _PIPE, _DOCS
@@ -54,12 +58,14 @@ def get_pipeline() -> RAGImagingPipeline:
         _PIPE = RAGImagingPipeline()
     return _PIPE
 
+
 def _clip(s: str) -> Tuple[str, bool]:
     if not s:
         return s, False
     if len(s) <= MAX_CHARS:
         return s, False
     return s[:MAX_CHARS] + "\n\n...[truncated for token budget]...", True
+
 
 def _is_github_url(url: str) -> bool:
     """Return True only for URLs that actually point to github.com."""

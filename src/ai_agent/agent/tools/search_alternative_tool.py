@@ -10,10 +10,11 @@ from .utils import get_pipeline
 class SearchAlternativeInput(BaseModel):
     """
     Input for searching with an alternative query formulation.
-    
+
     Use this when initial search results are insufficient and you want to
     try a different phrasing or broader/narrower terms.
     """
+
     alternative_query: str = Field(
         description="Alternative query phrasing to try (can be similar terms, broader/narrower, etc.)"
     )
@@ -31,18 +32,18 @@ class SearchAlternativeOutput(BaseModel):
 def tool_search_alternative(inp: SearchAlternativeInput) -> SearchAlternativeOutput:
     """
     Search with an alternative query formulation, with automatic reranking.
-    
+
     This tool allows the agent to explicitly try a different search approach
     when initial results are not satisfactory.
     """
     pipe = get_pipeline()
-    
+
     # Use the alternative query directly
     query = inp.alternative_query.strip()
-    
+
     # Normalize formats
     original_formats: List[str] = [f.lower() for f in inp.original_formats]
-    
+
     # Build soft format tokens
     token_map = {
         "tif": "TIFF",
@@ -61,12 +62,10 @@ def tool_search_alternative(inp: SearchAlternativeInput) -> SearchAlternativeOut
         canon = token_map.get(ext.lower(), ext.upper())
         if canon not in fmt_tokens:
             fmt_tokens.append(canon)
-    
+
     if fmt_tokens:
-        query = (
-            query + " " + " ".join(f"format:{t}" for t in fmt_tokens)
-        ).strip()
-    
+        query = (query + " " + " ".join(f"format:{t}" for t in fmt_tokens)).strip()
+
     # Call retrieve() which includes automatic reranking
     hits = pipe.retrieve(
         query,
@@ -74,7 +73,7 @@ def tool_search_alternative(inp: SearchAlternativeInput) -> SearchAlternativeOut
         exclusions=inp.excluded,
         top_k=inp.top_k,
     )
-    
+
     # Convert hits to CandidateDoc objects
     candidates: List[CandidateDoc] = []
     for h in hits:
@@ -82,12 +81,10 @@ def tool_search_alternative(inp: SearchAlternativeInput) -> SearchAlternativeOut
         if not d:
             continue
         try:
-            candidates.append(
-                CandidateDoc.model_validate(d.model_dump(mode="python"))
-            )
+            candidates.append(CandidateDoc.model_validate(d.model_dump(mode="python")))
         except Exception:
             continue
-    
+
     return SearchAlternativeOutput(
         candidates=candidates,
         query_used=query,
