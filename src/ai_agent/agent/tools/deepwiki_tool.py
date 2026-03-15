@@ -7,8 +7,8 @@ from typing import Optional
 from pydantic import BaseModel
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 
-from .utils import _clip
-from ..utils import _coerce_owner_repo_ref
+from ai_agent.agent.tools.utils import _clip
+from ai_agent.agent.utils import _coerce_owner_repo_ref
 
 log = logging.getLogger("agent.deepwiki")
 
