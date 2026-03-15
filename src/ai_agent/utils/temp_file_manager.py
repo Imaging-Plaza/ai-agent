@@ -67,4 +67,5 @@ def cleanup_temp_files() -> None:
 
 def get_temp_file_count() -> int:
     """Get the number of registered temporary files."""
-    return len(_temp_files)
+    with _lock:
+        return len(_temp_files)
