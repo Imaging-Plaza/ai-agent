@@ -14,7 +14,8 @@ epfl_key = os.getenv("EPFL_API_KEY")
 if not epfl_key:
     print("❌ EPFL_API_KEY not found in environment")
     print("   Set it in .env or export EPFL_API_KEY=your_key")
-    sys.exit(1)
+    if __name__ == "__main__":
+        sys.exit(1)
 
 print("✅ EPFL_API_KEY found")
 print()
