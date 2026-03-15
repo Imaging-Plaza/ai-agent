@@ -11,15 +11,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Track missing dependencies so we don't call sys.exit at import time.
+MISSING_OPENAI_API_KEY = False
+MISSING_PILLOW = False
+
 # Check environment
 openai_key = os.getenv("OPENAI_API_KEY")
 if not openai_key:
     print("❌ OPENAI_API_KEY not found in environment")
     print("   Set it in .env or export OPENAI_API_KEY=your_key")
-    sys.exit(1)
-
-print("✅ OPENAI_API_KEY found")
-print()
+    MISSING_OPENAI_API_KEY = True
+else:
+    print("✅ OPENAI_API_KEY found")
+    print()
 
 # Import pydantic-ai components (matching agent.py pattern)
 from pydantic_ai import Agent
@@ -58,9 +62,14 @@ try:
     print(f"✅ Test image created: {test_image_path} ({len(PNG_1x1_RED)} bytes)")
 except ImportError:
     print("❌ PIL/Pillow not installed. Install with: pip install Pillow")
-    sys.exit(1)
+    MISSING_PILLOW = True
 
 print()
+
+if __name__ == "__main__":
+    # When run as a script, exit with a non-zero status if required dependencies are missing.
+    if MISSING_OPENAI_API_KEY or MISSING_PILLOW:
+        sys.exit(1)
 
 # Create OpenAI provider and model (matching agent.py)
 print("🔄 Creating OpenAI gpt-4o model client...")
