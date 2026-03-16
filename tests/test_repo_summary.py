@@ -18,7 +18,6 @@ Notes:
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import logging
 from pathlib import Path
@@ -46,73 +45,44 @@ async def _run_summary(url: str):
     return await tool_repo_summary(RepoSummaryInput(url=url))
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Smoke test for repo summary tool")
-    parser.add_argument(
-        "--url",
-        default="https://github.com/qchapp/lungs-segmentation",
-        help="GitHub repo URL to summarize",
-    )
-    parser.add_argument(
-        "--out",
-        default=None,
-        help="Optional path to write the full Markdown summary",
-    )
-    parser.add_argument(
-        "--max-lines",
-        type=int,
-        default=100,
-        help="Max lines to print to stdout (for brevity). Use a large number for full output.",
-    )
-    parser.add_argument(
-        "--assert-contains",
-        nargs="*",
-        default=[],
-        help="Optional list of keywords the summary must contain (case-insensitive).",
-    )
-    args = parser.parse_args()
-
+def run_summary(url: str):
+    """
+    Synchronous wrapper used by the smoke test to run the repo summary tool.
+    """
+    return asyncio.run(_run_summary(url))
+
+
+DEFAULT_URL = "https://github.com/qchapp/lungs-segmentation"
+DEFAULT_KEYWORDS: List[str] = ["segmentation", "CT"]
+
+
+def test_repo_summary_smoke():
+    """
+    Minimal smoke test for the repo summarizer tool.
+
+    This runs the summarizer against a known public repository and checks
+    that a few expected keywords appear in the summary. It is intentionally
+    lightweight and avoids making assertions about the full output structure.
+    """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
     log = logging.getLogger("test.repo_summary")
+
+    log.info("Summarizing repo: %s", DEFAULT_URL)
+    res = run_summary(DEFAULT_URL)
+
+    lower_summary = res.summary.lower()
+    missing: List[str] = []
+    for kw in DEFAULT_KEYWORDS:
+        if kw.lower() not in lower_summary:
+            missing.append(kw)
+
+    if missing:
+        log.error("Keywords not found in summary: %s", missing)
+
+    assert not missing, f"Keywords not found in summary: {missing}"
 
-    # Run the tool
-    log.info("Summarizing repo: %s", args.url)
-    res = asyncio.run(_run_summary(args.url))
-
-    # Basic report
-    print("\n=== Repo Summary (header) ===")
-    print(f"Ref: {res.ref} | Truncated: {res.truncated}")
-    print("=============================\n")
-
-    # Print a truncated view to stdout for quick inspection
-    lines = res.summary.splitlines()
-    head = lines[: args.max_lines]
-    print("\n".join(head))
-    if len(lines) > args.max_lines:
-        print("\n... (truncated for stdout; full summary may be longer)")
-
-    # Optional: write full Markdown summary
-    if args.out:
-        out_path = Path(args.out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(res.summary, encoding="utf-8")
-        log.info("Wrote full summary to: %s", out_path)
-
-    # Optional assertions
-    failed: List[str] = []
-    if args.assert_contains:
-        lower_summary = res.summary.lower()
-        for kw in args.assert_contains:
-            if kw.lower() not in lower_summary:
-                failed.append(kw)
-        if failed:
-            msg = f"Assertion failed: keywords not found in summary: {failed}"
-            log.error(msg)
-            raise SystemExit(2)
-
-    log.info("Done. Summary length: %d chars, %d lines.", len(res.summary), len(lines))
-
-
-if __name__ == "__main__":
-    # Allow running with `python tests/test_repo_summary.py`
-    main()
+    log.info(
+        "Done. Summary length: %d chars, %d lines.",
+        len(res.summary),
+        len(res.summary.splitlines()),
+    )
