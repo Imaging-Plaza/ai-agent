@@ -55,60 +55,25 @@ When users upload files, format tokens are added to the query:
 Special tags are extracted and processed:
 
 ```python
-query = "segment lungs [EXCLUDE:tool1|tool2] [NO_RERANK]"
+query = "segment lungs [EXCLUDE:tool1|tool2]"
 
 # Extracted:
 clean_query = "segment lungs"
 excluded_tools = ["tool1", "tool2"]
-skip_rerank = True
 ```
 
 **Supported tags**:
 - `[EXCLUDE:tool1|tool2]`: Filter tools from results
-- `[NO_RERANK]`: Skip CrossEncoder reranking
-- `[REFINE]`: Force clarification (handled by agent, not retrieval)
 
-## Step 2: Query Expansion
+## Step 2: Metadata-Aware Querying
 
-### Semantic Similarity-Based Expansion
+The pipeline does not perform semantic vocabulary expansion. Instead, retrieval combines:
 
-Queries are expanded with semantically related terms from the catalog vocabulary:
+- cleaned task text
+- format tokens inferred from uploaded files (for example `format:DICOM`)
+- compact image metadata hints (modality/anatomy/dimensionality when available)
 
-```python
-query = "segment brain"
-
-# Semantic neighbors (cosine similarity > 0.75):
-expansion_terms = [
-    "segmentation",     # 0.89
-    "parcellation",     # 0.82
-    "extraction",       # 0.79
-    "anatomy",          # 0.78
-    "neuroimaging"      # 0.76
-]
-
-# Expanded query:
-"segment brain segmentation parcellation extraction anatomy neuroimaging"
-```
-
-**How it works**:
-
-1. Extract vocabulary from catalog (all tool names, descriptions, keywords)
-2. Embed vocabulary using BGE-M3
-3. At query time, find top-N nearest neighbors (cosine similarity)
-4. Add neighbors to query
-
-**Benefits**:
-
-- Automatic synonym handling
-- No manual dictionaries needed
-- Adapts to catalog changes
-- Handles domain-specific terminology
-
-**Parameters**:
-
-- Similarity threshold: 0.75
-- Max expansion terms: 10
-- Vocabulary updated on catalog sync
+This keeps retrieval deterministic and closely tied to the user's data.
 
 ### Alternative Query Generation
 
@@ -116,15 +81,14 @@ On retry (when initial results < 5 tools):
 
 ```python
 # Initial query
-query1 = "segment rare structure"
+query1 = "segment rare pulmonary structure"
 results = 2 tools  # Too few!
 
-# Retry 1: Broader expansion
-query2 = "segment structure anatomy region organ tissue"
+# Retry 1: Broader formulation (keep first 2-3 words)
+query2 = "segment rare pulmonary"
 results = 7 tools  # Better!
 
-# Retry 2: Even broader (if needed)
-query3 = "segment analysis detection extraction processing"
+# Retry 2: If still insufficient, repeat with same broadening strategy
 ```
 
 **Max retries**: 2
@@ -269,25 +233,6 @@ reranked_candidates = [candidates[i] for i in sorted_indices][:8]
 
 **Output**: Top-8 candidates with refined ranking
 
-### Skip Reranking
-
-With `[NO_RERANK]` tag:
-
-```python
-if "[NO_RERANK]" in query:
-    # Skip CrossEncoder, use FAISS scores directly
-    final_candidates = candidates[:8]
-else:
-    # Apply reranking
-    final_candidates = rerank(candidates)[:8]
-```
-
-**Trade-off**:
-
-- ✅ Faster (~200ms saved)
-- ❌ Potentially less accurate
-- Good for: Quick exploration, well-specified queries
-
 ## Output Format
 
 ### Candidate Schema
@@ -407,7 +352,7 @@ During retrieval:
 - **Number of candidates found**: Should be ≥8 for good coverage
 - **Average similarity score**: Higher = better match
 - **Reranking impact**: Score change after reranking
-- **Query expansion**: Number of terms added
+- **Retry usage**: Whether broadening retry was triggered
 
 ### Logging
 
@@ -426,14 +371,14 @@ INFO retriever.pipeline: Final candidates: 8, avg_score=0.78
 1. **English only**: No multilingual support (though model is capable)
 2. **Small catalog**: ~150 tools (FAISS overkill, but scales)
 3. **No filtering**: Can't filter by license, modality in retrieval (done in Stage 2)
-4. **Fixed vocabulary**: Expansion vocabulary from catalog only
+4. **Heuristic retries**: Broadening strategy is simple prefix-based shortening
 
 ### Future Enhancements
 
 - **Hybrid search**: Combine semantic + keyword (BM25)
 - **Metadata filters**: Pre-filter by modality, license, format
 - **Personalization**: User history, preferences
-- **Dynamic expansion**: Learn expansion terms from user behavior
+- **Adaptive retries**: Learn better broadening formulations from query logs
 
 ## Next Steps
 

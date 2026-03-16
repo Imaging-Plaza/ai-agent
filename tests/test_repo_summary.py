@@ -19,6 +19,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 from pathlib import Path
 from typing import List
@@ -35,10 +36,14 @@ for p in (ROOT, PKG_ROOT):
         sys.path.insert(0, sp)
 
 # Import your tool
-from agent.tools.repo_info_tool import (
+from ai_agent.agent.tools.repo_info_tool import (
     tool_repo_summary,
     RepoSummaryInput,
 )
+
+
+async def _run_summary(url: str):
+    return await tool_repo_summary(RepoSummaryInput(url=url))
 
 
 def main():
@@ -72,7 +77,7 @@ def main():
 
     # Run the tool
     log.info("Summarizing repo: %s", args.url)
-    res = tool_repo_summary(RepoSummaryInput(url=args.url))
+    res = asyncio.run(_run_summary(args.url))
 
     # Basic report
     print("\n=== Repo Summary (header) ===")

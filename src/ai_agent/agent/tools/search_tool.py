@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from ai_agent.generator.schema import CandidateDoc
 from .utils import get_pipeline
+from .query_utils import append_format_tokens, normalize_formats, strip_legacy_original_formats_line
 
 
 class SearchToolsInput(BaseModel):
@@ -35,48 +36,18 @@ def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
     q = inp.query
 
     # 2) Normalise original formats
-    original_formats: List[str] = [f.lower() for f in inp.original_formats]
+    original_formats: List[str] = normalize_formats(inp.original_formats)
 
     # If none were explicitly provided, look for a legacy "OriginalFormats:" line.
     if not original_formats:
-        for line in q.splitlines():
-            if line.lower().startswith("originalformats:"):
-                parts = line.split(":", 1)[1].strip().split()
-                for p in parts:
-                    ext = p.strip().lower()
-                    if ext and ext not in original_formats:
-                        original_formats.append(ext)
+        _, from_legacy = strip_legacy_original_formats_line(q)
+        original_formats.extend(from_legacy)
 
     # 3) Remove any "OriginalFormats:" line from the semantic query
-    clean_lines = [
-        ln for ln in q.splitlines() if not ln.lower().startswith("originalformats:")
-    ]
-    base_query = " ".join(ln.strip() for ln in clean_lines if ln.strip())
+    base_query, _ = strip_legacy_original_formats_line(q)
 
     # 4) Build soft format tokens (they bias but do not dominate)
-    token_map = {
-        "tif": "TIFF",
-        "tiff": "TIFF",
-        "nii": "NIfTI",
-        "nii.gz": "NIfTI",
-        "dcm": "DICOM",
-        "dicom": "DICOM",
-        "nrrd": "NRRD",
-        "png": "PNG",
-        "jpg": "JPEG",
-        "jpeg": "JPEG",
-    }
-    fmt_tokens: List[str] = []
-    for ext in original_formats:
-        canon = token_map.get(ext.lower(), ext.upper())
-        if canon not in fmt_tokens:
-            fmt_tokens.append(canon)
-
-    if fmt_tokens:
-        # append softly at end so primary semantics still dominate
-        base_query = (
-            base_query + " " + " ".join(f"format:{t}" for t in fmt_tokens)
-        ).strip()
+    base_query = append_format_tokens(base_query, original_formats)
 
     # 5) Call retrieve() that includes automatic reranking
     hits = pipe.retrieve(

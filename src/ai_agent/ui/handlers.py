@@ -5,7 +5,6 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
 
-from ai_agent.agent.agent import run_agent
 from ai_agent.agent.tools.gradio_space_tool import tool_run_example, RunExampleInput
 from ai_agent.agent.tools.mcp import (
     get_tool,
@@ -365,6 +364,8 @@ def respond(
         return reply, state
 
     try:
+        from ai_agent.agent.agent import run_agent
+
         agent_result = run_agent(
             clean_message,
             image_paths=effective_paths,

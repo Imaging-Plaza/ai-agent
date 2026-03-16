@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any, Dict, List
 from pydantic import BaseModel, Field
 import yaml
 
@@ -43,6 +43,33 @@ class AppConfig(BaseModel):
         description="Model used for pydantic-ai agent (main reasoning & tool selection)",
     )
 
+def _resolve_config_path(config_path: Optional[str] = None) -> Optional[Path]:
+    path = config_path or os.getenv("CONFIG_PATH")
+    if not path:
+        return None
+    p = Path(path)
+    return p if p.exists() else None
+
+
+def load_raw_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+    """Load raw YAML config dictionary from disk, returning {} on error/missing file."""
+    p = _resolve_config_path(config_path)
+    if not p:
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except (yaml.YAMLError, OSError) as e:
+        log.error(f"Failed to load config from {p}: {e}")
+        return {}
+
+
+def get_available_models_config(config_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Return available_models entries from config.yaml."""
+    data = load_raw_config(config_path)
+    models = data.get("available_models", [])
+    return models if isinstance(models, list) else []
+
 
 def load_config(config_path: Optional[str] = None) -> AppConfig:
     """
@@ -54,20 +81,12 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     Returns:
         AppConfig instance with agent model configuration
     """
-    # Determine config file path
-    if config_path is None:
-        config_path = os.getenv("CONFIG_PATH")
-
-    # Load model from YAML if file exists
-    if config_path and Path(config_path).exists():
+    data = load_raw_config(config_path)
+    if data.get("agent_model"):
         try:
-            log.info(f"Loading model config from: {config_path}")
-            with open(config_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-                if "agent_model" in data:
-                    return AppConfig(agent_model=ModelConfig(**data["agent_model"]))
-        except (yaml.YAMLError, ValueError) as e:
-            log.error(f"Failed to load config from {config_path}: {e}")
+            return AppConfig(agent_model=ModelConfig(**data["agent_model"]))
+        except ValueError as e:
+            log.error(f"Invalid agent_model in config: {e}")
             log.warning("Falling back to default configuration")
 
     # Fall back to default model
@@ -93,3 +112,13 @@ def get_config() -> AppConfig:
     if _config is None:
         _config = load_config()
     return _config
+
+
+__all__ = [
+    "ModelConfig",
+    "AppConfig",
+    "load_raw_config",
+    "get_available_models_config",
+    "load_config",
+    "get_config",
+]

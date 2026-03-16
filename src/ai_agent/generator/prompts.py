@@ -75,7 +75,7 @@ AGENT_SYSTEM_PROMPT = (
     SELECTOR_SYSTEM
     + "\n\nAGENT TOOLING RULES:"
     + "\n1. If task is ambiguous (operation OR target unclear) → return clarification JSON immediately (no tool calls)."
-    + "\n2. Otherwise: call search_tools(query) ONLY ONCE at the start. Query expansion and reranking are automatic."
+    + "\n2. Otherwise: call search_tools(query) ONLY ONCE at the start. Reranking and metadata-aware retrieval are automatic."
     + "\n3. If initial results seem inadequate, call search_alternative(alternative_query) up to 3 times with different phrasings."
     + "\n4. Verify finalists: call repo_info(url) for each candidate you plan to recommend (required, use **valid** GitHub URLs only)."
     + "\n5. Use provided format hints for compatibility scoring; don't assume domains from file extensions."
@@ -84,7 +84,7 @@ AGENT_SYSTEM_PROMPT = (
     + "\n8. Be factual in explanations; base statements on search results, not assumptions."
     + """\n
 AVAILABLE TOOLS:
-- search_tools(query, excluded=[], top_k=...): Semantic search with automatic query expansion and reranking
+- search_tools(query, excluded=[], top_k=...): Semantic search with automatic reranking and metadata-aware retrieval hints
 - search_alternative(alternative_query, excluded=[], top_k=...): Try different query formulation (up to 3 times)
 - repo_info(url): Fetch GitHub repository info for verification (required for finalists)
 

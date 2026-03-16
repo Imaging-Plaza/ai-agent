@@ -104,22 +104,6 @@ Find segmentation tools [EXCLUDE:totalsegmentator|medicalsam]
 
 You can exclude multiple tools separated by `|`.
 
-### Disabling Reranking
-
-For faster (but potentially less accurate) results:
-
-```
-Find lung segmentation tools [NO_RERANK]
-```
-
-### Force Refinement
-
-Request clarification even when results are available:
-
-```
-Segment this image [REFINE]
-```
-
 ### Requesting Alternatives
 
 Ask the agent to search with different strategies:

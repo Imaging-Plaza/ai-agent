@@ -6,9 +6,9 @@ import json
 from urllib.parse import urlparse
 
 from ai_agent.retriever.software_doc import SoftwareDoc
+from ai_agent.core.pipeline_registry import get_pipeline as get_shared_pipeline
 from ai_agent.api.pipeline import RAGImagingPipeline
 
-_PIPE: Optional[RAGImagingPipeline] = None
 _DOCS: List[SoftwareDoc] = []
 MAX_CHARS = 20000
 
@@ -49,14 +49,11 @@ def get_catalog_docs() -> List[SoftwareDoc]:
     return _DOCS
 
 
-def get_pipeline() -> RAGImagingPipeline:
-    global _PIPE, _DOCS
-    if _PIPE is None:
-        # Load docs first (reuses cached docs if available)
-        get_catalog_docs()
-        # Now initialize the full pipeline
-        _PIPE = RAGImagingPipeline()
-    return _PIPE
+def get_pipeline() -> "RAGImagingPipeline":
+    # Load docs first (reuses cached docs if available)
+    get_catalog_docs()
+    # Use the process-wide shared pipeline singleton.
+    return get_shared_pipeline()
 
 
 def _clip(s: str) -> Tuple[str, bool]:

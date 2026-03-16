@@ -13,7 +13,13 @@ load_dotenv()
 log = logging.getLogger("ai_agent.cli")
 
 from ai_agent.catalog.sync import sync_once
-from ai_agent.ui import get_pipeline, refresh_ui_docs_from_index, launch
+
+
+def _ui_funcs():
+    # Lazy import avoids loading agent/model modules for non-UI commands.
+    from ai_agent.ui.app import get_pipeline, refresh_ui_docs_from_index, launch
+
+    return get_pipeline, refresh_ui_docs_from_index, launch
 
 
 # --------------------------- catalog background refresher ---------------------------
@@ -35,6 +41,7 @@ def _background_refresh():
                     res.get("jsonl_path"),
                 )
 
+                get_pipeline, refresh_ui_docs_from_index, _ = _ui_funcs()
                 pipe = get_pipeline()
 
                 if res.get("changed"):
@@ -66,6 +73,8 @@ def run_chat():
         res = sync_once()
         log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
 
+        get_pipeline, refresh_ui_docs_from_index, launch = _ui_funcs()
+
         # Initialize pipeline
         pipe = get_pipeline()
 
@@ -86,6 +95,7 @@ def run_chat():
     _background_refresh()
 
     try:
+        _, _, launch = _ui_funcs()
         launch()
     except Exception:
         log.exception("[chat-launch] failed")

@@ -13,7 +13,6 @@ All notable changes to this project will be documented in this file.
   - Inline file upload support for PNG, JPG, WEBP, TIFF, DICOM, NIfTI, CSV, JSON, XML, MP3, MP4
   - File previews with format-specific icons rendered in chat messages
   - Tool recommendation cards with detailed metadata (modality, dimensions, license, tags)
-  - Demo execution as conversational flow - assistant asks "Would you like me to run the demo?"
   - Tool execution traces displayed as collapsible `<details>` sections after responses
   - Debug sidebar showing conversation state, excluded tools, and preview images
   - Full conversation context maintained across multi-turn interactions
@@ -35,7 +34,6 @@ All notable changes to this project will be documented in this file.
 - **Iterative Retrieval with Retry**: Added automatic retry logic (up to 2 attempts) when initial search returns insufficient results (<5 candidates). System generates alternative queries using semantic neighbors.
 - **Agent Alternative Search Tool**: New `search_alternative` tool allows agent to explicitly request searches with different query formulations (up to 3 per conversation). Enables agent-driven iterative refinement.
 - **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
-- **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection).
 - **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
 - **3D Lungs Segmentation Tool**: New MCP tool (`agent/tools/lungs_segmentation_tool.py`) that integrates with HuggingFace Space (https://qchapp-3d-lungs-segmentation.hf.space/) for 3D U-Net based lung segmentation in CT volumes. Supports DICOM, NIfTI, and TIFF stack inputs with robust file materialization strategy handling multiple Gradio output formats (FileData dict, URL string, local path, server path).
 - **Tool Usage Analytics**: Real-time visualization in chat UI showing tool call frequency bar chart and timeline plot. Tracks all tool executions with timestamps and success/failure status. Provides users with transparency about which tools are being used during their session.
@@ -47,22 +45,14 @@ All notable changes to this project will be documented in this file.
   - `CATALOG_NAME_TO_TOOL` reverse mapping dict to handle catalog name → tool name resolution
   - **Catalog name mapping**: Tools can specify `catalog_names` list to map dataset names (e.g., "lungs-segmentation") to internal tool names (e.g., "lungs_segmentation")
   - **Clean registration pattern**: Single `ensure_tools_registered()` call in app.py replaces individual tool imports
-  - Generic extraction functions: `extract_preview()`, `extract_downloads()`, `extract_metadata()`
-  - Helper functions: `register_tool()`, `get_tool()`, `list_tools()`, `get_tool_display_name()`, `get_tool_icon()`
   - `get_tool()` automatically resolves both registry names and catalog names for seamless integration with RAG recommendations
   - Supports lazy loading to avoid loading heavy dependencies at import time
 - **MCP Tools Subpackage** (`agent/tools/mcp/`): Organized separation of registered imaging tools (MCP protocol) from agent utilities. Base models, registry, and imaging tools (e.g., lungs_segmentation) now in dedicated subpackage for clarity.
 - **Base Tool Models** (`agent/tools/mcp/base.py`): Standard Pydantic schemas for tool consistency
-  - `BaseToolOutput`: Standard fields across all tools (success, error, compute_time_seconds, result_preview, result_origin, metadata_text, notes)
-  - `BaseToolInput`: Minimal base class for tool inputs
-  - `ImageToolInput`: Common pattern for image-based tools with image_path and description fields
 - **Tool Registration**: Lungs segmentation tool self-registers with complete field mappings
-  - Preview field: `result_preview`
-  - Download fields: `result_origin`
-  - Metadata field: `metadata_text`
-  - Notes field: `notes`
 
 ### Changed
+- **Documentation cleanup**: Removed stale references to `[NO_RERANK]` and `[REFINE]` control-tag behavior from user/architecture docs, and updated structure/instruction docs to current agent layout (`agent/tools/`, `agent/utils.AgentState`), active CLI usage (`ai_agent chat`), and current testing guidance.
 - CLI now supports `ai_agent chat`
 - **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
 - Automatic fallback to `repocards` library (replacing previous direct GitHub API implementation) when DeepWiki is unavailable or times out, ensuring robust repository information retrieval for both indexed and newly-created repositories.
@@ -88,26 +78,9 @@ All notable changes to this project will be documented in this file.
 - **Visual hierarchy**: Header with gradient green banner and logo
 - **Button styling**: Primary actions use Imaging Plaza green theme colors
 - **Tool Approval Workflow**: Replaced text-based approval (responding "yes"/"sure"/"ok" in chat) with explicit button-based approval. Tool execution now requires clicking a dedicated approval button that appears inline in the chat, improving clarity and preventing accidental tool execution.
-- **Chat Output Structure**: Extended Gradio component outputs from 6 to 9 values to support new approval box and download files components. All event handlers (`submit_btn.click`, `msg_input.submit`, `approve_tool_btn.click`, `clear_btn.click`) now consistently yield/return all 9 outputs: chatbot history, state, 3 charts, state display, downloads, approval box visibility, and approval button label.
 - **Tool Approval Button Position**: Moved approval button from standalone position below input controls to inline group box between chatbot and downloads section. Button now appears as part of "🤖 Tool Recommendation" box with dynamic label showing tool name (e.g., "🚀 Run Lungs Segmentation").
 - **Generic Tool Execution** (`ui/handlers.py`): Replaced tool-specific `execute_lungs_segmentation()` with generic `execute_tool_with_approval()`
-  - Dynamic tool lookup via `get_tool(tool_name)` - NO hardcoded tool names
-  - Dynamic input construction: `tool_config.input_model(**params)` - works for any Pydantic schema
-  - Dynamic tool execution: `tool_config.executor(input_obj)` - calls registered executor
-  - Generic field extraction using registry field mappings - NO tool-specific code
-  - Works for ANY tool that registers in TOOL_REGISTRY
-  - Eliminates need for tool-specific if/else chains
   - **Architectural benefit**: Adding 70+ tools requires ZERO changes to handlers.py
-- **Dynamic Button Labels** (`ui/components.py`): Button text now uses registry helper functions
-  - `get_tool_display_name()` and `get_tool_icon()` provide consistent labels
-  - Replaces hardcoded string formatting: `tool_name.replace('_', ' ').title()`
-  - Button shows proper display name and icon from ToolConfig
-- **Lazy Tool Loading** (`agent/tools/__init__.py`): Only export registry, not all tools
-  - Prevents loading heavy dependencies (nibabel, pydicom) at package import
-  - Tools imported explicitly where needed (e.g., in `ui/app.py`)
-  - Added `ensure_tools_registered()` function for explicit bulk loading
-  - Fixes import hangs caused by eager tool loading
-- **Tool Import Location** (`ui/app.py`): Import lungs_segmentation_tool to trigger registration before UI launch
 - **LungsSegmentationOutput Schema**: Enhanced with separate `result_origin` (original format file for download), `result_preview` (PNG preview for display), `metadata_text` (file metadata string), and `api_name` fields. Maintains backward compatibility with `result_path` field (now set to preview when available, else origin).
 - **Download vs Display Separation**: Tool results now distinguish between files for download (`result_origin` - TIFF/NIfTI/DICOM) and inline display (`result_preview` - PNG). Downloads section shows original format files while chat shows converted previews for better compatibility.
 - **HuggingFace Space Client Timeout**: Extended timeout to 300 seconds (5 minutes) via `httpx_kwargs={"timeout": 300.0}` parameter in `_make_gradio_client()` to handle slow Space cold starts and large medical imaging file uploads/downloads without timing out. Includes graceful fallback for older gradio_client versions without `httpx_kwargs` support.

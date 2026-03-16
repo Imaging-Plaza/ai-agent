@@ -63,9 +63,3 @@ def cleanup_temp_files() -> None:
                 log.warning(f"Failed to clean up {path}: {e}")
 
         _temp_files.clear()
-
-
-def get_temp_file_count() -> int:
-    """Get the number of registered temporary files."""
-    with _lock:
-        return len(_temp_files)

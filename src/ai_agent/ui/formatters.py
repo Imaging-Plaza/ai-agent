@@ -1,6 +1,3 @@
-import os
-from typing import Tuple, Optional
-
 from ai_agent.retriever.software_doc import SoftwareDoc
 
 
@@ -43,43 +40,3 @@ def format_tool_card(doc: SoftwareDoc, accuracy: float, why: str, rank: int) -> 
 
     return card
 
-
-def format_file_preview(file_path: str) -> Tuple[str, Optional[str]]:
-    """
-    Create a preview for uploaded files.
-    Returns (description_text, preview_image_path)
-    """
-    ext = os.path.splitext(file_path)[1].lower().lstrip(".")
-    basename = os.path.basename(file_path)
-
-    # Image formats - can be displayed directly
-    if ext in ("png", "jpg", "jpeg", "webp", "gif", "bmp"):
-        return f"📷 {basename}", file_path
-
-    # TIFF might be multi-page
-    if ext in ("tif", "tiff"):
-        return f"🖼️ {basename} (TIFF stack)", file_path
-
-    # Volume formats
-    if ext in ("nii", "dcm") or file_path.endswith(".nii.gz"):
-        return f"🧠 {basename} (medical volume)", None
-
-    # Data formats
-    if ext == "csv":
-        return f"📊 {basename} (CSV data)", None
-
-    if ext in ("json", "jsonl"):
-        return f"📋 {basename} (JSON)", None
-
-    if ext == "xml":
-        return f"📄 {basename} (XML)", None
-
-    # Media formats
-    if ext in ("mp3", "wav", "ogg"):
-        return f"🎵 {basename} (audio)", None
-
-    if ext in ("mp4", "avi", "mov", "webm"):
-        return f"🎬 {basename} (video)", None
-
-    # Generic file
-    return f"📎 {basename}", None

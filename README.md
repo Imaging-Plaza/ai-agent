@@ -215,7 +215,7 @@ User Input (Image + Text Query)
 2. **Embedding**: BGE-M3 model generates query embedding
 3. **Vector Search**: FAISS retrieves top candidates
 4. **Reranking**: CrossEncoder refines results for precision
-5. **Similarity Expansion**: Automatic query enrichment with semantic neighbors
+5. **Retry Broadening**: If too few hits, retry with a shorter/broader query
 
 ### Agent Selection Stage
 
@@ -229,8 +229,7 @@ User Input (Image + Text Query)
 2. **Agent Tools**:
    - `search_tools`: Search catalog with query
    - `search_alternative`: Find alternatives (iterative)
-   - `run_example`: Execute Gradio Space demos
-   - `repo_summary`: Fetch GitHub documentation via DeepWiki MCP
+  - `repo_info`: Fetch GitHub documentation via DeepWiki MCP
 
 3. **Output**: Ranked tool selections with accuracy scores and explanations
 
@@ -469,7 +468,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 **[Unreleased]**
 - ✨ New chat-based interface with conversational AI
 - 🔧 YAML model configuration for flexible deployment
-- 🔍 Similarity-based query expansion (no hardcoded synonyms)
+- 🔍 Metadata-aware retrieval with iterative retry for low-result queries
 - 🔗 DeepWiki MCP integration for GitHub repo docs
 - 🎨 Imaging Plaza branding and custom theme
 - 🛠️ Agent-based architecture replacing legacy VLM selector

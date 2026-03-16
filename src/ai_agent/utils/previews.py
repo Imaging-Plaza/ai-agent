@@ -64,19 +64,6 @@ def slice_gif(
     frames = [np.take(v, i, axis=axis) for i in idxs]
     iio.imwrite(str(out_gif), frames, plugin="pillow", duration=int(1000 / fps), loop=0)
     return str(out_gif)
-
-
-def stack_sweep_gif(
-    vol3d: np.ndarray, out_gif: str | Path, fps: int = 12, max_frames: int = 64
-) -> str:
-    v = _norm_uint8(vol3d)
-    depth = v.shape[2]
-    step = max(1, depth // max_frames)
-    frames = [v[:, :, i] for i in range(0, depth, step)]
-    iio.imwrite(str(out_gif), frames, plugin="pillow", duration=int(1000 / fps), loop=0)
-    return str(out_gif)
-
-
 def contact_sheet_slices(
     vol3d: np.ndarray,
     out_png: str | Path,

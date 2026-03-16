@@ -32,58 +32,9 @@ You: Find open-source options [EXCLUDE:proprietarytool1|proprietarytool2]
 Agent: [Returns only open-source tools]
 ```
 
-### Disable Reranking
+### Notes
 
-Skip the CrossEncoder reranking step for faster results:
-
-```
-Find segmentation tools [NO_RERANK]
-```
-
-**Benefits**:
-
-- ✅ Faster retrieval (~2x speedup)
-- ✅ Lower computational cost
-- ✅ Good for broad exploratory queries
-
-**Trade-offs**:
-
-- ❌ Potentially less accurate ranking
-- ❌ May include less relevant tools
-- ❌ Semantic matching only (no cross-attention)
-
-**When to use**:
-
-- Quick exploration
-- Very specific queries (already well-targeted)
-- When speed matters more than precision
-
-### Force Refinement
-
-Request clarification even with good results:
-
-```
-Segment this image [REFINE]
-```
-
-**Results in**:
-
-- Agent asks clarifying questions
-- More focused recommendations
-- Opportunity to specify requirements
-
-**Example**:
-```
-You: Analyze this CT scan [REFINE]
-Agent: I can see this is a CT scan. What specific analysis are you interested in?
-      - Organ segmentation
-      - Tumor detection
-      - Bone analysis
-      - Vascular analysis
-
-You: Tumor detection
-Agent: [Provides tumor detection tools specifically]
-```
+Only `[EXCLUDE:...]` is currently interpreted as a control tag for retrieval filtering.
 
 ## Alternative Searches
 
@@ -103,7 +54,7 @@ What else is available?
 **What happens**:
 
 - Agent formulates alternative query
-- Uses semantic neighbors for expansion
+- Uses different phrasing/keywords for broader coverage
 - Searches with different emphasis
 - Returns new set of recommendations
 
@@ -237,38 +188,35 @@ To start fresh:
 - Clear uploaded files
 - Start new conversation
 
-## Query Expansion
+## Retrieval Query Behavior
 
 ### How It Works
 
-Your query is automatically expanded with semantic neighbors:
+The retrieval pipeline currently does not add semantic neighbor terms.
+Instead, it builds retrieval queries from:
 
 ```
-Original: "segment brain"
-Expanded: "segment brain segmentation parcellation extraction
-           anatomy neuroimaging cranial"
+User text: "segment brain"
++ format hints from files: format:DICOM / format:NIfTI
++ compact image metadata: modality, anatomy, dimensions (when available)
 ```
 
 **Based on**:
 
 - BGE-M3 embeddings
-- Catalog vocabulary
-- Cosine similarity >0.75
-- Top 10 neighbors
+- Format-aware hinting from uploaded files
+- Metadata-aware context from image inspection
 
 ### Benefits
 
-- ✅ Finds tools using different terminology
-- ✅ Broader coverage of catalog
-- ✅ Handles synonyms automatically
-- ✅ No manual synonym dictionaries
+- ✅ Stronger format compatibility matching
+- ✅ Better ranking for modality/dimension-specific tasks
+- ✅ More predictable retrieval behavior
 
 ### Customization
 
-Expansion is automatic but considers:
-- Your exact query terms (boosted weight)
-- Semantically similar terms
-- Format tokens from uploaded files
+If initial results are too sparse, the pipeline retries with a broader query
+formulation automatically.
 
 ## Format-Aware Matching
 

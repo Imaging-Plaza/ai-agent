@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from ai_agent.generator.schema import CandidateDoc
 from .utils import get_pipeline
+from .query_utils import append_format_tokens, normalize_formats
 
 
 class SearchAlternativeInput(BaseModel):
@@ -42,29 +43,8 @@ def tool_search_alternative(inp: SearchAlternativeInput) -> SearchAlternativeOut
     query = inp.alternative_query.strip()
 
     # Normalize formats
-    original_formats: List[str] = [f.lower() for f in inp.original_formats]
-
-    # Build soft format tokens
-    token_map = {
-        "tif": "TIFF",
-        "tiff": "TIFF",
-        "nii": "NIfTI",
-        "nii.gz": "NIfTI",
-        "dcm": "DICOM",
-        "dicom": "DICOM",
-        "nrrd": "NRRD",
-        "png": "PNG",
-        "jpg": "JPEG",
-        "jpeg": "JPEG",
-    }
-    fmt_tokens: List[str] = []
-    for ext in original_formats:
-        canon = token_map.get(ext.lower(), ext.upper())
-        if canon not in fmt_tokens:
-            fmt_tokens.append(canon)
-
-    if fmt_tokens:
-        query = (query + " " + " ".join(f"format:{t}" for t in fmt_tokens)).strip()
+    original_formats: List[str] = normalize_formats(inp.original_formats)
+    query = append_format_tokens(query, original_formats)
 
     # Call retrieve() which includes automatic reranking
     hits = pipe.retrieve(

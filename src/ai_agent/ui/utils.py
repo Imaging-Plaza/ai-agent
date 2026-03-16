@@ -1,33 +1,10 @@
 """Utility functions for UI configuration management."""
 import logging
-import os
-from pathlib import Path
 from typing import Dict, Optional
 
-import yaml
+from ai_agent.utils.config import get_config, get_available_models_config
 
 log = logging.getLogger("ui.utils")
-
-
-def load_config() -> dict:
-    """
-    Load the full config.yaml file.
-    
-    Returns:
-        Dictionary containing the full config, or empty dict if not found.
-    """
-    try:
-        config_path = os.getenv("CONFIG_PATH", "config.yaml")
-        if not Path(config_path).exists():
-            log.warning(f"Config file not found: {config_path}")
-            return {}
-        
-        with open(config_path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    
-    except Exception as e:
-        log.error(f"Failed to load config: {e}")
-        return {}
 
 
 def get_agent_model() -> Dict[str, Optional[str]]:
@@ -38,13 +15,12 @@ def get_agent_model() -> Dict[str, Optional[str]]:
         Dictionary with 'name', 'base_url', and 'api_key_env' keys.
         Returns minimal default if config not available.
     """
-    config = load_config()
-    agent_model = config.get("agent_model", {})
+    agent_model = get_config().agent_model
     
     return {
-        "name": agent_model.get("name", "gpt-4o"),
-        "base_url": agent_model.get("base_url"),
-        "api_key_env": agent_model.get("api_key_env", "OPENAI_API_KEY"),
+        "name": agent_model.name,
+        "base_url": agent_model.base_url,
+        "api_key_env": agent_model.api_key_env,
     }
 
 
@@ -56,8 +32,7 @@ def get_available_models() -> Dict[str, Dict[str, Optional[str]]]:
         Dictionary mapping display_name -> model config
         Returns minimal default if config not available.
     """
-    config = load_config()
-    available_models = config.get("available_models", [])
+    available_models = get_available_models_config()
     
     model_configs = {}
     for model in available_models:

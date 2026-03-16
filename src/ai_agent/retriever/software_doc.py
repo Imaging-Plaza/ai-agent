@@ -382,7 +382,7 @@ class SoftwareDoc(BaseModel):
         Generate text representation for retrieval.
 
         Strategy:
-        1. Include all semantic fields without expansion (expansion happens at query-time)
+        1. Include all semantic fields directly in the index text
         2. Repeat critical fields (tasks, modality, anatomy) for better matching
         3. Keep less critical metadata at the end for context
         """

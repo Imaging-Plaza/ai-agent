@@ -114,14 +114,17 @@ Uploaded: scan.dcm (DICOM, CT, 3D)
 ↓ Query Enhancement
   Enhanced: "Segment the lungs format:DICOM format:CT format:3D"
 
-↓ Query Expansion (Semantic)
-  + "segmentation lung pulmonary anatomy CT thorax respiratory"
+↓ Metadata-Aware Hinting
+  + image metadata summary (modality/anatomy/dims)
 
 ↓ Embedding (BGE-M3)
   Vector: [0.23, -0.15, 0.87, ..., 0.34]  # 1024 dims
 
 ↓ FAISS Search
   Top 20 candidates by cosine similarity
+
+↓ Retry Broadening (if low results)
+  retry with a shorter query formulation
 
 ↓ CrossEncoder Reranking
   Re-score with cross-attention
@@ -373,14 +376,14 @@ available_models:
 
 ### Adding New Tools
 
-In `agent/tools.py`:
+Add a tool in `agent/agent.py` and route implementation to `agent/tools/` modules:
 
 ```python
 @agent.tool
-async def new_tool(ctx: RunContext[ChatState], param: str) -> str:
-    """Tool description for the agent."""
-    # Tool implementation
-    return result
+async def new_tool(ctx: RunContext[AgentState], param: str) -> str:
+  """Tool description for the agent."""
+  # Delegate to ai_agent.agent.tools.* implementation
+  return result
 ```
 
 ### Custom Metadata Extractors

@@ -44,16 +44,18 @@ PydanticAI conversational agent implementation.
 ```
 agent/
 ├── __init__.py
-├── agent.py               # Agent definition, tools
-├── state.py               # ChatState dataclass
-└── tools.py               # Agent tools (search, repo_info)
+├── agent.py               # Agent definition, tool adapters
+├── models.py              # Agent output/log models
+├── utils.py               # Agent state and tool quota helpers
+└── tools/                 # Tool implementations (search, repo_info, mcp)
 ```
 
 **Key components**:
 
 - `agent.py`: Agent instance, system prompt, tool definitions
-- `state.py`: Conversation state management
-- `tools.py`: Tool implementations (search_alternative, repo_info, etc.)
+- `models.py`: Agent output and tool usage schemas
+- `utils.py`: `AgentState` plus call caps/prepare hooks
+- `tools/`: Tool implementations (search, alternatives, repo info, mcp tools)
 
 **Dependencies**: `api/`, `utils/`
 
@@ -179,7 +181,7 @@ utils/
 - `file_validator.py`: Size limits, format checks
 - `image_meta.py`: Extract DICOM/NIfTI/TIFF metadata
 - `previews.py`: Convert medical images to PNG
-- `tags.py`: Parse `[EXCLUDE:...]`, `[NO_RERANK]`, etc.
+- `tags.py`: Parse exclusion tags and strip control tags from queries
 
 **Dependencies**: None (pure utilities)
 
@@ -313,7 +315,7 @@ All imports use absolute paths from `ai_agent`:
 ```python
 from ai_agent.retriever.vector_index import VectorIndex
 from ai_agent.utils.config import load_config
-from ai_agent.agent.state import ChatState
+from ai_agent.agent.utils import AgentState
 ```
 
 **Never use** relative imports like `from ..utils import ...`
@@ -322,11 +324,11 @@ from ai_agent.agent.state import ChatState
 
 ### Adding New Tools
 
-Add to `agent/tools.py`:
+Add tool adapters to `agent/agent.py` and implement logic in `agent/tools/`:
 
 ```python
 @agent.tool
-async def new_tool(ctx: RunContext[ChatState], param: str) -> str:
+async def new_tool(ctx: RunContext[AgentState], param: str) -> str:
     """Tool description."""
     # Implementation
     return result

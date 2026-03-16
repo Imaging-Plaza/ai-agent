@@ -218,33 +218,7 @@ RERANK_TOP_N=20
 
 **Recommendation**: 2-3x `TOP_K` value
 
-### SIMILARITY_THRESHOLD
-
-Minimum cosine similarity for query expansion.
-
-```dotenv
-SIMILARITY_THRESHOLD=0.75
-```
-
-**Default**: `0.75`
-
-**Range**: 0.0-1.0
-
-**Impact**: Lower = more expansion terms (broader search)
-
-### MAX_EXPANSION_TERMS
-
-Maximum number of terms to add during query expansion.
-
-```dotenv
-MAX_EXPANSION_TERMS=10
-```
-
-**Default**: `10`
-
-**Range**: 0-50
-
-**Impact**: More terms = broader search but potential noise -->
+-->
 
 ## .env File Example
 

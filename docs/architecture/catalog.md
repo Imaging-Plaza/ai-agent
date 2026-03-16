@@ -307,8 +307,7 @@ SYNC_EVERY_HOURS=24
 3. If changed:
     - Reload catalog
     - Re-embed all tools
-    - Rebuild FAISS index
-    - Update vocabulary for query expansion
+  - Rebuild FAISS index
 
 ### Manual Sync
 
@@ -323,7 +322,6 @@ ai_agent sync
 [sync] Embedding 150 tools... (5.2s)
 [sync] Building FAISS index...
 [sync] Saved to artifacts/rag_index/
-[sync] Updating vocabulary...
 [sync] Sync complete.
 ```
 
@@ -367,42 +365,6 @@ artifacts/rag_index/
   "catalog_sha1": "abc123..."
 }
 ```
-
-## Vocabulary Extraction
-
-### Purpose
-
-Extract terms for query expansion:
-
-```python
-vocabulary = set()
-
-for tool in catalog:
-    vocabulary.add(tool['name'].lower())
-    vocabulary.update(tool['description'].lower().split())
-    vocabulary.update(tool.get('keywords', []))
-    
-    if 'supportingData' in tool:
-        sd = tool['supportingData']
-        vocabulary.update(sd.get('modalities', []))
-        vocabulary.update(sd.get('tasks', []))
-
-# Result: ~5000 unique terms
-```
-
-### Vocabulary Embeddings
-
-Pre-embed vocabulary for fast query expansion:
-
-```python
-vocab_list = list(vocabulary)
-vocab_embeddings = embedder.encode(vocab_list, normalize_embeddings=True)
-
-# Save for query expansion
-np.save("artifacts/vocab_embeddings.npy", vocab_embeddings)
-```
-
-At query time, find nearest neighbors efficiently.
 
 ## Quality Assurance
 

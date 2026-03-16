@@ -54,8 +54,7 @@ ai_agent sync
 1. Loads the software catalog from `SOFTWARE_CATALOG` path
 2. Embeds all tool descriptions using BGE-M3
 3. Builds FAISS vector index
-4. Extracts vocabulary for query expansion
-5. Saves artifacts to `artifacts/rag_index/`
+4. Saves artifacts to `artifacts/rag_index/`
 
 **When to use**:
 
