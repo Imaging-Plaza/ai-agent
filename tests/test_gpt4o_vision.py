@@ -11,20 +11,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Track missing dependencies so we don't call sys.exit at import time.
-MISSING_OPENAI_API_KEY = False
-MISSING_PILLOW = False
-
-# Check environment
-openai_key = os.getenv("OPENAI_API_KEY")
-if not openai_key:
-    print("❌ OPENAI_API_KEY not found in environment")
-    print("   Set it in .env or export OPENAI_API_KEY=your_key")
-    MISSING_OPENAI_API_KEY = True
-else:
-    print("✅ OPENAI_API_KEY found")
-    print()
-
 # Import pydantic-ai components (matching agent.py pattern)
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -41,62 +27,92 @@ class VisionTestResponse(BaseModel):
     confidence: int  # 0-100 how confident you saw an image
 
 
-# Create minimal 1x1 red pixel PNG using PIL
-print("🔄 Creating test image (1x1 red pixel PNG)...")
-try:
-    from PIL import Image
-    import io
+def main() -> int:
+    """Run gpt-4o vision smoke test when executed as a script.
 
-    # Create 1x1 red pixel image
-    img = Image.new("RGB", (1, 1), color="red")
+    This function performs environment checks, creates a test image,
+    initializes the OpenAI client/agent, and runs basic tests.
+    It is intentionally not executed at import time so pytest can
+    safely collect this module without side effects.
+    """
+    missing_openai_api_key = False
+    missing_pillow = False
 
-    # Save to bytes
-    img_bytes = io.BytesIO()
-    img.save(img_bytes, format="PNG")
-    PNG_1x1_RED = img_bytes.getvalue()
+    # Check environment
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        print("❌ OPENAI_API_KEY not found in environment")
+        print("   Set it in .env or export OPENAI_API_KEY=your_key")
+        missing_openai_api_key = True
+    else:
+        print("✅ OPENAI_API_KEY found")
+        print()
 
-    # Also save to file
-    test_image_path = Path("test_pixel.png")
-    test_image_path.write_bytes(PNG_1x1_RED)
+    # Create minimal 1x1 red pixel PNG using PIL
+    print("🔄 Creating test image (1x1 red pixel PNG)...")
+    try:
+        from PIL import Image
+        import io
 
-    print(f"✅ Test image created: {test_image_path} ({len(PNG_1x1_RED)} bytes)")
-except ImportError:
-    print("❌ PIL/Pillow not installed. Install with: pip install Pillow")
-    MISSING_PILLOW = True
+        # Create 1x1 red pixel image
+        img = Image.new("RGB", (1, 1), color="red")
 
-print()
+        # Save to bytes
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format="PNG")
+        png_1x1_red = img_bytes.getvalue()
+
+        # Also save to file
+        test_image_path = Path("test_pixel.png")
+        test_image_path.write_bytes(png_1x1_red)
+
+        print(f"✅ Test image created: {test_image_path} ({len(png_1x1_red)} bytes)")
+    except ImportError:
+        print("❌ PIL/Pillow not installed. Install with: pip install Pillow")
+        missing_pillow = True
+
+    print()
+
+    # When run as a script, exit with a non-zero status if required dependencies are missing.
+    if missing_openai_api_key or missing_pillow:
+        return 1
+
+    # Create OpenAI provider and model (matching agent.py)
+    print("🔄 Creating OpenAI gpt-4o model client...")
+    provider = OpenAIProvider(api_key=openai_key)
+
+    model = OpenAIChatModel(
+        model_name="gpt-4o",
+        provider=provider,
+    )
+
+    agent = Agent(
+        model=model,
+        system_prompt=(
+            "You are testing vision capabilities. "
+            "If you receive an image, describe what you see in detail. "
+            "Set image_received=True and confidence=100. "
+            "If no image, set image_received=False and confidence=0."
+        ),
+    )
+
+    print("✅ OpenAI gpt-4o agent created")
+    print()
+
+    # Test 1: Text-only (baseline)
+    print("=" * 70)
+    print("📝 Test 1: Text-only request (baseline)")
+    print("=" * 70)
+
+    # NOTE: Additional test logic (not shown here) should also be placed
+    # inside this function to avoid side effects at import time.
+
+    return 0
+
 
 if __name__ == "__main__":
-    # When run as a script, exit with a non-zero status if required dependencies are missing.
-    if MISSING_OPENAI_API_KEY or MISSING_PILLOW:
-        sys.exit(1)
-
-# Create OpenAI provider and model (matching agent.py)
-print("🔄 Creating OpenAI gpt-4o model client...")
-provider = OpenAIProvider(api_key=openai_key)
-
-model = OpenAIChatModel(
-    model_name="gpt-4o",
-    provider=provider,
-)
-
-agent = Agent(
-    model=model,
-    system_prompt=(
-        "You are testing vision capabilities. "
-        "If you receive an image, describe what you see in detail. "
-        "Set image_received=True and confidence=100. "
-        "If no image, set image_received=False and confidence=0."
-    ),
-)
-
-print("✅ OpenAI gpt-4o agent created")
-print()
-
-# Test 1: Text-only (baseline)
-print("=" * 70)
-print("📝 Test 1: Text-only request (baseline)")
-print("=" * 70)
+    # Execute the smoke test only when run as a script, not on import.
+    sys.exit(main())
 try:
     result = agent.run_sync(
         "What is 2+2? (No image expected)",
