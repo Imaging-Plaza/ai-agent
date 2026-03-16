@@ -7,19 +7,6 @@ import os
 import sys
 from dotenv import load_dotenv
 
-load_dotenv()
-
-# Check environment
-epfl_key = os.getenv("EPFL_API_KEY")
-if not epfl_key:
-    print("❌ EPFL_API_KEY not found in environment")
-    print("   Set it in .env or export EPFL_API_KEY=your_key")
-    if __name__ == "__main__":
-        sys.exit(1)
-
-print("✅ EPFL_API_KEY found")
-print()
-
 # Test with a simple image
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -35,24 +22,44 @@ class SimpleResponse(BaseModel):
     has_image: bool
 
 
-# Create EPFL provider and model
-print("🔄 Creating EPFL model client...")
-provider = OpenAIProvider(
-    base_url="https://inference.rcp.epfl.ch/v1",
-    api_key=epfl_key,
-)
+# When imported (e.g. by pytest), avoid running script-like behavior.
+# Provide placeholders so attribute access does not fail.
+if __name__ != "__main__":
+    epfl_key = None
+    provider = None
+    model = None
+    agent = None
+else:
+    load_dotenv()
 
-model = OpenAIChatModel(
-    model_name="openai/gpt-oss-120b",
-    provider=provider,
-)
+    # Check environment
+    epfl_key = os.getenv("EPFL_API_KEY")
+    if not epfl_key:
+        print("❌ EPFL_API_KEY not found in environment")
+        print("   Set it in .env or export EPFL_API_KEY=your_key")
+        sys.exit(1)
 
-agent = Agent(
-    model=model,
-    system_prompt="You are a helpful assistant. If you receive an image, describe what you see. If no image, say so.",
-)
+    print("✅ EPFL_API_KEY found")
+    print()
 
-print("✅ EPFL agent created")
+    # Create EPFL provider and model
+    print("🔄 Creating EPFL model client...")
+    provider = OpenAIProvider(
+        base_url="https://inference.rcp.epfl.ch/v1",
+        api_key=epfl_key,
+    )
+
+    model = OpenAIChatModel(
+        model_name="openai/gpt-oss-120b",
+        provider=provider,
+    )
+
+    agent = Agent(
+        model=model,
+        system_prompt="You are a helpful assistant. If you receive an image, describe what you see. If no image, say so.",
+    )
+
+    print("✅ EPFL agent created")
 print()
 
 # Test 1: Text-only
