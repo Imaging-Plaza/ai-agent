@@ -133,7 +133,7 @@ A Dockerfile is available for containerized deployment:
 
 ```bash
 # Build the Docker image
-docker build -t ai-agent -f tools/image/Dockerfile .
+docker build -t ai-agent -f Dockerfile .
 
 # Run the container
 docker run -p 7860:7860 --env-file .env ai-agent
