@@ -52,14 +52,14 @@ def cleanup_temp_files() -> None:
         if not _temp_files:
             return
 
-        log.info(f"Cleaning up {len(_temp_files)} temporary file(s)")
+        log.info("Cleaning up %d temporary file(s)", len(_temp_files))
 
         for path in _temp_files:
             try:
                 if os.path.exists(path):
                     os.remove(path)
-                    log.debug(f"Cleaned up temporary file: {path}")
+                    log.debug("Cleaned up temporary file: %s", path)
             except Exception as e:
-                log.warning(f"Failed to clean up {path}: {e}")
+                log.warning("Failed to clean up %s: %s", path, e)
 
         _temp_files.clear()
