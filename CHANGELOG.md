@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 - **Agent run_example tool**: Removed autonomous tool execution capability from agent. Agent now only recommends tools - all execution requires explicit user approval via approval buttons. This enforces consistent security/UX model where users maintain full control over tool execution. The underlying `gradio_space_tool.py` remains for UI-initiated demo execution.
 
 ### Added
+- **Project and maintainer documentation expansion**:
+  - Added [AGENTS.md](AGENTS.md) with repository-wide agent workflow guidance, dev-container-first defaults, and documentation maintenance rules.
+  - Added [docs/guide.md](docs/guide.md) as a detailed contributor map covering module responsibilities, Python/package defaults, command baseline, known inconsistencies, and improvement guidelines.
+  - Linked the new guide from [README.md](README.md), [docs/index.md](docs/index.md), and [mkdocs.yml](mkdocs.yml) navigation.
 - **New chat-based interface** (`ai_agent chat`) with conversational AI assistant
   - Chatbot component with rich media rendering (images, files, JSON, code blocks)
   - Inline file upload support for PNG, JPG, WEBP, TIFF, DICOM, NIfTI, CSV, JSON, XML, MP3, MP4

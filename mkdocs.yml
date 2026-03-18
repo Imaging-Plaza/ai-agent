@@ -91,6 +91,7 @@ nav:
       - Agent & VLM Selection: architecture/agent.md
       - Software Catalog: architecture/catalog.md
   - Development:
+      - Project Guide: guide.md
       - Project Structure: development/structure.md
       - Contributing: development/contributing.md
       - Testing: development/testing.md

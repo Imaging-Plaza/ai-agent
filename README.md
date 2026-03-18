@@ -457,6 +457,10 @@ ai_agent chat
 ai_agent sync
 ```
 
+## 🗺️ Maintainer Guide
+
+For full project documentation with detailed folder responsibilities, environment defaults, and improvement guidelines, see [docs/guide.md](docs/guide.md).
+
 ---
 
 ## 📝 Changelog
