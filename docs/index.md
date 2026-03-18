@@ -68,6 +68,10 @@ Learn more in the [Architecture Overview](architecture/overview.md).
 
 Ready to try it out? Head over to the [Installation Guide](getting-started/installation.md) to get started!
 
+## Project Guide
+
+For maintainers and contributors, see the [Project Guide](guide.md) for a detailed repository map, dev-container environment defaults, and practical codebase improvement guidelines.
+
 ## Project Status
 
 This project is actively developed and maintained by the Imaging Plaza team. Check the [Changelog](reference/changelog.md) for recent updates.
