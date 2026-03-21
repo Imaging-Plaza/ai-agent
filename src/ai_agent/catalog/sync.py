@@ -325,16 +325,50 @@ def sync_once(
     except Exception:
         log.debug("Could not write semantic snapshot or digest")
 
+    index_dir = Path(os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
+    index_dir.mkdir(parents=True, exist_ok=True)
+
     if not changed:
-        log.info(
-            "Catalog unchanged (semantic sha1=%s); skipping FAISS update", digest[:12]
-        )
+        # Important: catalog may be unchanged while embedding model/dim changed.
+        # In that case, loading old FAISS artifacts fails and we must rebuild.
+        faiss_rebuilt = False
+        faiss_delta: Dict[str, int] = {"added": 0, "updated": 0, "removed": 0}
+        try:
+            embedder = LocalBGEEmbedder()
+            VectorIndex.load(index_dir, embedder)
+            log.info(
+                "Catalog unchanged (semantic sha1=%s); keeping FAISS index", digest[:12]
+            )
+        except Exception as e:
+            log.warning(
+                "Catalog unchanged but FAISS index is missing/incompatible; rebuilding index (%s)",
+                e,
+            )
+            embedder = LocalBGEEmbedder()
+            idx = VectorIndex(embedder)
+            items = [
+                IndexItem(id=d.name, doc=d) for d in docs if getattr(d, "name", None)
+            ]
+            faiss_delta = idx.sync_with_catalog(items)
+            idx.save(index_dir)
+            faiss_rebuilt = True
+            log.info(
+                "FAISS index rebuilt in %s: added=%d, updated=%d, removed=%d",
+                index_dir,
+                faiss_delta["added"],
+                faiss_delta["updated"],
+                faiss_delta["removed"],
+            )
+
         return {
             "jsonld_path": str(out_jsonld),
             "jsonl_path": str(out_jsonl),
             "count": count,
             "changed": False,
             "digest": digest,
+            "index_dir": str(index_dir),
+            "faiss_rebuilt": faiss_rebuilt,
+            "faiss_delta": faiss_delta,
         }
 
     diff = _diff_norm_docs(prev_norm, norm_docs_sorted)
@@ -363,13 +397,13 @@ def sync_once(
             log.info("  changed (sample): %s", chg_s)
         log.info("Full diff written to %s", diff_path)
 
-    index_dir = Path(os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
-    index_dir.mkdir(parents=True, exist_ok=True)
-
     embedder = LocalBGEEmbedder()
     try:
         idx = VectorIndex.load(index_dir, embedder)
-    except FileNotFoundError:
+    except Exception as e:
+        log.warning(
+            "Could not load existing FAISS index; rebuilding from catalog (%s)", e
+        )
         idx = VectorIndex(embedder)
 
     items = [IndexItem(id=d.name, doc=d) for d in docs if getattr(d, "name", None)]

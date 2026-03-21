@@ -17,9 +17,14 @@ from ai_agent.catalog.sync import sync_once
 
 def _ui_funcs():
     # Lazy import avoids loading agent/model modules for non-UI commands.
-    from ai_agent.ui.app import get_pipeline, refresh_ui_docs_from_index, launch
+    from ai_agent.ui.app import (
+        get_pipeline,
+        refresh_ui_docs_from_index,
+        launch,
+        ensure_logging_initialized,
+    )
 
-    return get_pipeline, refresh_ui_docs_from_index, launch
+    return get_pipeline, refresh_ui_docs_from_index, launch, ensure_logging_initialized
 
 
 # --------------------------- catalog background refresher ---------------------------
@@ -32,6 +37,11 @@ def _background_refresh():
         return
 
     def _loop():
+        # Startup already performs one sync in run_chat(); wait one full interval
+        # before the first background refresh to avoid duplicate work.
+        interval_s = max(60.0, hours * 3600.0)
+        time.sleep(interval_s)
+
         while True:
             try:
                 res = sync_once()
@@ -41,7 +51,7 @@ def _background_refresh():
                     res.get("jsonl_path"),
                 )
 
-                get_pipeline, refresh_ui_docs_from_index, _ = _ui_funcs()
+                get_pipeline, refresh_ui_docs_from_index, _, _ = _ui_funcs()
                 pipe = get_pipeline()
 
                 if res.get("changed"):
@@ -58,7 +68,7 @@ def _background_refresh():
             except Exception:
                 log.exception("[auto-refresh] error")
             try:
-                time.sleep(max(60.0, hours * 3600.0))
+                time.sleep(interval_s)
             except Exception:
                 time.sleep(3600.0)
 
@@ -70,10 +80,13 @@ def _background_refresh():
 def run_chat():
     """Launch the chat-based UI."""
     try:
+        _, _, _, ensure_logging_initialized = _ui_funcs()
+        ensure_logging_initialized()
+
         res = sync_once()
         log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
 
-        get_pipeline, refresh_ui_docs_from_index, launch = _ui_funcs()
+        get_pipeline, refresh_ui_docs_from_index, launch, _ = _ui_funcs()
 
         # Initialize pipeline
         pipe = get_pipeline()
@@ -95,7 +108,7 @@ def run_chat():
     _background_refresh()
 
     try:
-        _, _, launch = _ui_funcs()
+        _, _, launch, _ = _ui_funcs()
         launch()
     except Exception:
         log.exception("[chat-launch] failed")

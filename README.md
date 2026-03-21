@@ -62,6 +62,7 @@ GITHUB_TOKEN=ghp_xxxx
 
 # Optional: Alternative model providers (EPFL, etc.)
 EPFL_API_KEY=sk-xxxx
+EPFL_API_KEY_EMBEDDER=sk-xxxx
 
 # Software catalog path
 SOFTWARE_CATALOG=dataset/catalog.jsonl
@@ -69,6 +70,8 @@ SOFTWARE_CATALOG=dataset/catalog.jsonl
 # Pipeline configuration
 TOP_K=8                # Number of candidates to retrieve
 NUM_CHOICES=3          # Number of tools to recommend
+AGENT_OUTPUT_RETRIES=3 # Structured output validation retries
+EMBED_CATALOG_ON_START=1  # Pre-embed catalog if FAISS is empty
 
 # Logging configuration
 LOGLEVEL_CONSOLE=WARNING
@@ -119,6 +122,30 @@ available_models:
     base_url: null
     provider: "OpenAI"
     api_key_env: "OPENAI_API_KEY"
+
+# Retrieval backends (optional; env vars are used if this section is omitted)
+retrieval:
+  embedder:
+    backend: "remote"   # "remote" or "local"
+    model_name: "Qwen/Qwen3-Embedding-8B"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
+    # local example:
+    # backend: "local"
+    # model_name: "BAAI/bge-m3"
+    # device: "cpu" # optional
+
+  reranker:
+    backend: "remote"   # "remote" or "local"
+    model_name: "BAAI/bge-reranker-v2-m3"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
+    # local example:
+    # backend: "local"
+    # model_name: "BAAI/bge-reranker-v2-m3"
+    # device: "cpu" # optional
 ```
 
 ### Running the App
@@ -252,10 +279,13 @@ User Input (Image + Text Query)
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `OPENAI_API_KEY` | OpenAI API key | - | ✅ |
+| `EPFL_API_KEY_EMBEDDER` | API key for remote reranker endpoint | - | ✅ (for reranking) |
 | `GITHUB_TOKEN` | GitHub token for repo info | - | ❌ |
 | `SOFTWARE_CATALOG` | Path to catalog JSONL | `dataset/catalog.jsonl` | ✅ |
 | `TOP_K` | Retrieval candidates count | `8` | ❌ |
 | `NUM_CHOICES` | Tools to recommend | `3` | ❌ |
+| `AGENT_OUTPUT_RETRIES` | Structured output validation retries | `3` | ❌ |
+| `EMBED_CATALOG_ON_START` | Pre-embed catalog on startup when FAISS is empty | `1` | ❌ |
 | `LOGLEVEL_CONSOLE` | Console log level | `WARNING` | ❌ |
 | `LOGLEVEL_FILE` | File log level | `INFO` | ❌ |
 | `FILE_LOG` | Enable file logging | `1` | ❌ |

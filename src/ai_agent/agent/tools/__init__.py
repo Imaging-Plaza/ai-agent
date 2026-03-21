@@ -27,10 +27,12 @@ def ensure_tools_registered():
     Import all tools to trigger their registration.
     Call this once at app startup.
     """
-    from .search_tool import tool_search_tools
-    from .search_alternative_tool import tool_search_alternative
-    from .repo_info_tool import tool_repo_summary
-    from .gradio_space_tool import tool_run_example
+    from importlib import import_module
+
+    import_module("ai_agent.agent.tools.search_tool")
+    import_module("ai_agent.agent.tools.search_alternative_tool")
+    import_module("ai_agent.agent.tools.repo_info_tool")
+    import_module("ai_agent.agent.tools.gradio_space_tool")
 
     # Import MCP tools
     ensure_mcp_tools_registered()

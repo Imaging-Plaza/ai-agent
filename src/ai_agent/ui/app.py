@@ -83,6 +83,11 @@ def _setup_logging() -> None:
     log.info("Starting Chat-based Gradio UI")
 
 
+def ensure_logging_initialized() -> None:
+    """Public hook for callers that need logging before other UI setup."""
+    _setup_logging()
+
+
 def _ensure_tools_registered_once() -> None:
     global _tools_registered
     if _tools_registered:

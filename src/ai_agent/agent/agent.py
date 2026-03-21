@@ -22,6 +22,7 @@ from .tools.search_alternative_tool import (
     tool_search_alternative,
     SearchAlternativeInput,
 )
+from .tools.query_utils import sanitize_retrieval_query
 from .utils import AgentState, limit_tool_calls, cap_prepare
 from ai_agent.utils.image_meta import summarize_image_metadata, detect_ext_token
 
@@ -66,6 +67,7 @@ agent = Agent(
     model=openai_model,
     system_prompt=get_agent_system_prompt(os.getenv("NUM_CHOICES", "3")),
     deps_type=AgentState,
+    output_retries=int(os.getenv("AGENT_OUTPUT_RETRIES", "3")),
 )
 
 # ---------------------------------------------------------------------------
@@ -103,7 +105,7 @@ async def search_tools(
     )
 
     inp = SearchToolsInput(
-        query=query,
+        query=sanitize_retrieval_query(query),
         excluded=all_excluded,
         top_k=effective_top_k,
         original_formats=original_formats,
@@ -381,6 +383,7 @@ def run_agent(
             model=runtime_model,
             system_prompt=get_agent_system_prompt(effective_num_choices),
             deps_type=AgentState,
+            output_retries=int(os.getenv("AGENT_OUTPUT_RETRIES", "3")),
         )
 
         # Register tools on the dynamic agent
@@ -396,6 +399,7 @@ def run_agent(
             model=openai_model,
             system_prompt=get_agent_system_prompt(effective_num_choices),
             deps_type=AgentState,
+            output_retries=int(os.getenv("AGENT_OUTPUT_RETRIES", "3")),
         )
 
         # Register tools on the dynamic agent

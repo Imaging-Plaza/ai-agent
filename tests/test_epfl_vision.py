@@ -22,14 +22,8 @@ class SimpleResponse(BaseModel):
     has_image: bool
 
 
-# When imported (e.g. by pytest), avoid running script-like behavior.
-# Provide placeholders so attribute access does not fail.
-if __name__ != "__main__":
-    epfl_key = None
-    provider = None
-    model = None
-    agent = None
-else:
+def main() -> int:
+    """Run EPFL vision smoke test when executed as a script."""
     load_dotenv()
 
     # Check environment
@@ -37,7 +31,7 @@ else:
     if not epfl_key:
         print("❌ EPFL_API_KEY not found in environment")
         print("   Set it in .env or export EPFL_API_KEY=your_key")
-        sys.exit(1)
+        return 1
 
     print("✅ EPFL_API_KEY found")
     print()
@@ -60,79 +54,87 @@ else:
     )
 
     print("✅ EPFL agent created")
-print()
 
-# Test 1: Text-only
-print("📝 Test 1: Text-only request...")
-try:
-    result = agent.run_sync(
-        "What is 2+2?",
-        output_type=SimpleResponse,
-    )
-    print(f"✅ Text-only works: {result.output.description}")
-except Exception as e:
-    print(f"❌ Text-only failed: {e}")
-
-print()
-
-# Test 2: With image
-print("📝 Test 2: Multimodal request with image...")
-# Create a minimal 1x1 red pixel PNG data URL
-red_pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
-
-try:
-    result = agent.run_sync(
-        [
-            "Describe what you see in this image.",
-            ImageUrl(
-                red_pixel, media_type="image/png", vendor_metadata={"detail": "high"}
-            ),
-        ],
-        output_type=SimpleResponse,
-    )
-    print("✅ Multimodal request completed")
-    print(f"   Response: {result.output.description}")
-    print(f"   Model detected image: {result.output.has_image}")
-
-    # Check for negative responses indicating image not seen
-    negative_phrases = [
-        "no image",
-        "not attached",
-        "no picture",
-        "can't see",
-        "cannot see",
-        "didn't receive",
-    ]
-    response_lower = result.output.description.lower()
-
-    if result.output.has_image and not any(
-        phrase in response_lower for phrase in negative_phrases
-    ):
-        print()
-        print("✅ SUCCESS: openai/gpt-oss-120b SUPPORTS vision!")
-        print("   The model received and processed the image.")
-    else:
-        print()
-        print("❌ FAILED: openai/gpt-oss-120b does NOT support vision")
-        print("   The model accepted the API call but ignored the image.")
-        print("   Response indicates no image was seen.")
-
-except Exception as e:
-    print(f"❌ Multimodal request failed: {e}")
     print()
-    print("⚠️  LIKELY ISSUE: openai/gpt-oss-120b does NOT support vision")
-    print("   The EPFL model may be text-only.")
-    print()
-    print("Solutions:")
-    print("  1. Use OpenAI's gpt-4o (supports vision)")
-    print("  2. Check EPFL docs for vision-capable models")
-    print("  3. Ask EPFL if gpt-oss-120b supports multimodal inputs")
 
-print()
-print("=" * 70)
-print("SUMMARY:")
-print("  - EPFL endpoint: https://inference.rcp.epfl.ch/v1")
-print("  - Model: openai/gpt-oss-120b")
-print("  - This is NOT OpenAI API (so OpenAI billing shows 0 images)")
-print("  - Run this test to check if EPFL model supports vision")
-print("=" * 70)
+    # Test 1: Text-only
+    print("📝 Test 1: Text-only request...")
+    try:
+        result = agent.run_sync(
+            "What is 2+2?",
+            output_type=SimpleResponse,
+        )
+        print(f"✅ Text-only works: {result.output.description}")
+    except Exception as e:
+        print(f"❌ Text-only failed: {e}")
+
+    print()
+
+    # Test 2: With image
+    print("📝 Test 2: Multimodal request with image...")
+    # Create a minimal 1x1 red pixel PNG data URL
+    red_pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
+
+    try:
+        result = agent.run_sync(
+            [
+                "Describe what you see in this image.",
+                ImageUrl(
+                    red_pixel,
+                    media_type="image/png",
+                    vendor_metadata={"detail": "high"},
+                ),
+            ],
+            output_type=SimpleResponse,
+        )
+        print("✅ Multimodal request completed")
+        print(f"   Response: {result.output.description}")
+        print(f"   Model detected image: {result.output.has_image}")
+
+        # Check for negative responses indicating image not seen
+        negative_phrases = [
+            "no image",
+            "not attached",
+            "no picture",
+            "can't see",
+            "cannot see",
+            "didn't receive",
+        ]
+        response_lower = result.output.description.lower()
+
+        if result.output.has_image and not any(
+            phrase in response_lower for phrase in negative_phrases
+        ):
+            print()
+            print("✅ SUCCESS: openai/gpt-oss-120b SUPPORTS vision!")
+            print("   The model received and processed the image.")
+        else:
+            print()
+            print("❌ FAILED: openai/gpt-oss-120b does NOT support vision")
+            print("   The model accepted the API call but ignored the image.")
+            print("   Response indicates no image was seen.")
+
+    except Exception as e:
+        print(f"❌ Multimodal request failed: {e}")
+        print()
+        print("⚠️  LIKELY ISSUE: openai/gpt-oss-120b does NOT support vision")
+        print("   The EPFL model may be text-only.")
+        print()
+        print("Solutions:")
+        print("  1. Use OpenAI's gpt-4o (supports vision)")
+        print("  2. Check EPFL docs for vision-capable models")
+        print("  3. Ask EPFL if gpt-oss-120b supports multimodal inputs")
+
+    print()
+    print("=" * 70)
+    print("SUMMARY:")
+    print("  - EPFL endpoint: https://inference.rcp.epfl.ch/v1")
+    print("  - Model: openai/gpt-oss-120b")
+    print("  - This is NOT OpenAI API (so OpenAI billing shows 0 images)")
+    print("  - Run this test to check if EPFL model supports vision")
+    print("=" * 70)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

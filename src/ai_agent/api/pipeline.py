@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -10,12 +11,24 @@ from typing import List, Optional
 from ai_agent.retriever.reranker import CrossEncoderReranker
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.retriever.text_embedder import LocalBGEEmbedder
-from ai_agent.retriever.vector_index import VectorIndex
+from ai_agent.retriever.vector_index import IndexItem, VectorIndex
+from ai_agent.utils.config import get_retrieval_config
 
 from ai_agent.utils.tags import strip_tags
 from ai_agent.utils.image_meta import detect_ext_token, summarize_image_metadata
 
 log = logging.getLogger("pipeline")
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Parse boolean env vars robustly (also tolerates inline comment remnants)."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    val = raw.split("#", 1)[0].strip().lower()
+    if not val:
+        return default
+    return val in {"1", "true", "yes", "on"}
 
 
 class RAGImagingPipeline:
@@ -34,15 +47,70 @@ class RAGImagingPipeline:
         self.min_results = min_results
         self.max_retries = max_retries
 
-        self.embedder = LocalBGEEmbedder()
-        self.reranker = CrossEncoderReranker()
+        retrieval_cfg = get_retrieval_config()
+        embed_cfg = retrieval_cfg.get("embedder", {}) if isinstance(retrieval_cfg, dict) else {}
+        rerank_cfg = retrieval_cfg.get("reranker", {}) if isinstance(retrieval_cfg, dict) else {}
+
+        self.embedder = LocalBGEEmbedder(
+            model_name=embed_cfg.get("model_name", "Qwen/Qwen3-Embedding-8B"),
+            device=embed_cfg.get("device"),
+            backend=embed_cfg.get("backend", "remote"),
+            base_url=embed_cfg.get("base_url", "https://inference-rcp.epfl.ch/v1"),
+            api_key_env=embed_cfg.get("api_key_env", "EPFL_API_KEY_EMBEDDER"),
+            timeout_s=float(embed_cfg.get("timeout_s", 20.0)),
+        )
+        self.reranker = CrossEncoderReranker(
+            model_name=rerank_cfg.get("model_name", "BAAI/bge-reranker-v2-m3"),
+            base_url=rerank_cfg.get("base_url", "https://inference-rcp.epfl.ch/v1"),
+            backend=rerank_cfg.get("backend", "remote"),
+            api_key_env=rerank_cfg.get("api_key_env", "EPFL_API_KEY_EMBEDDER"),
+            timeout_s=float(rerank_cfg.get("timeout_s", 20.0)),
+            device=rerank_cfg.get("device"),
+        )
 
         self.index = self._load_or_build_index()
+        self._startup_embed_enabled = _env_flag("EMBED_CATALOG_ON_START", default=True)
+        self._startup_status_emitted = False
+
+        # Optional startup pre-embedding: embed catalog once so runtime queries
+        # only need query embedding and FAISS lookup.
+        if self._startup_embed_enabled:
+            self._ensure_catalog_embedded_once()
+            log.info("Startup catalog embedding complete")
+        else:
+            log.info("Startup catalog embedding disabled (EMBED_CATALOG_ON_START=0)")
+
+        log.info(
+            "Pipeline initialized with index at %s (docs=%d, startup_embed=%s)",
+            self.index_dir,
+            len(self.index.docs),
+            self._startup_embed_enabled,
+        )
+        self._emit_startup_status_once()
+
+    def _emit_startup_status_once(self) -> None:
+        """Emit startup embedding status once, even if constructor logs were missed."""
+        if self._startup_status_emitted:
+            return
+
+        if self._startup_embed_enabled:
+            log.info(
+                "Startup status: embedding enabled (index docs=%d)",
+                len(self.index.docs),
+            )
+        else:
+            log.info("Startup status: embedding disabled by EMBED_CATALOG_ON_START")
+
+        self._startup_status_emitted = True
 
     def _load_or_build_index(self) -> VectorIndex:
         try:
             return VectorIndex.load(self.index_dir, self.embedder)
         except Exception:
+            log.exception(
+                "Failed to load FAISS index from %s; creating empty in-memory index",
+                self.index_dir,
+            )
             return VectorIndex(self.embedder)
 
     def reload_index(self) -> bool:
@@ -53,6 +121,77 @@ class RAGImagingPipeline:
         except Exception:
             logging.getLogger("api").exception("reload_index failed")
             return False
+
+    def _read_catalog_docs(self, catalog_path: Path) -> List[SoftwareDoc]:
+        docs: List[SoftwareDoc] = []
+        if not catalog_path.exists():
+            return docs
+
+        try:
+            text = catalog_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            log.exception("Failed reading catalog from %s", catalog_path)
+            return docs
+
+        # Accept either JSONL (expected) or JSON array/object.
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                parsed = [parsed]
+            if isinstance(parsed, list):
+                for row in parsed:
+                    try:
+                        docs.append(SoftwareDoc.model_validate(row))
+                    except Exception:
+                        continue
+                return docs
+        except Exception:
+            pass
+
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                docs.append(SoftwareDoc.model_validate(json.loads(line)))
+            except Exception:
+                continue
+        return docs
+
+    def _ensure_catalog_embedded_once(self) -> None:
+        # If index already contains docs, startup embedding is done.
+        if len(self.index.docs) > 0:
+            log.info(
+                "Startup embedding skipped: FAISS already has %d docs",
+                len(self.index.docs),
+            )
+            return
+
+        catalog_path = Path(os.getenv("SOFTWARE_CATALOG", "dataset/catalog.jsonl"))
+        docs = self._read_catalog_docs(catalog_path)
+        if not docs:
+            log.warning(
+                "Startup embedding skipped: no docs loaded from %s", catalog_path
+            )
+            return
+
+        items = [IndexItem(id=d.name, doc=d) for d in docs if getattr(d, "name", None)]
+        if not items:
+            log.warning(
+                "Startup embedding skipped: catalog had no valid named docs in %s",
+                catalog_path,
+            )
+            return
+
+        delta = self.index.sync_with_catalog(items)
+        self.index.save(self.index_dir)
+        log.info(
+            "Startup catalog embedding complete: docs=%d (added=%d, updated=%d, removed=%d)",
+            len(items),
+            delta["added"],
+            delta["updated"],
+            delta["removed"],
+        )
 
     def _apply_reranker(self, query: str, hits: List[dict], top_k: int) -> List[dict]:
         if not hits:
@@ -137,6 +276,9 @@ class RAGImagingPipeline:
         Relies on BGE-M3 semantic embeddings and approximate nearest-neighbor
         vector search.
         """
+        # Fallback visibility: if constructor-time logs were not emitted by runtime
+        # logging configuration, emit startup status on first real retrieval.
+        self._emit_startup_status_once()
 
         def _norm(s: str) -> str:
             return re.sub(r"\s+", " ", (s or "").strip().lower())
@@ -156,6 +298,10 @@ class RAGImagingPipeline:
         log.info(
             f"Retrieval query: {clean_q}"
             + (f" + metadata: {image_hints[:50]}..." if image_hints else "")
+            + (
+                f" | startup_embed={self._startup_embed_enabled}"
+                f" docs={len(self.index.docs)}"
+            )
         )
 
         # 4) Vector search

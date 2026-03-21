@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import faiss
 import numpy as np
 
-from .software_doc import SoftwareDoc
-from .text_embedder import TextEmbedder
+from ai_agent.retriever.software_doc import SoftwareDoc
+from ai_agent.retriever.text_embedder import TextEmbedder
 
 if TYPE_CHECKING:
     from .reranker import CrossEncoderReranker

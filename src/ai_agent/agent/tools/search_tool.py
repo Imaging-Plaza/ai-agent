@@ -4,8 +4,13 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from ai_agent.generator.schema import CandidateDoc
-from .utils import get_pipeline
-from .query_utils import append_format_tokens, normalize_formats, strip_legacy_original_formats_line
+from .utils import get_catalog_docs, get_pipeline
+from .query_utils import (
+    append_format_tokens,
+    normalize_formats,
+    sanitize_retrieval_query,
+    strip_legacy_original_formats_line,
+)
 
 
 class SearchToolsInput(BaseModel):
@@ -45,6 +50,10 @@ def tool_search_tools(inp: SearchToolsInput) -> SearchToolsOutput:
 
     # 3) Remove any "OriginalFormats:" line from the semantic query
     base_query, _ = strip_legacy_original_formats_line(q)
+
+    # 3b) Remove repository/tool-name drift terms introduced by LLM tool calls.
+    known_names = [d.name for d in get_catalog_docs() if getattr(d, "name", None)]
+    base_query = sanitize_retrieval_query(base_query, known_tool_names=known_names)
 
     # 4) Build soft format tokens (they bias but do not dominate)
     base_query = append_format_tokens(base_query, original_formats)

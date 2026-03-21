@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - **Agent run_example tool**: Removed autonomous tool execution capability from agent. Agent now only recommends tools - all execution requires explicit user approval via approval buttons. This enforces consistent security/UX model where users maintain full control over tool execution. The underlying `gradio_space_tool.py` remains for UI-initiated demo execution.
 
 ### Added
+- **Startup catalog pre-embedding**: Pipeline now pre-embeds the software catalog at application startup when FAISS is empty, so user requests only require query embedding + FAISS search. Controlled by `EMBED_CATALOG_ON_START` (default `1`).
 - **Project and maintainer documentation expansion**:
   - Added [AGENTS.md](AGENTS.md) with repository-wide agent workflow guidance, dev-container-first defaults, and documentation maintenance rules.
   - Added [docs/guide.md](docs/guide.md) as a detailed contributor map covering module responsibilities, Python/package defaults, command baseline, known inconsistencies, and improvement guidelines.
@@ -56,6 +57,9 @@ All notable changes to this project will be documented in this file.
 - **Tool Registration**: Lungs segmentation tool self-registers with complete field mappings
 
 ### Changed
+- **Config-driven retrieval backends**: Added `retrieval.embedder` and `retrieval.reranker` blocks in `config.yaml` so embedder/reranker setup can be configured without `.env`-only wiring. Supports `backend: remote|local` with simple fields (`model_name`, `base_url`, `api_key_env`, `timeout_s`, optional `device`). Environment variables remain as fallback.
+- **Remote embedder integration**: Retrieval embeddings now call the EPFL OpenAI-compatible endpoint by default (`https://inference-rcp.epfl.ch/v1`) using model `Qwen/Qwen3-Embedding-8B` and key from `EPFL_API_KEY_EMBEDDER`.
+- **Remote reranker integration**: Retrieval reranking now calls a remote endpoint instead of loading a local CrossEncoder model. Default settings target EPFL (`https://inference-rcp.epfl.ch/v1`) with model `BAAI/bge-reranker-v2-m3`, using `EPFL_API_KEY_EMBEDDER` for authentication.
 - **Documentation cleanup**: Removed stale references to `[NO_RERANK]` and `[REFINE]` control-tag behavior from user/architecture docs, and updated structure/instruction docs to current agent layout (`agent/tools/`, `agent/utils.AgentState`), active CLI usage (`ai_agent chat`), and current testing guidance.
 - CLI now supports `ai_agent chat`
 - **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
@@ -101,6 +105,10 @@ All notable changes to this project will be documented in this file.
 - CLI no more supports `ai_agent ui` command
 
 ### Fixed
+- **Startup refresh regression**: Fixed CLI background refresh unpacking after UI function signature changes (`ValueError: too many values to unpack`) and delayed first auto-refresh cycle to avoid duplicate immediate catalog sync right after startup sync.
+- **Structured output validation robustness**: Reduced `Exceeded maximum retries ... for output validation` failures by increasing agent output retries for custom endpoint runs and making ToolSelection parsing more tolerant to common formatting drift (status/reason/rank/accuracy coercion).
+- **Retrieval query drift guardrails**: Added sanitization for LLM-generated retrieval queries to strip repository-oriented terms (e.g., `github`, `repository`, `official`) and avoid tool-name-only drift. Repeated `search_tools` attempts are now rerouted as alternative searches instead of failing with quota errors.
+- **FAISS rebuild on embedder changes**: When the catalog content is unchanged but the embedding model/dimension changes, sync now detects incompatible/missing FAISS artifacts and rebuilds the index instead of keeping stale artifacts. This prevents empty retrieval results after embedder migrations.
 - **Pydantic Forward Reference**: Reordered class definitions in `schema.py` so `Conversation` and `ConversationStatus` are defined before `ToolSelection` to prevent "class-not-fully-defined" errors.
 - **Conversation Context**: Agent now properly maintains conversation history, enabling natural understanding of follow-up requests like "show me alternatives".
 - **Clear Button**: Disabled during processing to prevent race conditions with ongoing requests.
