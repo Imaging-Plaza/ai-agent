@@ -123,7 +123,6 @@ available_models:
     provider: "OpenAI"
     api_key_env: "OPENAI_API_KEY"
 
-# Retrieval backends (optional; env vars are used if this section is omitted)
 retrieval:
   embedder:
     backend: "remote"   # "remote" or "local"
