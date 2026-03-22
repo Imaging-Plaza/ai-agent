@@ -57,6 +57,18 @@ All notable changes to this project will be documented in this file.
 - **Tool Registration**: Lungs segmentation tool self-registers with complete field mappings
 
 ### Changed
+- **Preview image simplification and size cap**: VLM preview generation no longer writes metadata text overlays onto preview images. Previews are now downscaled with aspect ratio preservation using a configurable maximum side length (`PREVIEW_MAX_SIDE_PX`, default `500`) to keep large images lightweight.
+- **Batched-only repository verification in agent loop**: Agent prompt and runtime tool registration now use `repo_info_batch(urls)` as the single repository verification path (including one-item lists for single repos), removing mixed single-vs-batch behavior during recommendation runs.
+
+### Removed
+- **Legacy single-repo agent adapter**: Removed the unused `repo_info` agent adapter function to avoid confusion; agent recommendation runs now verify repositories exclusively through `repo_info_batch`.
+- **Fast mode controls**: Removed fast mode from runtime, prompts, and UI settings to keep behavior deterministic and avoid dual execution paths.
+- **Repo summary performance optimization**: `repo_info` now uses an in-memory TTL cache (configurable via `REPO_INFO_CACHE_TTL_SECONDS`, default 3600s) and in-flight request deduplication for identical repository URLs. This avoids repeated DeepWiki/repocards fetches during iterative agent runs and parallel tool calls.
+- **Parallel repository verification tool**: Added `repo_info_batch(urls)` tool to fetch multiple GitHub repository summaries concurrently, reducing end-to-end latency when verifying several finalists.
+- **Latency observability**: Agent now logs per-tool durations and a request-level latency summary (`total_ms`, metadata time, model execution time, and aggregated tool timing) to make bottlenecks directly visible in runtime logs.
+- **Startup sync freshness skip**: Added optional local-freshness short-circuit in catalog sync to avoid repeated remote SPARQL fetches on quick restarts when local catalog + FAISS artifacts are present. Controlled by `SYNC_SKIP_IF_FRESH_SECONDS` (disabled by default) and `SYNC_FORCE=1` to bypass.
+- **Preview generation cache**: Added in-memory TTL cache for generated VLM previews keyed by file fingerprints (path/mtime/size), reducing repeated 3D orthogonal composite generation for identical inputs. Controlled by `PREVIEW_CACHE_TTL_SECONDS` (default 1800) and `PREVIEW_CACHE_MAX_ENTRIES` (default 64).
+- **Port fallback pre-selection**: UI launch now pre-checks for the first available port in the fallback range before calling Gradio launch, reducing repeated bind-failure retries when the preferred port is busy.
 - **Config-driven retrieval backends**: Added `retrieval.embedder` and `retrieval.reranker` blocks in `config.yaml` so embedder/reranker setup can be configured without `.env`-only wiring. Supports `backend: remote|local` with simple fields (`model_name`, `base_url`, `api_key_env`, `timeout_s`, optional `device`). Environment variables remain as fallback.
 - **Remote embedder integration**: Retrieval embeddings now call the EPFL OpenAI-compatible endpoint by default (`https://inference-rcp.epfl.ch/v1`) using model `Qwen/Qwen3-Embedding-8B` and key from `EPFL_API_KEY_EMBEDDER`.
 - **Remote reranker integration**: Retrieval reranking now calls a remote endpoint instead of loading a local CrossEncoder model. Default settings target EPFL (`https://inference-rcp.epfl.ch/v1`) with model `BAAI/bge-reranker-v2-m3`, using `EPFL_API_KEY_EMBEDDER` for authentication.

@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+import os
+
+
 SELECTOR_SYSTEM = """
 You are an imaging software recommender. Your goal is to help users find the best tool(s) for their 
 imaging tasks OR determine when clarification is needed.
@@ -71,36 +76,36 @@ CLARIFICATION EXAMPLES (style reference only — adapt to context)
 
 ###### AGENT SYSTEM PROMPT ######
 
-AGENT_SYSTEM_PROMPT = (
-    SELECTOR_SYSTEM
-    + "\n\nAGENT TOOLING RULES:"
-    + "\n1. If task is ambiguous (operation OR target unclear) → return clarification JSON immediately (no tool calls)."
-  + "\n2. Otherwise: call search_tools(query) EXACTLY ONCE at the start for initial retrieval."
-  + "\n3. Do NOT call search_tools again in the same run. If results are inadequate, use search_alternative(alternative_query) only (up to 3 times)."
-    + "\n4. Verify finalists: call repo_info(url) for each candidate you plan to recommend (required, use **valid** GitHub URLs only)."
-    + "\n5. Use provided format hints for compatibility scoring; don't assume domains from file extensions."
-    + "\n6. Output: ONE JSON object (no prose, no code fences)."
-    + "\n7. Accuracy: task(40) + format compatibility(30) + features(30); penalize heavy format conversions (−5)."
-    + "\n8. Be factual in explanations; base statements on search results, not assumptions."
-    + """\n
-AVAILABLE TOOLS:
-- search_tools(query, excluded=[], top_k=...): Initial semantic search (call once per run) with automatic reranking and metadata-aware retrieval hints
-- search_alternative(alternative_query, excluded=[], top_k=...): Try different query formulation (up to 3 times)
-- repo_info(url): Fetch GitHub repository info for verification (required for finalists)
-
-USAGE PATTERN:
-1. search_tools(query) → Get initial candidates
-2. [Optional] search_alternative(alternative_query) → Try different terms if needed (do not call search_tools again)
-3. repo_info(url) → Verify each finalist before recommending
-      """
-)
-
 
 def get_selector_system_prompt(num_choices: int = 3) -> str:
     """Generate the system prompt with dynamic num_choices."""
     return SELECTOR_SYSTEM.format(num_choices=num_choices)
 
 
-def get_agent_system_prompt(num_choices: int = 3) -> str:
-    """Generate the full agent system prompt with dynamic num_choices."""
-    return AGENT_SYSTEM_PROMPT.format(num_choices=num_choices)
+def get_agent_system_prompt(
+  num_choices: int = 3,
+) -> str:
+  """Generate the full agent prompt."""
+  max_alternatives = 3
+
+  tooling = (
+    "\n\nAGENT TOOLING RULES:"
+    "\n1. If task is ambiguous (operation OR target unclear) → return clarification JSON immediately (no tool calls)."
+    "\n2. Otherwise: call search_tools(query) EXACTLY ONCE at the start for initial retrieval."
+    f"\n3. Do NOT call search_tools again in the same run. If results are inadequate, use search_alternative(alternative_query) only (up to {max_alternatives} times)."
+    "\n4. Verify finalists with repo_info_batch(urls) in one call. For a single repository, pass a one-item list."
+    "\n5. Use provided format hints for compatibility scoring; don't assume domains from file extensions."
+    "\n6. Output: ONE JSON object (no prose, no code fences)."
+    "\n7. Accuracy: task(40) + format compatibility(30) + features(30); penalize heavy format conversions (−5)."
+    "\n8. Be factual in explanations; base statements on search results, not assumptions."
+    "\n\nAVAILABLE TOOLS:\n"
+    "- search_tools(query, excluded=[], top_k=...): Initial semantic search (call once per run) with automatic reranking and metadata-aware retrieval hints\n"
+    f"- search_alternative(alternative_query, excluded=[], top_k=...): Try different query formulation (up to {max_alternatives} times)\n"
+    "- repo_info_batch(urls): Fetch GitHub repository info for multiple repositories in parallel\n\n"
+    "USAGE PATTERN:\n"
+    "1. search_tools(query) → Get initial candidates\n"
+    "2. [Optional] search_alternative(alternative_query) → Try different terms if needed (do not call search_tools again)\n"
+    "3. repo_info_batch(urls) → Verify finalists before recommending (use one-item list for a single repo)"
+  )
+
+  return (SELECTOR_SYSTEM + tooling).format(num_choices=num_choices)

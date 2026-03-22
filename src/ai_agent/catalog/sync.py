@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -18,6 +19,65 @@ from ai_agent.retriever.text_embedder import LocalBGEEmbedder
 from ai_agent.retriever.vector_index import IndexItem, VectorIndex
 
 log = logging.getLogger("ai_agent.catalog.sync")
+
+
+def _index_artifacts_present(index_dir: Path) -> bool:
+    """Return True when minimal FAISS artifacts exist."""
+    return (index_dir / "index.faiss").exists() and (index_dir / "meta.json").exists()
+
+
+def _count_jsonl_rows(path: Path) -> int:
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return sum(1 for line in f if line.strip())
+    except Exception:
+        return -1
+
+
+def _maybe_skip_sync_if_fresh(out_jsonl: Path, index_dir: Path) -> Dict[str, Any] | None:
+    """Skip remote sync when local catalog/index are fresh enough for startup."""
+    freshness_s = int(os.getenv("SYNC_SKIP_IF_FRESH_SECONDS", "0") or 0)
+    force_sync = str(os.getenv("SYNC_FORCE", "0")).lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    if force_sync or freshness_s <= 0:
+        return None
+
+    if not out_jsonl.exists() or not _index_artifacts_present(index_dir):
+        return None
+
+    age_s = time.time() - out_jsonl.stat().st_mtime
+    if age_s > freshness_s:
+        return None
+
+    digest_path = out_jsonl.with_suffix(out_jsonl.suffix + ".sha1")
+    digest = ""
+    if digest_path.exists():
+        try:
+            digest = digest_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            digest = ""
+
+    count = _count_jsonl_rows(out_jsonl)
+    log.info(
+        "Skipping sync (fresh local catalog age=%ss <= %ss; force with SYNC_FORCE=1)",
+        int(age_s),
+        freshness_s,
+    )
+    return {
+        "jsonld_path": str(out_jsonl.with_suffix(".jsonld")),
+        "jsonl_path": str(out_jsonl),
+        "count": count,
+        "changed": False,
+        "digest": digest,
+        "index_dir": str(index_dir),
+        "skipped": True,
+        "skip_reason": "fresh_local_catalog",
+    }
 
 
 # --------------------------- helpers ---------------------------
@@ -264,13 +324,20 @@ def convert_jsonld_to_jsonl(in_jsonld: Path, out_jsonl: Path) -> int:
 def sync_once(
     *, out_jsonld: Path | None = None, out_jsonl: Path | None = None
 ) -> Dict[str, Any]:
-    endpoint = os.getenv("GRAPHDB_URL")
-    query = _load_query()
-
     out_jsonld = Path(
         out_jsonld or os.getenv("OUTPUT_JSONLD", "dataset/catalog.jsonld")
     )
     out_jsonl = Path(out_jsonl or os.getenv("OUTPUT_JSONL", "dataset/catalog.jsonl"))
+
+    index_dir = Path(os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
+    index_dir.mkdir(parents=True, exist_ok=True)
+
+    skipped = _maybe_skip_sync_if_fresh(out_jsonl, index_dir)
+    if skipped is not None:
+        return skipped
+
+    endpoint = os.getenv("GRAPHDB_URL")
+    query = _load_query()
 
     log.info("Fetching JSON-LD from %s", endpoint)
     data = fetch_jsonld(endpoint, query)
@@ -324,9 +391,6 @@ def sync_once(
         digest_path.write_text(digest, encoding="utf-8")
     except Exception:
         log.debug("Could not write semantic snapshot or digest")
-
-    index_dir = Path(os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
-    index_dir.mkdir(parents=True, exist_ok=True)
 
     if not changed:
         # Important: catalog may be unchanged while embedding model/dim changed.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from typing import Optional
 import repocards
 
@@ -12,6 +14,13 @@ from .utils import _clip, get_catalog_docs, _is_github_url
 import logging
 
 log = logging.getLogger("agent.repo_info")
+
+REPO_INFO_CACHE_TTL_SECONDS = int(os.getenv("REPO_INFO_CACHE_TTL_SECONDS", "3600"))
+REPO_INFO_CACHE_MAX_ENTRIES = int(os.getenv("REPO_INFO_CACHE_MAX_ENTRIES", "256"))
+
+_REPO_INFO_CACHE: dict[str, tuple[float, "RepoSummaryOutput"]] = {}
+_REPO_INFO_INFLIGHT: dict[str, asyncio.Future["RepoSummaryOutput"]] = {}
+_REPO_INFO_LOCK = asyncio.Lock()
 
 # ----------------------------- Public I/O models ------------------------------
 
@@ -26,6 +35,32 @@ class RepoSummaryOutput(BaseModel):
     ref: Optional[str] = None
     summary: str
     source: str = "deepwiki"  # "deepwiki" or "repocards"
+
+
+def _normalize_cache_key(url: str) -> str:
+    return url.strip().lower()
+
+
+def _evict_expired_entries(now: float) -> None:
+    expired = [k for k, (exp, _) in _REPO_INFO_CACHE.items() if exp <= now]
+    for key in expired:
+        _REPO_INFO_CACHE.pop(key, None)
+
+
+def _enforce_cache_capacity() -> None:
+    if len(_REPO_INFO_CACHE) <= REPO_INFO_CACHE_MAX_ENTRIES:
+        return
+    # Evict oldest expiration first. Good enough for bounded in-memory cache.
+    keys_by_expiry = sorted(_REPO_INFO_CACHE.items(), key=lambda item: item[1][0])
+    over = len(_REPO_INFO_CACHE) - REPO_INFO_CACHE_MAX_ENTRIES
+    for key, _ in keys_by_expiry[:over]:
+        _REPO_INFO_CACHE.pop(key, None)
+
+
+def _clear_repo_summary_cache_for_tests() -> None:
+    """Test helper to avoid state leakage across test cases."""
+    _REPO_INFO_CACHE.clear()
+    _REPO_INFO_INFLIGHT.clear()
 
 
 # ----------------------------- Tool entry point -------------------------------
@@ -58,6 +93,53 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
         except Exception as e:
             log.warning(f"Failed to lookup repo URL from catalog: {e}")
 
+    cache_key = _normalize_cache_key(effective_url)
+    now = time.monotonic()
+
+    await _REPO_INFO_LOCK.acquire()
+    try:
+        _evict_expired_entries(now)
+
+        cached_entry = _REPO_INFO_CACHE.get(cache_key)
+        if cached_entry:
+            _, cached = cached_entry
+            log.info(f"Repo info cache hit for {effective_url}")
+            return cached.model_copy(deep=True)
+
+        inflight = _REPO_INFO_INFLIGHT.get(cache_key)
+        if inflight is None:
+            inflight = asyncio.get_running_loop().create_future()
+            _REPO_INFO_INFLIGHT[cache_key] = inflight
+            creator = True
+        else:
+            creator = False
+    finally:
+        _REPO_INFO_LOCK.release()
+
+    if not creator:
+        log.info(f"Repo info in-flight dedup for {effective_url}")
+        shared = await inflight
+        return shared.model_copy(deep=True)
+
+    result = await _fetch_repo_summary(effective_url)
+
+    await _REPO_INFO_LOCK.acquire()
+    try:
+        if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
+            expires_at = time.monotonic() + REPO_INFO_CACHE_TTL_SECONDS
+            _REPO_INFO_CACHE[cache_key] = (expires_at, result)
+            _enforce_cache_capacity()
+
+        if not inflight.done():
+            inflight.set_result(result)
+        _REPO_INFO_INFLIGHT.pop(cache_key, None)
+    finally:
+        _REPO_INFO_LOCK.release()
+
+    return result.model_copy(deep=True)
+
+
+async def _fetch_repo_summary(effective_url: str) -> RepoSummaryOutput:
     # Try DeepWiki first
     try:
         log.info(f"Attempting DeepWiki lookup for {effective_url}")
@@ -72,8 +154,7 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
                 summary=summary,
                 source="deepwiki",
             )
-        else:
-            log.warning(f"DeepWiki lookup failed: {deepwiki_result.error}")
+        log.warning(f"DeepWiki lookup failed: {deepwiki_result.error}")
     except Exception as e:
         log.warning(f"DeepWiki error (falling back to repocards): {e}")
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import logging
+import time
+import asyncio
 from datetime import datetime
 from typing import List
 
@@ -27,6 +29,8 @@ from .utils import AgentState, limit_tool_calls, cap_prepare
 from ai_agent.utils.image_meta import summarize_image_metadata, detect_ext_token
 
 log = logging.getLogger("agent.core")
+
+DEFAULT_NUM_CHOICES = int(os.getenv("NUM_CHOICES", "3"))
 
 # ---------------------------------------------------------------------------
 # Model / provider setup
@@ -65,7 +69,7 @@ else:
 # ---------------------------------------------------------------------------
 agent = Agent(
     model=openai_model,
-    system_prompt=get_agent_system_prompt(os.getenv("NUM_CHOICES", "3")),
+    system_prompt=get_agent_system_prompt(DEFAULT_NUM_CHOICES),
     deps_type=AgentState,
     output_retries=int(os.getenv("AGENT_OUTPUT_RETRIES", "3")),
 )
@@ -104,6 +108,7 @@ async def search_tools(
         ctx.deps.override_top_k if ctx.deps.override_top_k is not None else top_k
     )
 
+    started = time.perf_counter()
     inp = SearchToolsInput(
         query=sanitize_retrieval_query(query),
         excluded=all_excluded,
@@ -118,6 +123,7 @@ async def search_tools(
             "tool": "search_tools",
             "query": query,
             "count": len(out.candidates),
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
             "original_formats": original_formats,
             "excluded": all_excluded,
             "timestamp": datetime.now().isoformat(),
@@ -146,6 +152,7 @@ async def search_alternative(
     original_formats = getattr(ctx.deps, "original_formats", []) or []
     image_paths = getattr(ctx.deps, "image_paths", []) or []
 
+    started = time.perf_counter()
     inp = SearchAlternativeInput(
         alternative_query=alternative_query,
         excluded=all_excluded,
@@ -161,6 +168,7 @@ async def search_alternative(
             "alternative_query": alternative_query,
             "query_used": out.query_used,
             "count": len(out.candidates),
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
             "original_formats": original_formats,
             "excluded": all_excluded,
             "timestamp": datetime.now().isoformat(),
@@ -171,69 +179,69 @@ async def search_alternative(
 
 
 @agent.tool(retries=2, prepare=cap_prepare)
-@limit_tool_calls("repo_info", cap=12)
-async def repo_info(
-    ctx: RunContext[AgentState], url: str, tool_name: str | None = None
-) -> dict:
-    """
-    Fetch a short summary of a GitHub repository.
+@limit_tool_calls("repo_info_batch", cap=4)
+async def repo_info_batch(
+    ctx: RunContext[AgentState],
+    urls: List[str],
+) -> List[dict]:
+    """Fetch repository summaries for multiple repositories in parallel."""
+    started = time.perf_counter()
 
-    Non-GitHub URLs are ignored; the tool returns a small dict noting
-    that it was skipped. If a tool_name is provided and the URL is not
-    a GitHub URL, the tool will attempt to look up the GitHub URL from
-    the catalog.
+    if not urls:
+        return []
 
-    Args:
-        url: Repository URL or GitHub owner/repo format
-        tool_name: Optional tool name to look up in catalog if URL is not GitHub
-    """
-    norm_url = coerce_github_url_or_none(url)
+    normalized: List[str] = []
+    skipped: List[dict] = []
+    seen: set[str] = set()
+    for raw in urls:
+        norm = coerce_github_url_or_none(raw)
+        if not norm:
+            skipped.append(
+                {
+                    "url": raw,
+                    "skipped": True,
+                    "reason": "NON_GITHUB_URL",
+                }
+            )
+            continue
+        if norm in seen:
+            continue
+        seen.add(norm)
+        normalized.append(norm)
 
-    # If URL is not a GitHub URL and tool_name is provided, try catalog lookup
-    if not norm_url and tool_name:
-        log.info(
-            f"Non-GitHub URL provided, tool_name={tool_name}, attempting catalog lookup"
-        )
-        # The tool_repo_summary will handle the catalog lookup
-        norm_url = url  # Pass through, tool_repo_summary will handle it
-    elif not norm_url:
-        payload = {
-            "tool": "repo_info",
-            "url": url,
-            "skipped": True,
-            "reason": "NON_GITHUB_URL",
-            "hint": "Pass a GitHub repo URL or 'owner/repo' to repo_info(url). Optionally provide tool_name for catalog lookup.",
-            "timestamp": datetime.now().isoformat(),
-        }
-        ctx.deps.tool_calls.append(payload)
-        return {k: v for k, v in payload.items() if k != "tool"}
+    tasks = [tool_repo_summary(RepoSummaryInput(url=u)) for u in normalized]
+    outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
-    try:
-        out = await tool_repo_summary(
-            RepoSummaryInput(url=norm_url, tool_name=tool_name)
-        )
-    except Exception as e:
-        ctx.deps.tool_calls.append(
-            {
-                "tool": "repo_info",
-                "url": norm_url,
-                "tool_name": tool_name,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat(),
-            }
-        )
-        raise
+    results: List[dict] = []
+    for url, outcome in zip(normalized, outcomes):
+        if isinstance(outcome, Exception):
+            results.append(
+                {
+                    "url": url,
+                    "source": "error",
+                    "error": str(outcome),
+                }
+            )
+            continue
+        payload = outcome.model_dump(mode="python")
+        payload["url"] = url
+        results.append(payload)
+
+    if skipped:
+        results.extend(skipped)
 
     ctx.deps.tool_calls.append(
         {
-            "tool": "repo_info",
-            "url": norm_url,
-            "tool_name": tool_name,
-            "truncated": getattr(out, "truncated", False),
+            "tool": "repo_info_batch",
+            "requested": len(urls),
+            "normalized": len(normalized),
+            "returned": len(results),
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
             "timestamp": datetime.now().isoformat(),
         }
     )
-    return out.model_dump(mode="python")
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -266,12 +274,14 @@ def run_agent(
       The model only sees an actual image if `image_bytes` is provided.
       `image_paths` are used for metadata + tool context only.
     """
+    run_started = time.perf_counter()
     if not image_paths:
         raise ValueError("run_agent requires at least one image path")
 
     tool_logs: List[ToolRunLog] = []
 
     # ---- 1) Derive image-based metadata and format hints --------------------
+    metadata_started = time.perf_counter()
     meta_str = (
         image_metadata
         if image_metadata is not None
@@ -279,14 +289,18 @@ def run_agent(
     )
     fmt_str = detect_ext_token(image_paths) or ""
     original_formats = [t.lower() for t in fmt_str.split()] if fmt_str else []
+    metadata_duration_ms = round((time.perf_counter() - metadata_started) * 1000, 1)
+
+    effective_top_k = top_k if top_k is not None else 12
+    effective_num_choices = num_choices if num_choices is not None else 3
 
     # ---- 2) Prepare dependency state passed to all tools --------------------
     deps = AgentState(
         excluded_tools=excluded or [],
         override_model=model,
         override_base_url=base_url,
-        override_top_k=top_k,
-        override_num_choices=num_choices,
+        override_top_k=effective_top_k,
+        override_num_choices=effective_num_choices,
     )
 
     setattr(deps, "image_paths", list(image_paths))
@@ -304,8 +318,7 @@ def run_agent(
             + ("…" if len(short_meta) > 500 else "")
             + ")"
         )
-    if top_k is not None:
-        hidden_meta += f"\n(Search top_k: {top_k})"
+    hidden_meta += f"\n(Search top_k: {effective_top_k})"
 
     extra_context = "\n\n**CRITICAL: Analyze the attached preview image showing the user's data.**\nUse visual observations (anatomy visible, image quality, dimensionality, contrast) combined with the metadata below to recommend tools. Reference what you see in your explanations."
 
@@ -389,9 +402,11 @@ def run_agent(
         # Register tools on the dynamic agent
         agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
         agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
-        agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
+        agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
 
-    elif num_choices is not None and num_choices != 3:
+    elif (
+        num_choices is not None and num_choices != DEFAULT_NUM_CHOICES
+    ):
         log.info(
             f"📦 Creating runtime agent with num_choices={effective_num_choices} (model: {effective_model})"
         )
@@ -405,7 +420,7 @@ def run_agent(
         # Register tools on the dynamic agent
         agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
         agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
-        agent_instance.tool(repo_info, retries=2, prepare=cap_prepare)
+        agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
 
     else:
         log.info(
@@ -436,12 +451,14 @@ def run_agent(
 
     # ---- 6) Run the agent --------------------------------------------------
     try:
+        llm_started = time.perf_counter()
         run_result = agent_instance.run_sync(
             user_prompt,
             deps=deps,
             output_type=ToolSelection,
             usage_limits=UsageLimits(tool_calls_limit=20),
         )
+        llm_duration_ms = round((time.perf_counter() - llm_started) * 1000, 1)
         result = run_result.output
 
         log.info(
@@ -465,6 +482,7 @@ def run_agent(
     except Exception as e:
         # Handle global tool quota limit (UsageLimitExceeded) and other errors gracefully
         error_msg = str(e)
+        llm_duration_ms = round((time.perf_counter() - llm_started) * 1000, 1)
         log.warning(f"⚠️  Agent execution encountered an error: {error_msg}")
         run_result = None  # Ensure run_result is defined for usage stats extraction
 
@@ -507,6 +525,25 @@ def run_agent(
                 error=error,
             )
         )
+
+    stage_counts: dict[str, int] = {}
+    stage_durations: dict[str, float] = {}
+    for tc in getattr(deps, "tool_calls", []):
+        name = tc.get("tool", "unknown")
+        stage_counts[name] = stage_counts.get(name, 0) + 1
+        duration_ms = tc.get("duration_ms")
+        if isinstance(duration_ms, (int, float)):
+            stage_durations[name] = stage_durations.get(name, 0.0) + float(duration_ms)
+
+    total_duration_ms = round((time.perf_counter() - run_started) * 1000, 1)
+    log.info(
+        "⏱️ Latency summary: total_ms=%s metadata_ms=%s llm_ms=%s tools=%s tool_ms=%s",
+        total_duration_ms,
+        metadata_duration_ms,
+        llm_duration_ms,
+        stage_counts,
+        {k: round(v, 1) for k, v in stage_durations.items()},
+    )
 
     # ---- 8) Extract usage statistics if available -------------------------
     usage_stats = None

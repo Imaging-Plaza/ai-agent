@@ -1,18 +1,87 @@
 # utils/previews.py
 from __future__ import annotations
 from pathlib import Path
+import os
 import numpy as np
 import imageio.v3 as iio
 import tempfile
 import logging
 import time
+import threading
 import tifffile as tiff
-from typing import List, Optional, Tuple, Dict, Any
-from PIL import Image, ImageDraw, ImageFont
+from typing import List, Optional, Tuple
+from PIL import Image
 from ai_agent.utils.image_meta import summarize_image_metadata
 from ai_agent.utils.image_io import load_any
 
 log = logging.getLogger("pipeline")
+
+PREVIEW_CACHE_TTL_SECONDS = int(os.getenv("PREVIEW_CACHE_TTL_SECONDS", "1800"))
+PREVIEW_CACHE_MAX_ENTRIES = int(os.getenv("PREVIEW_CACHE_MAX_ENTRIES", "64"))
+PREVIEW_MAX_SIDE_PX = int(os.getenv("PREVIEW_MAX_SIDE_PX", "500"))
+_PREVIEW_CACHE: dict[tuple[str, ...], tuple[float, str, Optional[str]]] = {}
+_PREVIEW_CACHE_LOCK = threading.Lock()
+
+
+def _fingerprint_paths(paths: List[str]) -> tuple[str, ...]:
+    fps: list[str] = []
+    for p in paths:
+        pp = Path(p)
+        try:
+            st = pp.stat()
+            fps.append(f"{pp.resolve()}::{int(st.st_mtime)}::{st.st_size}")
+        except Exception:
+            fps.append(str(pp))
+    return tuple(fps)
+
+
+def _evict_expired_preview_entries(now: float) -> None:
+    expired = [k for k, (exp, _, _) in _PREVIEW_CACHE.items() if exp <= now]
+    for key in expired:
+        _PREVIEW_CACHE.pop(key, None)
+
+
+def _clear_preview_cache_for_tests() -> None:
+    """Test helper to avoid cache state leakage across test cases."""
+    with _PREVIEW_CACHE_LOCK:
+        _PREVIEW_CACHE.clear()
+
+
+def _preview_cache_get(key: tuple[str, ...]) -> Tuple[Optional[str], Optional[str]]:
+    if PREVIEW_CACHE_TTL_SECONDS <= 0:
+        return None, None
+    now = time.monotonic()
+    with _PREVIEW_CACHE_LOCK:
+        _evict_expired_preview_entries(now)
+
+        entry = _PREVIEW_CACHE.get(key)
+        if not entry:
+            return None, None
+
+        _, preview_path, meta_text = entry
+        if not Path(preview_path).exists():
+            _PREVIEW_CACHE.pop(key, None)
+            return None, None
+
+        return preview_path, meta_text
+
+
+def _preview_cache_set(
+    key: tuple[str, ...], preview_path: str, meta_text: Optional[str]
+) -> None:
+    if PREVIEW_CACHE_TTL_SECONDS <= 0:
+        return
+    expires_at = time.monotonic() + PREVIEW_CACHE_TTL_SECONDS
+    with _PREVIEW_CACHE_LOCK:
+        _evict_expired_preview_entries(time.monotonic())
+        _PREVIEW_CACHE[key] = (expires_at, preview_path, meta_text)
+        if len(_PREVIEW_CACHE) <= PREVIEW_CACHE_MAX_ENTRIES:
+            return
+        # Evict oldest by expiration timestamp first.
+        items = sorted(_PREVIEW_CACHE.items(), key=lambda it: it[1][0])
+        over = len(_PREVIEW_CACHE) - PREVIEW_CACHE_MAX_ENTRIES
+        for k, _ in items[:over]:
+            _PREVIEW_CACHE.pop(k, None)
 
 
 def _norm_uint8(a: np.ndarray) -> np.ndarray:
@@ -43,6 +112,16 @@ def _to_uint8_image(arr: np.ndarray) -> np.ndarray:
     return np.clip(a, 0, 255).astype(np.uint8)
 
 
+def _resize_for_preview(img: Image.Image, max_side_px: int = PREVIEW_MAX_SIDE_PX) -> Image.Image:
+    """Resize oversized previews while preserving aspect ratio."""
+    max_side_px = max(1, int(max_side_px))
+    if max(img.size) <= max_side_px:
+        return img
+    resized = img.copy()
+    resized.thumbnail((max_side_px, max_side_px), Image.Resampling.LANCZOS)
+    return resized
+
+
 def mip_montage(vol3d: np.ndarray, out_png: str | Path) -> str:
     vol3d = _norm_uint8(vol3d)
     axial = vol3d.max(axis=2)
@@ -52,7 +131,7 @@ def mip_montage(vol3d: np.ndarray, out_png: str | Path) -> str:
     # pad to rectangle
     pad = np.zeros_like(axial)
     img = np.vstack([h1, np.hstack([sag, pad])])
-    iio.imwrite(str(out_png), img)
+    _resize_for_preview(Image.fromarray(img)).save(str(out_png))
     return str(out_png)
 
 
@@ -62,8 +141,26 @@ def slice_gif(
     v = _norm_uint8(vol)
     idxs = list(range(0, v.shape[axis], step))
     frames = [np.take(v, i, axis=axis) for i in idxs]
+    if frames:
+        h, w = frames[0].shape[:2]
+        max_side_px = max(1, PREVIEW_MAX_SIDE_PX)
+        if max(h, w) > max_side_px:
+            scale = max_side_px / float(max(h, w))
+            new_w = max(1, int(round(w * scale)))
+            new_h = max(1, int(round(h * scale)))
+            resized_frames = []
+            for frame in frames:
+                pil_frame = Image.fromarray(frame)
+                resized_frames.append(
+                    np.asarray(
+                        pil_frame.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    )
+                )
+            frames = resized_frames
     iio.imwrite(str(out_gif), frames, plugin="pillow", duration=int(1000 / fps), loop=0)
     return str(out_gif)
+
+
 def contact_sheet_slices(
     vol3d: np.ndarray,
     out_png: str | Path,
@@ -87,13 +184,11 @@ def contact_sheet_slices(
         c = idx % cols
         canvas[r * h : (r + 1) * h, c * w : (c + 1) * w] = frame
 
-    iio.imwrite(str(out_png), canvas)
+    _resize_for_preview(Image.fromarray(canvas)).save(str(out_png))
     return str(out_png)
 
 
-def create_orthogonal_views(
-    vol3d: np.ndarray, out_png: str | Path, annotations: Optional[Dict[str, Any]] = None
-) -> str:
+def create_orthogonal_views(vol3d: np.ndarray, out_png: str | Path) -> str:
     """
     Create a comprehensive 3-view (axial, coronal, sagittal) visualization.
     Each view shows both a middle slice and a MIP projection.
@@ -101,7 +196,6 @@ def create_orthogonal_views(
     Args:
         vol3d: 3D volume array
         out_png: Output path for PNG
-        annotations: Optional metadata dict to overlay (format, modality, dims, etc.)
     """
     v = _norm_uint8(vol3d)
     h, w, d = v.shape
@@ -156,98 +250,8 @@ def create_orthogonal_views(
     )
 
     composite = np.vstack([top_row, bottom_row])
-
-    # Convert to PIL for annotations
-    img = Image.fromarray(composite)
-
-    if annotations:
-        img = _add_text_annotations(img, annotations, layout="orthogonal")
-
-    img.save(str(out_png))
+    _resize_for_preview(Image.fromarray(composite)).save(str(out_png))
     return str(out_png)
-
-
-def _add_text_annotations(
-    img: Image.Image, metadata: Dict[str, Any], layout: str = "simple"
-) -> Image.Image:
-    """
-    Add metadata text overlay to help VLM understand the image.
-
-    Args:
-        img: PIL Image
-        metadata: Dict with keys like 'modality', 'format', 'shape', 'spacing', etc.
-        layout: 'simple', 'orthogonal', or 'detailed'
-    """
-    # Create a copy to draw on
-    annotated = img.copy()
-
-    # Try to load a font, fall back to default
-    try:
-        # Try common system fonts
-        font_size = max(12, min(20, img.height // 40))
-        try:
-            # Linux
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size
-            )
-        except:
-            try:
-                # Windows
-                font = ImageFont.truetype("arial.ttf", font_size)
-            except:
-                font = ImageFont.load_default()
-    except:
-        font = ImageFont.load_default()
-
-    # Build annotation text
-    lines = []
-
-    if layout == "orthogonal":
-        lines.append("Top: MIP projections | Bottom: Middle slices")
-        lines.append("Left: Axial | Center: Coronal | Right: Sagittal")
-
-    # Add metadata
-    if metadata.get("modality"):
-        lines.append(f"Modality: {metadata['modality']}")
-    if metadata.get("format"):
-        lines.append(f"Format: {metadata['format']}")
-    if metadata.get("shape"):
-        shp = metadata["shape"]
-        if isinstance(shp, (list, tuple)):
-            dim_str = f"{len(shp)}D {tuple(shp)}"
-        else:
-            dim_str = str(shp)
-        lines.append(f"Dimensions: {dim_str}")
-    if metadata.get("spacing"):
-        lines.append(f"Spacing: {metadata['spacing']}")
-    if metadata.get("note"):
-        lines.append(f"Note: {metadata['note']}")
-
-    # Draw semi-transparent background
-    text_height = len(lines) * (font_size + 4)
-    padding = 8
-    bg_height = text_height + 2 * padding
-
-    # Create semi-transparent overlay
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    overlay_draw = ImageDraw.Draw(overlay)
-
-    # Draw background rectangle
-    overlay_draw.rectangle(
-        [(0, 0), (img.width, bg_height)], fill=(0, 0, 0, 180)  # Semi-transparent black
-    )
-
-    # Composite overlay
-    annotated = Image.alpha_composite(annotated.convert("RGBA"), overlay).convert("RGB")
-    draw = ImageDraw.Draw(annotated)
-
-    # Draw text
-    y_offset = padding
-    for line in lines:
-        draw.text((padding, y_offset), line, fill=(255, 255, 255), font=font)
-        y_offset += font_size + 4
-
-    return annotated
 
 
 def _build_preview_for_vlm(
@@ -257,8 +261,8 @@ def _build_preview_for_vlm(
     Build an enhanced preview image optimized for VLM analysis.
 
     Strategy:
-    - 2D images: Add metadata annotations
-    - 3D volumes: Create orthogonal multi-view composite with annotations
+    - 2D images: Convert and normalize when needed
+    - 3D volumes: Create orthogonal multi-view composite
     - 4D data: Extract representative 3D volume, then multi-view
     - Medical images: Ensure proper intensity windowing
 
@@ -267,6 +271,12 @@ def _build_preview_for_vlm(
     """
     if not image_paths:
         return None, None
+
+    cache_key = _fingerprint_paths(image_paths)
+    cached_preview, cached_meta = _preview_cache_get(cache_key)
+    if cached_preview:
+        log.info("Preview cache hit for %d file(s)", len(image_paths))
+        return cached_preview, cached_meta
 
     meta_text = None
     try:
@@ -294,37 +304,13 @@ def _build_preview_for_vlm(
             arr = np.asarray(data)
             ext = Path(p).suffix.lower()
 
-            # Extract metadata for annotations
-            annotation_meta = {
-                "format": meta.get("format", ext.upper().lstrip(".")),
-                "shape": shp,
-            }
-
-            # Try to extract modality from metadata (handle both lowercase and DICOM-style keys)
-            modality = meta.get("modality") or meta.get("Modality")
-            if modality:
-                annotation_meta["modality"] = modality
-
-            # Extract spacing if available
-            if "zooms" in meta:
-                zooms = meta["zooms"]
-                if len(zooms) >= 3:
-                    annotation_meta["spacing"] = (
-                        f"{zooms[0]:.2f}×{zooms[1]:.2f}×{zooms[2]:.2f}mm"
-                    )
-                elif len(zooms) == 2:
-                    annotation_meta["spacing"] = f"{zooms[0]:.2f}×{zooms[1]:.2f}mm"
-
             # Handle true color images (H, W, 3/4) safely
-            # For PNG/JPEG/WebP, (H,W,3/4) is almost certainly color → render with annotations
+            # For PNG/JPEG/WebP, (H,W,3/4) is almost certainly color.
             if _is_rgb_like(arr.shape) and ext in {".png", ".jpg", ".jpeg", ".webp"}:
-                out = tmpdir / "image_annotated.png"
+                out = tmpdir / "image_preview.png"
                 img_uint8 = _to_uint8_image(arr)
-                img_pil = Image.fromarray(img_uint8)
-                img_annotated = _add_text_annotations(
-                    img_pil, annotation_meta, layout="simple"
-                )
-                img_annotated.save(str(out))
+                _resize_for_preview(Image.fromarray(img_uint8)).save(str(out))
+                _preview_cache_set(cache_key, str(out), meta_text)
                 return str(out), meta_text
 
             # For TIFF, (H,W,3) can be either RGB or a 3-slice stack.
@@ -338,13 +324,10 @@ def _build_preview_for_vlm(
                     if spp in (3, 4) and (
                         "RGB" in photometric or "YCBCR" in photometric
                     ):
-                        out = tmpdir / "image_annotated.png"
+                        out = tmpdir / "image_preview.png"
                         img_uint8 = _to_uint8_image(arr)
-                        img_pil = Image.fromarray(img_uint8)
-                        img_annotated = _add_text_annotations(
-                            img_pil, annotation_meta, layout="simple"
-                        )
-                        img_annotated.save(str(out))
+                        _resize_for_preview(Image.fromarray(img_uint8)).save(str(out))
+                        _preview_cache_set(cache_key, str(out), meta_text)
                         return str(out), meta_text
                 except Exception:
                     # If tags can't be read, prefer treating TIFF (H,W,3) as a stack
@@ -355,11 +338,12 @@ def _build_preview_for_vlm(
                 png_path = tmpdir / "orthogonal_views.png"
                 try:
                     # Try orthogonal views first (best for VLM understanding)
-                    create_orthogonal_views(arr, png_path, annotations=annotation_meta)
+                    create_orthogonal_views(arr, png_path)
                     if png_path.exists():
                         log.info(
                             f"Created orthogonal view composite for 3D volume {shp}"
                         )
+                        _preview_cache_set(cache_key, str(png_path), meta_text)
                         return str(png_path), meta_text
                 except Exception as e:
                     log.warning(
@@ -369,13 +353,8 @@ def _build_preview_for_vlm(
                     png_path = tmpdir / "slices_grid.png"
                     try:
                         contact_sheet_slices(arr, png_path, max_slices=36, grid_cols=6)
-                        # Add annotations to contact sheet
-                        img = Image.open(str(png_path))
-                        img = _add_text_annotations(
-                            img, annotation_meta, layout="simple"
-                        )
-                        img.save(str(png_path))
                         if png_path.exists():
+                            _preview_cache_set(cache_key, str(png_path), meta_text)
                             return str(png_path), meta_text
                     except Exception as e:
                         log.warning(
@@ -386,6 +365,7 @@ def _build_preview_for_vlm(
                     try:
                         mip_montage(arr, png_path)
                         if png_path.exists():
+                            _preview_cache_set(cache_key, str(png_path), meta_text)
                             return str(png_path), meta_text
                     except Exception:
                         pass
@@ -393,12 +373,12 @@ def _build_preview_for_vlm(
             # 4D data: Extract representative 3D volume (mean over time), then multi-view
             if len(shp) == 4:
                 vol = np.asarray(data).mean(axis=-1)  # Average over 4th dimension
-                annotation_meta["note"] = f"4D data: averaged over {shp[3]} timepoints"
                 out = tmpdir / "orthogonal_4d.png"
                 try:
-                    create_orthogonal_views(vol, out, annotations=annotation_meta)
+                    create_orthogonal_views(vol, out)
                     if out.exists():
                         log.info(f"Created orthogonal view for 4D volume {shp}")
+                        _preview_cache_set(cache_key, str(out), meta_text)
                         return str(out), meta_text
                 except Exception as e:
                     log.warning(f"4D orthogonal failed: {e}, trying gif")
@@ -406,17 +386,15 @@ def _build_preview_for_vlm(
                     out = tmpdir / "sweep.gif"
                     step = max(1, vol.shape[2] // 64)
                     slice_gif(vol, out, axis=2, step=step, fps=12)
+                    _preview_cache_set(cache_key, str(out), meta_text)
                     return str(out), meta_text
 
-            # 2D images: Add annotations
+            # 2D images: Normalize and resize.
             if len(shp) == 2:
-                out = tmpdir / "image_annotated.png"
+                out = tmpdir / "image_preview.png"
                 arr2 = _norm_uint8(arr)  # Use consistent normalization
-                img_pil = Image.fromarray(arr2)
-                img_annotated = _add_text_annotations(
-                    img_pil, annotation_meta, layout="simple"
-                )
-                img_annotated.save(str(out))
+                _resize_for_preview(Image.fromarray(arr2)).save(str(out))
+                _preview_cache_set(cache_key, str(out), meta_text)
                 return str(out), meta_text
 
         except Exception as e:
