@@ -16,19 +16,9 @@ from ai_agent.utils.config import get_retrieval_config
 
 from ai_agent.utils.tags import strip_tags
 from ai_agent.utils.image_meta import detect_ext_token, summarize_image_metadata
+from ai_agent.utils.utils import _env_flag
 
 log = logging.getLogger("pipeline")
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    """Parse boolean env vars robustly (also tolerates inline comment remnants)."""
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    val = raw.split("#", 1)[0].strip().lower()
-    if not val:
-        return default
-    return val in {"1", "true", "yes", "on"}
 
 
 class RAGImagingPipeline:
