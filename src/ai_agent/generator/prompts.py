@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import os
-
-
 SELECTOR_SYSTEM = """
 You are an imaging software recommender. Your goal is to help users find the best tool(s) for their 
 imaging tasks OR determine when clarification is needed.
