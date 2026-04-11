@@ -121,7 +121,17 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
         shared = await inflight
         return shared.model_copy(deep=True)
 
-    result = await _fetch_repo_summary(effective_url)
+    try:
+        result = await _fetch_repo_summary(effective_url)
+    except BaseException as exc:
+        await _REPO_INFO_LOCK.acquire()
+        try:
+            if not inflight.done():
+                inflight.set_exception(exc)
+            _REPO_INFO_INFLIGHT.pop(cache_key, None)
+        finally:
+            _REPO_INFO_LOCK.release()
+        raise
 
     await _REPO_INFO_LOCK.acquire()
     try:

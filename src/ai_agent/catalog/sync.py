@@ -12,6 +12,7 @@ from urllib.error import HTTPError
 import logging
 
 from ai_agent.utils.full_processing import full_processing
+from ai_agent.utils.config import get_retrieval_config
 
 import hashlib
 from ai_agent.retriever.software_doc import SoftwareDoc
@@ -19,6 +20,20 @@ from ai_agent.retriever.text_embedder import LocalBGEEmbedder
 from ai_agent.retriever.vector_index import IndexItem, VectorIndex
 
 log = logging.getLogger("ai_agent.catalog.sync")
+
+
+def _build_embedder() -> LocalBGEEmbedder:
+    """Build a LocalBGEEmbedder from the current retrieval config."""
+    retrieval_cfg = get_retrieval_config()
+    embed_cfg = retrieval_cfg.get("embedder", {}) if isinstance(retrieval_cfg, dict) else {}
+    return LocalBGEEmbedder(
+        model_name=embed_cfg.get("model_name", "Qwen/Qwen3-Embedding-8B"),
+        device=embed_cfg.get("device"),
+        backend=embed_cfg.get("backend", "remote"),
+        base_url=embed_cfg.get("base_url", "https://inference-rcp.epfl.ch/v1"),
+        api_key_env=embed_cfg.get("api_key_env", "EPFL_API_KEY_EMBEDDER"),
+        timeout_s=float(embed_cfg.get("timeout_s", 20.0)),
+    )
 
 
 def _index_artifacts_present(index_dir: Path) -> bool:
@@ -398,7 +413,7 @@ def sync_once(
         faiss_rebuilt = False
         faiss_delta: Dict[str, int] = {"added": 0, "updated": 0, "removed": 0}
         try:
-            embedder = LocalBGEEmbedder()
+            embedder = _build_embedder()
             VectorIndex.load(index_dir, embedder)
             log.info(
                 "Catalog unchanged (semantic sha1=%s); keeping FAISS index", digest[:12]
@@ -408,7 +423,7 @@ def sync_once(
                 "Catalog unchanged but FAISS index is missing/incompatible; rebuilding index (%s)",
                 e,
             )
-            embedder = LocalBGEEmbedder()
+            embedder = _build_embedder()
             idx = VectorIndex(embedder)
             items = [
                 IndexItem(id=d.name, doc=d) for d in docs if getattr(d, "name", None)
@@ -461,7 +476,7 @@ def sync_once(
             log.info("  changed (sample): %s", chg_s)
         log.info("Full diff written to %s", diff_path)
 
-    embedder = LocalBGEEmbedder()
+    embedder = _build_embedder()
     try:
         idx = VectorIndex.load(index_dir, embedder)
     except Exception as e:

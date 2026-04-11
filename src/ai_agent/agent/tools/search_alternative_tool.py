@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from ai_agent.generator.schema import CandidateDoc
-from .utils import get_catalog_docs, get_known_names, get_pipeline
+from .utils import get_known_names, get_pipeline
 from .query_utils import append_format_tokens, normalize_formats, sanitize_retrieval_query
 
 

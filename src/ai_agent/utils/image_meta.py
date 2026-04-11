@@ -1,5 +1,6 @@
 # utils/image_meta.py
 from __future__ import annotations
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional, List
 import threading
@@ -15,8 +16,7 @@ import tifffile as tiff
 # Avoids re-reading large files (e.g. TIFF stacks) on every retrieval call.
 # ---------------------------------------------------------------------------
 _META_CACHE_MAX = int(os.getenv("IMAGE_META_CACHE_MAX", "128"))
-_meta_cache: dict[tuple, str] = {}  # key -> result string
-_meta_cache_order: list[tuple] = []  # insertion-order for simple LRU eviction
+_meta_cache: OrderedDict[tuple, str] = OrderedDict()  # key -> result string (LRU order)
 _meta_cache_lock = threading.Lock()
 
 
@@ -31,19 +31,21 @@ def _meta_cache_key(p: Path) -> tuple:
 
 def _meta_cache_get(key: tuple) -> Optional[str]:
     with _meta_cache_lock:
-        return _meta_cache.get(key)
+        value = _meta_cache.get(key)
+        if value is not None:
+            _meta_cache.move_to_end(key)
+        return value
 
 
 def _meta_cache_set(key: tuple, value: str) -> None:
     with _meta_cache_lock:
         if key in _meta_cache:
+            _meta_cache.move_to_end(key)
             return
         _meta_cache[key] = value
-        _meta_cache_order.append(key)
-        # Evict oldest entries when over capacity
-        while len(_meta_cache_order) > _META_CACHE_MAX:
-            oldest = _meta_cache_order.pop(0)
-            _meta_cache.pop(oldest, None)
+        # Evict least-recently-used entries when over capacity
+        while len(_meta_cache) > _META_CACHE_MAX:
+            _meta_cache.popitem(last=False)
 
 # ---- small helpers -----------------------------------------------------------
 
