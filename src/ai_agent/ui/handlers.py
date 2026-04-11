@@ -19,6 +19,8 @@ from ai_agent.utils.tags import strip_tags, parse_exclusions
 from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.utils.utils import _coerce_files_to_paths, _is_affirmative
 
+from ai_agent.agent.agent import run_agent
+
 from .state import ChatState, ChatMessage
 from .formatters import format_tool_card
 
@@ -364,8 +366,6 @@ def respond(
         return reply, state
 
     try:
-        from ai_agent.agent.agent import run_agent
-
         agent_result = run_agent(
             clean_message,
             image_paths=effective_paths,
@@ -379,6 +379,7 @@ def respond(
             api_key_env=api_key_env,  # Pass the API key environment variable name
             top_k=top_k,
             num_choices=num_choices,
+            image_metadata=state.last_image_meta,
         )
     except ValueError as e:
         # Configuration error (missing API key, etc.)

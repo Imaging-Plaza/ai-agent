@@ -33,6 +33,14 @@ log = logging.getLogger("agent.core")
 DEFAULT_NUM_CHOICES = int(os.getenv("NUM_CHOICES", "3"))
 
 # ---------------------------------------------------------------------------
+# Dynamic agent instance cache
+# Key: (model_name, base_url, api_key_env, num_choices)
+# Avoids rebuilding Agent/OpenAIProvider/model objects on every request when
+# the UI repeatedly uses the same custom endpoint + model combination.
+# ---------------------------------------------------------------------------
+_AGENT_CACHE: dict[tuple, "Agent"] = {}
+
+# ---------------------------------------------------------------------------
 # Model / provider setup
 # ---------------------------------------------------------------------------
 config = get_config()
@@ -365,62 +373,76 @@ def run_agent(
         f"top_k: {effective_top_k}, num_choices: {effective_num_choices}, excluded: {len(excluded or [])}"
     )
 
-    needs_dynamic_agent = (
-        (model and model != agent_model_config.name)
-        or (base_url is not None and base_url != agent_model_config.base_url)
-        or (runtime_api_key != api_key)
-    )
+    needs_dynamic_agent = model is not None
 
     if needs_dynamic_agent:
-        log.info(
-            f"📦 Creating runtime agent with model={effective_model}, endpoint={effective_base_url or 'api.openai.com'}"
-        )
-
-        runtime_provider = OpenAIProvider(
-            base_url=effective_base_url,
-            api_key=runtime_api_key,
-        )
-
-        # Use OpenAIChatModel (chat/completions) for custom endpoints, OpenAIResponsesModel for default OpenAI
-        if effective_base_url:
-            log.info("Using OpenAIChatModel (chat/completions API) for custom endpoint")
-            runtime_model = OpenAIChatModel(
-                model_name=effective_model, provider=runtime_provider
+        cache_key = (effective_model, effective_base_url or "", api_key_env or "OPENAI_API_KEY", effective_num_choices)
+        agent_instance = _AGENT_CACHE.get(cache_key)
+        if agent_instance is None:
+            log.info(
+                f"📦 Creating runtime agent with model={effective_model}, endpoint={effective_base_url or 'api.openai.com'}"
             )
+
+            runtime_provider = OpenAIProvider(
+                base_url=effective_base_url,
+                api_key=runtime_api_key,
+            )
+
+            # Use OpenAIChatModel (chat/completions) for custom endpoints, OpenAIResponsesModel for default OpenAI
+            if effective_base_url:
+                log.info("Using OpenAIChatModel (chat/completions API) for custom endpoint")
+                runtime_model = OpenAIChatModel(
+                    model_name=effective_model, provider=runtime_provider
+                )
+            else:
+                runtime_model = OpenAIResponsesModel(
+                    model_name=effective_model, provider=runtime_provider
+                )
+
+            agent_instance = Agent(
+                model=runtime_model,
+                system_prompt=get_agent_system_prompt(effective_num_choices),
+                deps_type=AgentState,
+                output_retries=int(os.getenv("AGENT_OUTPUT_RETRIES", "3")),
+            )
+
+            # Register tools on the dynamic agent
+            agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
+            agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
+            agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
+
+            _AGENT_CACHE[cache_key] = agent_instance
         else:
-            runtime_model = OpenAIResponsesModel(
-                model_name=effective_model, provider=runtime_provider
+            log.info(
+                f"♻️  Reusing cached dynamic agent (model: {effective_model}, num_choices: {effective_num_choices})"
             )
-
-        agent_instance = Agent(
-            model=runtime_model,
-            system_prompt=get_agent_system_prompt(effective_num_choices),
-            deps_type=AgentState,
-            output_retries=int(os.getenv("AGENT_OUTPUT_RETRIES", "3")),
-        )
-
-        # Register tools on the dynamic agent
-        agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
-        agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
-        agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
 
     elif (
         num_choices is not None and num_choices != DEFAULT_NUM_CHOICES
     ):
-        log.info(
-            f"📦 Creating runtime agent with num_choices={effective_num_choices} (model: {effective_model})"
-        )
-        agent_instance = Agent(
-            model=openai_model,
-            system_prompt=get_agent_system_prompt(effective_num_choices),
-            deps_type=AgentState,
-            output_retries=int(os.getenv("AGENT_OUTPUT_RETRIES", "3")),
-        )
+        cache_key = (effective_model, effective_base_url or "", api_key_env or "OPENAI_API_KEY", effective_num_choices)
+        agent_instance = _AGENT_CACHE.get(cache_key)
+        if agent_instance is None:
+            log.info(
+                f"📦 Creating runtime agent with num_choices={effective_num_choices} (model: {effective_model})"
+            )
+            agent_instance = Agent(
+                model=openai_model,
+                system_prompt=get_agent_system_prompt(effective_num_choices),
+                deps_type=AgentState,
+                output_retries=int(os.getenv("AGENT_OUTPUT_RETRIES", "3")),
+            )
 
-        # Register tools on the dynamic agent
-        agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
-        agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
-        agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
+            # Register tools on the dynamic agent
+            agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
+            agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
+            agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
+
+            _AGENT_CACHE[cache_key] = agent_instance
+        else:
+            log.info(
+                f"♻️  Reusing cached dynamic agent with num_choices={effective_num_choices} (model: {effective_model})"
+            )
 
     else:
         log.info(

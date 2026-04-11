@@ -55,6 +55,9 @@ All notable changes to this project will be documented in this file.
 - **MCP Tools Subpackage** (`agent/tools/mcp/`): Organized separation of registered imaging tools (MCP protocol) from agent utilities. Base models, registry, and imaging tools (e.g., lungs_segmentation) now in dedicated subpackage for clarity.
 - **Base Tool Models** (`agent/tools/mcp/base.py`): Standard Pydantic schemas for tool consistency
 - **Tool Registration**: Lungs segmentation tool self-registers with complete field mappings
+- **In-process metadata cache** (`utils/image_meta.py`): `summarize_image_metadata` now caches results keyed by `(resolved_path, mtime_ns, size_bytes)`. Eliminates redundant file reads across the three call sites per request. Saves ~290 ms per warm request.
+- **Pre-computed metadata forwarded to `run_agent`** (`ui/handlers.py`): The `image_metadata` string computed by `_build_preview_for_vlm` is now forwarded directly to `run_agent`, skipping the second `summarize_image_metadata` call that previously occurred unconditionally inside the agent entry point.
+- **Dynamic `Agent` instance caching** (`agent/agent.py`): Runtime `Agent` objects created for custom model/endpoint combinations are stored in a module-level dict keyed by `(model, base_url, api_key_env, num_choices)`. Subsequent requests with the same non-default configuration reuse the cached instance.
 
 ### Changed
 - **Preview image simplification and size cap**: VLM preview generation no longer writes metadata text overlays onto preview images. Previews are now downscaled with aspect ratio preservation using a configurable maximum side length (`PREVIEW_MAX_SIDE_PX`, default `500`) to keep large images lightweight.
