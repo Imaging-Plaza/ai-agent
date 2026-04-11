@@ -4,6 +4,8 @@ import os
 import logging
 import time
 import asyncio
+import threading
+from collections import OrderedDict
 from datetime import datetime
 from typing import List
 
@@ -37,8 +39,12 @@ DEFAULT_NUM_CHOICES = int(os.getenv("NUM_CHOICES", "3"))
 # Key: (model_name, base_url, api_key_env, num_choices)
 # Avoids rebuilding Agent/OpenAIProvider/model objects on every request when
 # the UI repeatedly uses the same custom endpoint + model combination.
+# Bounded LRU (max AGENT_CACHE_MAX entries); protected by a lock so that
+# concurrent requests cannot race while creating/inserting agents.
 # ---------------------------------------------------------------------------
-_AGENT_CACHE: dict[tuple, "Agent"] = {}
+_AGENT_CACHE_MAX: int = int(os.getenv("AGENT_CACHE_MAX", "16"))
+_AGENT_CACHE_LOCK: threading.Lock = threading.Lock()
+_AGENT_CACHE: OrderedDict[tuple, "Agent"] = OrderedDict()
 
 # ---------------------------------------------------------------------------
 # Model / provider setup
@@ -377,7 +383,10 @@ def run_agent(
 
     if needs_dynamic_agent:
         cache_key = (effective_model, effective_base_url or "", api_key_env or "OPENAI_API_KEY", effective_num_choices)
-        agent_instance = _AGENT_CACHE.get(cache_key)
+        with _AGENT_CACHE_LOCK:
+            agent_instance = _AGENT_CACHE.get(cache_key)
+            if agent_instance is not None:
+                _AGENT_CACHE.move_to_end(cache_key)
         if agent_instance is None:
             log.info(
                 f"📦 Creating runtime agent with model={effective_model}, endpoint={effective_base_url or 'api.openai.com'}"
@@ -411,7 +420,11 @@ def run_agent(
             agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
             agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
 
-            _AGENT_CACHE[cache_key] = agent_instance
+            with _AGENT_CACHE_LOCK:
+                _AGENT_CACHE[cache_key] = agent_instance
+                _AGENT_CACHE.move_to_end(cache_key)
+                while len(_AGENT_CACHE) > _AGENT_CACHE_MAX:
+                    _AGENT_CACHE.popitem(last=False)
         else:
             log.info(
                 f"♻️  Reusing cached dynamic agent (model: {effective_model}, num_choices: {effective_num_choices})"
@@ -421,7 +434,10 @@ def run_agent(
         num_choices is not None and num_choices != DEFAULT_NUM_CHOICES
     ):
         cache_key = (effective_model, effective_base_url or "", api_key_env or "OPENAI_API_KEY", effective_num_choices)
-        agent_instance = _AGENT_CACHE.get(cache_key)
+        with _AGENT_CACHE_LOCK:
+            agent_instance = _AGENT_CACHE.get(cache_key)
+            if agent_instance is not None:
+                _AGENT_CACHE.move_to_end(cache_key)
         if agent_instance is None:
             log.info(
                 f"📦 Creating runtime agent with num_choices={effective_num_choices} (model: {effective_model})"
@@ -438,7 +454,11 @@ def run_agent(
             agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
             agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
 
-            _AGENT_CACHE[cache_key] = agent_instance
+            with _AGENT_CACHE_LOCK:
+                _AGENT_CACHE[cache_key] = agent_instance
+                _AGENT_CACHE.move_to_end(cache_key)
+                while len(_AGENT_CACHE) > _AGENT_CACHE_MAX:
+                    _AGENT_CACHE.popitem(last=False)
         else:
             log.info(
                 f"♻️  Reusing cached dynamic agent with num_choices={effective_num_choices} (model: {effective_model})"

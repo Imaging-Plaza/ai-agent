@@ -34,7 +34,7 @@ def _count_jsonl_rows(path: Path) -> int:
         return -1
 
 
-def _maybe_skip_sync_if_fresh(out_jsonl: Path, index_dir: Path) -> Dict[str, Any] | None:
+def _maybe_skip_sync_if_fresh(out_jsonl: Path, out_jsonld: Path, index_dir: Path) -> Dict[str, Any] | None:
     """Skip remote sync when local catalog/index are fresh enough for startup."""
     freshness_s = int(os.getenv("SYNC_SKIP_IF_FRESH_SECONDS", "0") or 0)
     force_sync = str(os.getenv("SYNC_FORCE", "0")).lower() in (
@@ -69,7 +69,7 @@ def _maybe_skip_sync_if_fresh(out_jsonl: Path, index_dir: Path) -> Dict[str, Any
         freshness_s,
     )
     return {
-        "jsonld_path": str(out_jsonl.with_suffix(".jsonld")),
+        "jsonld_path": str(out_jsonld),
         "jsonl_path": str(out_jsonl),
         "count": count,
         "changed": False,
@@ -332,7 +332,7 @@ def sync_once(
     index_dir = Path(os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
     index_dir.mkdir(parents=True, exist_ok=True)
 
-    skipped = _maybe_skip_sync_if_fresh(out_jsonl, index_dir)
+    skipped = _maybe_skip_sync_if_fresh(out_jsonl, out_jsonld, index_dir)
     if skipped is not None:
         return skipped
 

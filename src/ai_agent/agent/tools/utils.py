@@ -10,6 +10,7 @@ from ai_agent.core.pipeline_registry import get_pipeline as get_shared_pipeline
 from ai_agent.api.pipeline import RAGImagingPipeline
 
 _DOCS: List[SoftwareDoc] = []
+_KNOWN_NAMES: List[str] = []
 MAX_CHARS = 20000
 
 
@@ -20,7 +21,7 @@ def get_catalog_docs() -> List[SoftwareDoc]:
     This is a lightweight alternative to get_pipeline() for catalog-only operations
     that don't need the embedder, reranker, or index.
     """
-    global _DOCS
+    global _DOCS, _KNOWN_NAMES
     if not _DOCS:
         # Load catalog docs
         from pathlib import Path
@@ -46,7 +47,15 @@ def get_catalog_docs() -> List[SoftwareDoc]:
                     except Exception:
                         continue
         _DOCS = docs
+        _KNOWN_NAMES = [d.name for d in _DOCS if getattr(d, "name", None)]
     return _DOCS
+
+
+def get_known_names() -> List[str]:
+    """Return a cached list of all tool names from the catalog."""
+    if not _DOCS:
+        get_catalog_docs()
+    return _KNOWN_NAMES
 
 
 def get_pipeline() -> "RAGImagingPipeline":

@@ -117,35 +117,47 @@ class RAGImagingPipeline:
         if not catalog_path.exists():
             return docs
 
+        # Peek at the first non-whitespace character to decide the format.
+        first_char = ""
         try:
-            text = catalog_path.read_text(encoding="utf-8").strip()
+            with catalog_path.open("r", encoding="utf-8") as fh:
+                for ch in iter(lambda: fh.read(1), ""):
+                    if not ch.isspace():
+                        first_char = ch
+                        break
         except Exception:
             log.exception("Failed reading catalog from %s", catalog_path)
             return docs
 
-        # Accept either JSONL (expected) or JSON array/object.
-        try:
-            parsed = json.loads(text)
-            if isinstance(parsed, dict):
-                parsed = [parsed]
-            if isinstance(parsed, list):
-                for row in parsed:
-                    try:
-                        docs.append(SoftwareDoc.model_validate(row))
-                    except Exception:
-                        continue
-                return docs
-        except Exception:
-            pass
-
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
+        if first_char == "[":
+            # JSON array — must be loaded all at once.
             try:
-                docs.append(SoftwareDoc.model_validate(json.loads(line)))
+                text = catalog_path.read_text(encoding="utf-8")
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    parsed = [parsed]
+                if isinstance(parsed, list):
+                    for row in parsed:
+                        try:
+                            docs.append(SoftwareDoc.model_validate(row))
+                        except Exception:
+                            continue
             except Exception:
-                continue
+                log.exception("Failed reading JSON array catalog: %s", catalog_path)
+        else:
+            # JSONL (or single JSON object) — stream line by line.
+            try:
+                with catalog_path.open("r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            docs.append(SoftwareDoc.model_validate(json.loads(line)))
+                        except Exception:
+                            continue
+            except Exception:
+                log.exception("Failed reading JSONL catalog: %s", catalog_path)
         return docs
 
     def _ensure_catalog_embedded_once(self) -> None:
