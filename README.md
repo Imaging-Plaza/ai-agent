@@ -278,7 +278,7 @@ User Input (Image + Text Query)
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `OPENAI_API_KEY` | OpenAI API key | - | ✅ |
-| `EPFL_API_KEY_EMBEDDER` | API key for remote reranker endpoint | - | ✅ (for reranking) |
+| `EPFL_API_KEY_EMBEDDER` | API key for remote embedder and reranker endpoints | - | ✅ (when `retrieval.embedder.backend: remote` and/or `retrieval.reranker.backend: remote`) |
 | `GITHUB_TOKEN` | GitHub token for repo info | - | ❌ |
 | `SOFTWARE_CATALOG` | Path to catalog JSONL | `dataset/catalog.jsonl` | ✅ |
 | `TOP_K` | Retrieval candidates count | `8` | ❌ |

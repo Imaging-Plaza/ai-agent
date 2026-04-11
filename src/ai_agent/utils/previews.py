@@ -29,7 +29,7 @@ def _fingerprint_paths(paths: List[str]) -> tuple[str, ...]:
         pp = Path(p)
         try:
             st = pp.stat()
-            fps.append(f"{pp.resolve()}::{int(st.st_mtime)}::{st.st_size}")
+            fps.append(f"{pp.resolve()}::{st.st_mtime_ns}::{st.st_size}")
         except Exception:
             fps.append(str(pp))
     return tuple(fps)
