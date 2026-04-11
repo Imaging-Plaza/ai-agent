@@ -72,16 +72,16 @@ def get_available_models_config(config_path: Optional[str] = None) -> List[Dict[
 
 
 def get_retrieval_config(config_path: Optional[str] = None) -> Dict[str, Any]:
-        """Return retrieval settings from config.yaml.
+    """Return retrieval settings from config.yaml.
 
-        Expected shape:
-            retrieval:
-                embedder: {...}
-                reranker: {...}
-        """
-        data = load_raw_config(config_path)
-        retrieval = data.get("retrieval", {})
-        return retrieval if isinstance(retrieval, dict) else {}
+    Expected shape:
+        retrieval:
+            embedder: {...}
+            reranker: {...}
+    """
+    data = load_raw_config(config_path)
+    retrieval = data.get("retrieval", {})
+    return retrieval if isinstance(retrieval, dict) else {}
 
 
 def load_config(config_path: Optional[str] = None) -> AppConfig:
