@@ -16,7 +16,7 @@ An intelligent RAG + AI agent system that helps users discover the right imaging
 - **📊 Rich UI**: Chat interface with image previews, file management, and execution traces
 
 <p align="center">
-    <img src="https://raw.githubusercontent.com/qchapp/lungs-segmentation-app/refs/heads/master/assets/example.gif" width="300">
+    <img src="https://raw.githubusercontent.com/qchapp/lungs-segmentation-app/refs/heads/develop/assets/example.gif" width="300">
 </p>
 
 ---
