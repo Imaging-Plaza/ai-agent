@@ -40,3 +40,25 @@ available_models:
     base_url: "https://inference-rcp.epfl.ch/v1"
     provider: "EPFL"
     api_key_env: "EPFL_API_KEY"
+
+# Retrieval stack (embedder + reranker)
+retrieval:
+  embedder:
+    backend: "remote"   # "remote" or "local"
+    model_name: "Qwen/Qwen3-Embedding-8B"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
+    # local example:
+    # backend: "local"
+    # model_name: "BAAI/bge-m3"
+
+  reranker:
+    backend: "remote"   # "remote" or "local"
+    model_name: "BAAI/bge-reranker-v2-m3"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
+    # local example:
+    # backend: "local"
+    # model_name: "BAAI/bge-reranker-v2-m3"

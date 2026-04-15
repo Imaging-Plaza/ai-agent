@@ -48,4 +48,6 @@ def ensure_mcp_tools_registered():
     Import all MCP tools to trigger their registration.
     Call this once at app startup.
     """
-    from . import lungs_segmentation_tool
+    from importlib import import_module
+
+    import_module("ai_agent.agent.tools.mcp.lungs_segmentation_tool")

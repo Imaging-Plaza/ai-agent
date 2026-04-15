@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - **Agent run_example tool**: Removed autonomous tool execution capability from agent. Agent now only recommends tools - all execution requires explicit user approval via approval buttons. This enforces consistent security/UX model where users maintain full control over tool execution. The underlying `gradio_space_tool.py` remains for UI-initiated demo execution.
 
 ### Added
+- **Startup catalog pre-embedding**: Pipeline now pre-embeds the software catalog at application startup when FAISS is empty, so user requests only require query embedding + FAISS search. Controlled by `EMBED_CATALOG_ON_START` (default `1`).
 - **Project and maintainer documentation expansion**:
   - Added [AGENTS.md](AGENTS.md) with repository-wide agent workflow guidance, dev-container-first defaults, and documentation maintenance rules.
   - Added [docs/guide.md](docs/guide.md) as a detailed contributor map covering module responsibilities, Python/package defaults, command baseline, known inconsistencies, and improvement guidelines.
@@ -54,8 +55,26 @@ All notable changes to this project will be documented in this file.
 - **MCP Tools Subpackage** (`agent/tools/mcp/`): Organized separation of registered imaging tools (MCP protocol) from agent utilities. Base models, registry, and imaging tools (e.g., lungs_segmentation) now in dedicated subpackage for clarity.
 - **Base Tool Models** (`agent/tools/mcp/base.py`): Standard Pydantic schemas for tool consistency
 - **Tool Registration**: Lungs segmentation tool self-registers with complete field mappings
+- **In-process metadata cache** (`utils/image_meta.py`): `summarize_image_metadata` now caches results keyed by `(resolved_path, mtime_ns, size_bytes)`. Eliminates redundant file reads across the three call sites per request. Saves ~290 ms per warm request.
+- **Pre-computed metadata forwarded to `run_agent`** (`ui/handlers.py`): The `image_metadata` string computed by `_build_preview_for_vlm` is now forwarded directly to `run_agent`, skipping the second `summarize_image_metadata` call that previously occurred unconditionally inside the agent entry point.
+- **Dynamic `Agent` instance caching** (`agent/agent.py`): Runtime `Agent` objects created for custom model/endpoint combinations are stored in a module-level dict keyed by `(model, base_url, api_key_env, num_choices)`. Subsequent requests with the same non-default configuration reuse the cached instance.
 
 ### Changed
+- **Preview image simplification and size cap**: VLM preview generation no longer writes metadata text overlays onto preview images. Previews are now downscaled with aspect ratio preservation using a configurable maximum side length (`PREVIEW_MAX_SIDE_PX`, default `500`) to keep large images lightweight.
+- **Batched-only repository verification in agent loop**: Agent prompt and runtime tool registration now use `repo_info_batch(urls)` as the single repository verification path (including one-item lists for single repos), removing mixed single-vs-batch behavior during recommendation runs.
+
+### Removed
+- **Legacy single-repo agent adapter**: Removed the unused `repo_info` agent adapter function to avoid confusion; agent recommendation runs now verify repositories exclusively through `repo_info_batch`.
+- **Fast mode controls**: Removed fast mode from runtime, prompts, and UI settings to keep behavior deterministic and avoid dual execution paths.
+- **Repo summary performance optimization**: `repo_info` now uses an in-memory TTL cache (configurable via `REPO_INFO_CACHE_TTL_SECONDS`, default 3600s) and in-flight request deduplication for identical repository URLs. This avoids repeated DeepWiki/repocards fetches during iterative agent runs and parallel tool calls.
+- **Parallel repository verification tool**: Added `repo_info_batch(urls)` tool to fetch multiple GitHub repository summaries concurrently, reducing end-to-end latency when verifying several finalists.
+- **Latency observability**: Agent now logs per-tool durations and a request-level latency summary (`total_ms`, metadata time, model execution time, and aggregated tool timing) to make bottlenecks directly visible in runtime logs.
+- **Startup sync freshness skip**: Added optional local-freshness short-circuit in catalog sync to avoid repeated remote SPARQL fetches on quick restarts when local catalog + FAISS artifacts are present. Controlled by `SYNC_SKIP_IF_FRESH_SECONDS` (disabled by default) and `SYNC_FORCE=1` to bypass.
+- **Preview generation cache**: Added in-memory TTL cache for generated VLM previews keyed by file fingerprints (path/mtime/size), reducing repeated 3D orthogonal composite generation for identical inputs. Controlled by `PREVIEW_CACHE_TTL_SECONDS` (default 1800) and `PREVIEW_CACHE_MAX_ENTRIES` (default 64).
+- **Port fallback pre-selection**: UI launch now pre-checks for the first available port in the fallback range before calling Gradio launch, reducing repeated bind-failure retries when the preferred port is busy.
+- **Config-driven retrieval backends**: Added `retrieval.embedder` and `retrieval.reranker` blocks in `config.yaml` so embedder/reranker setup can be configured without `.env`-only wiring. Supports `backend: remote|local` with simple fields (`model_name`, `base_url`, `api_key_env`, `timeout_s`, optional `device`). Environment variables remain as fallback.
+- **Remote embedder integration**: Retrieval embeddings now call the EPFL OpenAI-compatible endpoint by default (`https://inference-rcp.epfl.ch/v1`) using model `Qwen/Qwen3-Embedding-8B` and key from `EPFL_API_KEY_EMBEDDER`.
+- **Remote reranker integration**: Retrieval reranking now calls a remote endpoint instead of loading a local CrossEncoder model. Default settings target EPFL (`https://inference-rcp.epfl.ch/v1`) with model `BAAI/bge-reranker-v2-m3`, using `EPFL_API_KEY_EMBEDDER` for authentication.
 - **Documentation cleanup**: Removed stale references to `[NO_RERANK]` and `[REFINE]` control-tag behavior from user/architecture docs, and updated structure/instruction docs to current agent layout (`agent/tools/`, `agent/utils.AgentState`), active CLI usage (`ai_agent chat`), and current testing guidance.
 - CLI now supports `ai_agent chat`
 - **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
@@ -101,6 +120,10 @@ All notable changes to this project will be documented in this file.
 - CLI no more supports `ai_agent ui` command
 
 ### Fixed
+- **Startup refresh regression**: Fixed CLI background refresh unpacking after UI function signature changes (`ValueError: too many values to unpack`) and delayed first auto-refresh cycle to avoid duplicate immediate catalog sync right after startup sync.
+- **Structured output validation robustness**: Reduced `Exceeded maximum retries ... for output validation` failures by increasing agent output retries for custom endpoint runs and making ToolSelection parsing more tolerant to common formatting drift (status/reason/rank/accuracy coercion).
+- **Retrieval query drift guardrails**: Added sanitization for LLM-generated retrieval queries to strip repository-oriented terms (e.g., `github`, `repository`, `official`) and avoid tool-name-only drift. Repeated `search_tools` attempts are now rerouted as alternative searches instead of failing with quota errors.
+- **FAISS rebuild on embedder changes**: When the catalog content is unchanged but the embedding model/dimension changes, sync now detects incompatible/missing FAISS artifacts and rebuilds the index instead of keeping stale artifacts. This prevents empty retrieval results after embedder migrations.
 - **Pydantic Forward Reference**: Reordered class definitions in `schema.py` so `Conversation` and `ConversationStatus` are defined before `ToolSelection` to prevent "class-not-fully-defined" errors.
 - **Conversation Context**: Agent now properly maintains conversation history, enabling natural understanding of follow-up requests like "show me alternatives".
 - **Clear Button**: Disabled during processing to prevent race conditions with ongoing requests.

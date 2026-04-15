@@ -1,6 +1,7 @@
 from ai_agent.retriever.software_doc import SoftwareDoc
 from typing import Optional, List, Any
 import re
+import os
 
 # Constants for affirmative detection
 _MULTI_WORD_AFFIRMATIVES = ["go ahead", "do it", "run it", "sounds good", "looks good"]
@@ -158,3 +159,13 @@ def _is_affirmative(text: str) -> bool:
                 return True
 
     return False
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Parse boolean env vars robustly."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    val = raw.split("#", 1)[0].strip().lower()
+    if not val:
+        return default
+    return val in {"1", "true", "yes", "on"}

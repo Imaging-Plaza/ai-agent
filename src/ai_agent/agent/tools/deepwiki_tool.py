@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Optional
 
 from pydantic import BaseModel
@@ -16,7 +17,7 @@ log = logging.getLogger("agent.deepwiki")
 DEEPWIKI_HTTP_URL = "https://mcp.deepwiki.com/mcp"
 
 # Timeout for DeepWiki operations (seconds)
-DEEPWIKI_TIMEOUT = 60
+DEEPWIKI_TIMEOUT = int(os.getenv("DEEPWIKI_TIMEOUT", "20"))
 
 
 class DeepWikiInput(BaseModel):

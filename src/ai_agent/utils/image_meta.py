@@ -1,12 +1,51 @@
 # utils/image_meta.py
 from __future__ import annotations
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional, List
+import threading
+import os
 
 import nibabel as nib
 import pydicom
 from PIL import Image
 import tifffile as tiff
+
+# ---------------------------------------------------------------------------
+# In-process metadata cache (keyed by resolved-path + mtime + size)
+# Avoids re-reading large files (e.g. TIFF stacks) on every retrieval call.
+# ---------------------------------------------------------------------------
+_META_CACHE_MAX = int(os.getenv("IMAGE_META_CACHE_MAX", "128"))
+_meta_cache: OrderedDict[tuple, str] = OrderedDict()  # key -> result string (LRU order)
+_meta_cache_lock = threading.Lock()
+
+
+def _meta_cache_key(p: Path) -> tuple:
+    """Stable cache key: (resolved_path_str, mtime_ns, size_bytes)."""
+    try:
+        st = p.stat()
+        return (str(p.resolve()), st.st_mtime_ns, st.st_size)
+    except Exception:
+        return (str(p), 0, 0)
+
+
+def _meta_cache_get(key: tuple) -> Optional[str]:
+    with _meta_cache_lock:
+        value = _meta_cache.get(key)
+        if value is not None:
+            _meta_cache.move_to_end(key)
+        return value
+
+
+def _meta_cache_set(key: tuple, value: str) -> None:
+    with _meta_cache_lock:
+        if key in _meta_cache:
+            _meta_cache.move_to_end(key)
+            return
+        _meta_cache[key] = value
+        # Evict least-recently-used entries when over capacity
+        while len(_meta_cache) > _META_CACHE_MAX:
+            _meta_cache.popitem(last=False)
 
 # ---- small helpers -----------------------------------------------------------
 
@@ -368,6 +407,9 @@ def summarize_image_metadata(
     - NIfTI: uses nibabel to get shape/zooms/dtype.
     - Images (PNG/JPEG/TIFF...): uses Pillow, recognizes TIFF stacks.
     This function is robust: failures result in minimal per-item summaries.
+
+    Results are cached in-process by (path, mtime_ns, size) so repeated calls
+    within or across requests do not re-read the same file.
     """
     if not paths:
         return None
@@ -378,15 +420,23 @@ def summarize_image_metadata(
     for s in paths:
         try:
             p = Path(s)
+            cache_key = _meta_cache_key(p)
+            cached = _meta_cache_get(cache_key)
+            if cached is not None:
+                parts.append(cached)
+                continue
+
             if p.is_dir() or _is_dicom_path(p):
-                parts.append(_summarize_dicom(p) or f"DICOM name={p.name}")
+                result = _summarize_dicom(p) or f"DICOM name={p.name}"
             elif _is_nifti_path(p):
-                parts.append(_summarize_nifti(p) or f"NIfTI name={p.name}")
+                result = _summarize_nifti(p) or f"NIfTI name={p.name}"
             else:
-                parts.append(
+                result = (
                     _summarize_image(p)
                     or f"{p.suffix.upper().lstrip('.')} name={p.name}"
                 )
+            _meta_cache_set(cache_key, result)
+            parts.append(result)
         except Exception as e:
             parts.append(f"Unreadable '{s}': {e.__class__.__name__}")
     return " | ".join(parts)

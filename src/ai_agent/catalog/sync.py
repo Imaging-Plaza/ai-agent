@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -11,6 +12,7 @@ from urllib.error import HTTPError
 import logging
 
 from ai_agent.utils.full_processing import full_processing
+from ai_agent.utils.config import get_retrieval_config
 
 import hashlib
 from ai_agent.retriever.software_doc import SoftwareDoc
@@ -18,6 +20,79 @@ from ai_agent.retriever.text_embedder import LocalBGEEmbedder
 from ai_agent.retriever.vector_index import IndexItem, VectorIndex
 
 log = logging.getLogger("ai_agent.catalog.sync")
+
+
+def _build_embedder() -> LocalBGEEmbedder:
+    """Build a LocalBGEEmbedder from the current retrieval config."""
+    retrieval_cfg = get_retrieval_config()
+    embed_cfg = retrieval_cfg.get("embedder", {}) if isinstance(retrieval_cfg, dict) else {}
+    return LocalBGEEmbedder(
+        model_name=embed_cfg.get("model_name", "Qwen/Qwen3-Embedding-8B"),
+        device=embed_cfg.get("device"),
+        backend=embed_cfg.get("backend", "remote"),
+        base_url=embed_cfg.get("base_url", "https://inference-rcp.epfl.ch/v1"),
+        api_key_env=embed_cfg.get("api_key_env", "EPFL_API_KEY_EMBEDDER"),
+        timeout_s=float(embed_cfg.get("timeout_s", 20.0)),
+    )
+
+
+def _index_artifacts_present(index_dir: Path) -> bool:
+    """Return True when minimal FAISS artifacts exist."""
+    return (index_dir / "index.faiss").exists() and (index_dir / "meta.json").exists()
+
+
+def _count_jsonl_rows(path: Path) -> int:
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return sum(1 for line in f if line.strip())
+    except Exception:
+        return -1
+
+
+def _maybe_skip_sync_if_fresh(out_jsonl: Path, out_jsonld: Path, index_dir: Path) -> Dict[str, Any] | None:
+    """Skip remote sync when local catalog/index are fresh enough for startup."""
+    freshness_s = int(os.getenv("SYNC_SKIP_IF_FRESH_SECONDS", "0") or 0)
+    force_sync = str(os.getenv("SYNC_FORCE", "0")).lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    if force_sync or freshness_s <= 0:
+        return None
+
+    if not out_jsonl.exists() or not _index_artifacts_present(index_dir):
+        return None
+
+    age_s = time.time() - out_jsonl.stat().st_mtime
+    if age_s > freshness_s:
+        return None
+
+    digest_path = out_jsonl.with_suffix(out_jsonl.suffix + ".sha1")
+    digest = ""
+    if digest_path.exists():
+        try:
+            digest = digest_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            digest = ""
+
+    count = _count_jsonl_rows(out_jsonl)
+    log.info(
+        "Skipping sync (fresh local catalog age=%ss <= %ss; force with SYNC_FORCE=1)",
+        int(age_s),
+        freshness_s,
+    )
+    return {
+        "jsonld_path": str(out_jsonld),
+        "jsonl_path": str(out_jsonl),
+        "count": count,
+        "changed": False,
+        "digest": digest,
+        "index_dir": str(index_dir),
+        "skipped": True,
+        "skip_reason": "fresh_local_catalog",
+    }
 
 
 # --------------------------- helpers ---------------------------
@@ -264,13 +339,20 @@ def convert_jsonld_to_jsonl(in_jsonld: Path, out_jsonl: Path) -> int:
 def sync_once(
     *, out_jsonld: Path | None = None, out_jsonl: Path | None = None
 ) -> Dict[str, Any]:
-    endpoint = os.getenv("GRAPHDB_URL")
-    query = _load_query()
-
     out_jsonld = Path(
         out_jsonld or os.getenv("OUTPUT_JSONLD", "dataset/catalog.jsonld")
     )
     out_jsonl = Path(out_jsonl or os.getenv("OUTPUT_JSONL", "dataset/catalog.jsonl"))
+
+    index_dir = Path(os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
+    index_dir.mkdir(parents=True, exist_ok=True)
+
+    skipped = _maybe_skip_sync_if_fresh(out_jsonl, out_jsonld, index_dir)
+    if skipped is not None:
+        return skipped
+
+    endpoint = os.getenv("GRAPHDB_URL")
+    query = _load_query()
 
     log.info("Fetching JSON-LD from %s", endpoint)
     data = fetch_jsonld(endpoint, query)
@@ -326,15 +408,46 @@ def sync_once(
         log.debug("Could not write semantic snapshot or digest")
 
     if not changed:
-        log.info(
-            "Catalog unchanged (semantic sha1=%s); skipping FAISS update", digest[:12]
-        )
+        # Important: catalog may be unchanged while embedding model/dim changed.
+        # In that case, loading old FAISS artifacts fails and we must rebuild.
+        faiss_rebuilt = False
+        faiss_delta: Dict[str, int] = {"added": 0, "updated": 0, "removed": 0}
+        try:
+            embedder = _build_embedder()
+            VectorIndex.load(index_dir, embedder)
+            log.info(
+                "Catalog unchanged (semantic sha1=%s); keeping FAISS index", digest[:12]
+            )
+        except Exception as e:
+            log.warning(
+                "Catalog unchanged but FAISS index is missing/incompatible; rebuilding index (%s)",
+                e,
+            )
+            embedder = _build_embedder()
+            idx = VectorIndex(embedder)
+            items = [
+                IndexItem(id=d.name, doc=d) for d in docs if getattr(d, "name", None)
+            ]
+            faiss_delta = idx.sync_with_catalog(items)
+            idx.save(index_dir)
+            faiss_rebuilt = True
+            log.info(
+                "FAISS index rebuilt in %s: added=%d, updated=%d, removed=%d",
+                index_dir,
+                faiss_delta["added"],
+                faiss_delta["updated"],
+                faiss_delta["removed"],
+            )
+
         return {
             "jsonld_path": str(out_jsonld),
             "jsonl_path": str(out_jsonl),
             "count": count,
             "changed": False,
             "digest": digest,
+            "index_dir": str(index_dir),
+            "faiss_rebuilt": faiss_rebuilt,
+            "faiss_delta": faiss_delta,
         }
 
     diff = _diff_norm_docs(prev_norm, norm_docs_sorted)
@@ -363,13 +476,13 @@ def sync_once(
             log.info("  changed (sample): %s", chg_s)
         log.info("Full diff written to %s", diff_path)
 
-    index_dir = Path(os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
-    index_dir.mkdir(parents=True, exist_ok=True)
-
-    embedder = LocalBGEEmbedder()
+    embedder = _build_embedder()
     try:
         idx = VectorIndex.load(index_dir, embedder)
-    except FileNotFoundError:
+    except Exception as e:
+        log.warning(
+            "Could not load existing FAISS index; rebuilding from catalog (%s)", e
+        )
         idx = VectorIndex(embedder)
 
     items = [IndexItem(id=d.name, doc=d) for d in docs if getattr(d, "name", None)]

@@ -36,6 +36,8 @@ sys.modules["api.pipeline"] = Mock()
 from ai_agent.agent.tools.repo_info_tool import (
     RepoSummaryInput,
     RepoSummaryOutput,
+    _REPO_INFO_INFLIGHT,
+    _clear_repo_summary_cache_for_tests,
     tool_repo_summary,
 )
 from ai_agent.agent.tools.deepwiki_tool import (
@@ -74,6 +76,13 @@ def mock_repocards_response():
     return (
         "# Test Repository (via repocards)\n\nREADME content from repocards fallback."
     )
+
+
+@pytest.fixture(autouse=True)
+def clear_repo_info_cache_between_tests():
+    _clear_repo_summary_cache_for_tests()
+    yield
+    _clear_repo_summary_cache_for_tests()
 
 
 # ======================== DeepWiki Tool Tests ========================
@@ -331,6 +340,54 @@ async def test_repo_info_truncation():
 
         assert result.truncated is True
         assert result.source == "deepwiki"
+
+
+@pytest.mark.asyncio
+async def test_repo_info_cache_hit_avoids_second_deepwiki_call(mock_deepwiki_success):
+    """Second identical repo lookup should be served from cache."""
+    with patch(
+        "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
+        new_callable=AsyncMock,
+    ) as mock_deepwiki:
+        mock_deepwiki.return_value = mock_deepwiki_success
+
+        first = await tool_repo_summary(RepoSummaryInput(url="owner/repo"))
+        second = await tool_repo_summary(RepoSummaryInput(url="owner/repo"))
+
+        assert first.source == "deepwiki"
+        assert second.source == "deepwiki"
+        mock_deepwiki.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_repo_info_inflight_dedup_for_parallel_calls(mock_deepwiki_success):
+    """Parallel identical repo lookups should share one DeepWiki request."""
+
+    async def delayed_success(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return mock_deepwiki_success
+
+    with patch(
+        "ai_agent.agent.tools.repo_info_tool.get_wiki_contents",
+        new_callable=AsyncMock,
+    ) as mock_deepwiki:
+        mock_deepwiki.side_effect = delayed_success
+
+        out1, out2 = await asyncio.gather(
+            tool_repo_summary(RepoSummaryInput(url="owner/repo")),
+            tool_repo_summary(RepoSummaryInput(url="owner/repo")),
+        )
+
+        assert out1.source == "deepwiki"
+        assert out2.source == "deepwiki"
+        mock_deepwiki.assert_called_once()
+
+
+def test_repo_info_clear_helper_clears_inflight_state():
+    """Test helper should clear both cache and in-flight maps."""
+    _REPO_INFO_INFLIGHT["k"] = None  # type: ignore[assignment]
+    _clear_repo_summary_cache_for_tests()
+    assert _REPO_INFO_INFLIGHT == {}
 
 
 # ======================== Integration Tests ========================

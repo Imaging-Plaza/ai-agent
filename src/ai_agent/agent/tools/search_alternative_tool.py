@@ -4,8 +4,8 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from ai_agent.generator.schema import CandidateDoc
-from .utils import get_pipeline
-from .query_utils import append_format_tokens, normalize_formats
+from .utils import get_known_names, get_pipeline
+from .query_utils import append_format_tokens, normalize_formats, sanitize_retrieval_query
 
 
 class SearchAlternativeInput(BaseModel):
@@ -40,7 +40,9 @@ def tool_search_alternative(inp: SearchAlternativeInput) -> SearchAlternativeOut
     pipe = get_pipeline()
 
     # Use the alternative query directly
-    query = inp.alternative_query.strip()
+    query = sanitize_retrieval_query(
+        inp.alternative_query.strip(), known_tool_names=get_known_names()
+    )
 
     # Normalize formats
     original_formats: List[str] = normalize_formats(inp.original_formats)

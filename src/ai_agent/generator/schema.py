@@ -185,6 +185,18 @@ class Conversation(BaseModel):
     context: Optional[str] = None
     options: Optional[List[str]] = None
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v):
+        if isinstance(v, ConversationStatus):
+            return v
+        s = str(v or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if s in {"complete", "done", "finished"}:
+            return ConversationStatus.COMPLETE
+        if s in {"needs_clarification", "need_clarification", "clarification", "question"}:
+            return ConversationStatus.NEEDS_CLARIFICATION
+        return v
+
     @model_validator(mode="after")
     def validate_fields(self) -> "Conversation":
         if self.status == ConversationStatus.NEEDS_CLARIFICATION:
@@ -201,6 +213,32 @@ class ToolChoice(BaseModel):
     accuracy: float = Field(ge=0, le=100)  # accuracy score between 0-100
     why: str
     demo_link: Optional[str] = None
+
+    @field_validator("rank", mode="before")
+    @classmethod
+    def _coerce_rank(cls, v):
+        if isinstance(v, int):
+            return max(1, v)
+        try:
+            return max(1, int(float(str(v).strip())))
+        except Exception:
+            return 1
+
+    @field_validator("accuracy", mode="before")
+    @classmethod
+    def _coerce_accuracy(cls, v):
+        try:
+            x = float(v)
+        except Exception:
+            return 50.0
+        # Accept 0..1 confidence and scale to 0..100 when likely intended.
+        if 0.0 <= x <= 1.0:
+            x *= 100.0
+        if x < 0:
+            return 0.0
+        if x > 100:
+            return 100.0
+        return x
 
 
 class ToolSelection(BaseModel):
@@ -243,7 +281,21 @@ class ToolSelection(BaseModel):
 
     @field_validator("reason", mode="before")
     def _reason_empty_to_none(cls, v):
-        return None if v is None or str(v).strip() == "" else v
+        if v is None:
+            return None
+        s = str(v).strip().lower().replace("-", "_").replace(" ", "_")
+        if not s:
+            return None
+        if s in {"none", "null", "n/a", "na"}:
+            return None
+        allowed = {
+            "no_suitable_tool",
+            "no_modality_match",
+            "no_task_match",
+            "no_dimension_match",
+            "invalid_files",
+        }
+        return s if s in allowed else None
 
     @field_validator("explanation", mode="before")
     def _expl_empty_to_none(cls, v):

@@ -71,6 +71,19 @@ def get_available_models_config(config_path: Optional[str] = None) -> List[Dict[
     return models if isinstance(models, list) else []
 
 
+def get_retrieval_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+    """Return retrieval settings from config.yaml.
+
+    Expected shape:
+        retrieval:
+            embedder: {...}
+            reranker: {...}
+    """
+    data = load_raw_config(config_path)
+    retrieval = data.get("retrieval", {})
+    return retrieval if isinstance(retrieval, dict) else {}
+
+
 def load_config(config_path: Optional[str] = None) -> AppConfig:
     """
     Load agent model configuration from config.yaml.
@@ -119,6 +132,7 @@ __all__ = [
     "AppConfig",
     "load_raw_config",
     "get_available_models_config",
+    "get_retrieval_config",
     "load_config",
     "get_config",
 ]

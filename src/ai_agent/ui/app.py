@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import socket
 import logging
 import logging.handlers
 from typing import List, Dict
@@ -83,6 +84,11 @@ def _setup_logging() -> None:
     log.info("Starting Chat-based Gradio UI")
 
 
+def ensure_logging_initialized() -> None:
+    """Public hook for callers that need logging before other UI setup."""
+    _setup_logging()
+
+
 def _ensure_tools_registered_once() -> None:
     global _tools_registered
     if _tools_registered:
@@ -148,6 +154,38 @@ def launch():
     )
 
     ui = create_chat_interface(_DOC_BY_NAME)
+
+    def _is_port_available(port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind((host, port))
+                return True
+            except OSError:
+                return False
+
+    if allow_fallback:
+        chosen_port = None
+        for attempt in range(max_tries):
+            candidate = preferred + attempt
+            if _is_port_available(candidate):
+                chosen_port = candidate
+                break
+        if chosen_port is not None:
+            ui.queue(max_size=10).launch(
+                server_name=host,
+                server_port=chosen_port,
+                inbrowser=False,
+                show_error=True,
+                share=bool(os.getenv("SHARE", False)),
+            )
+            if chosen_port != preferred:
+                log.info(
+                    "Launched on fallback port %d (preferred %d was busy)",
+                    chosen_port,
+                    preferred,
+                )
+            return
 
     last_err = None
     for attempt in range(max_tries if allow_fallback else 1):

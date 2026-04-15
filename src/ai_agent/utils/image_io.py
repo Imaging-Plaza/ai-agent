@@ -167,7 +167,6 @@ def load_dicom_series(dir_or_file: str | Path) -> Tuple[np.ndarray, Dict[str, An
         frames = [_prep_pixels(ds) for ds in dsets]
 
         # each frame is (H,W); make (H,W,Z)
-        H, W = int(frames[0].shape[-2]), int(frames[0].shape[-1])
         vol = np.stack([f if f.ndim == 2 else f[0] for f in frames], axis=-1).astype(
             np.float32
         )
