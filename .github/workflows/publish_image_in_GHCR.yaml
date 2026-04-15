@@ -83,8 +83,6 @@ jobs:
             # For main branch: latest and version tags
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ steps.project_version.outputs.version }},enable={{is_default_branch}}
-            # For develop branch: develop tag
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             # For PRs only: pr-{number} tag
             type=ref,event=pr,prefix=pr-
           labels: |
