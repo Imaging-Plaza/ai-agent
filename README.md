@@ -15,6 +15,10 @@ An intelligent RAG + AI agent system that helps users discover the right imaging
 - **🚀 Demo Integration**: Direct execution of Gradio Space demos on your images
 - **📊 Rich UI**: Chat interface with image previews, file management, and execution traces
 
+<p align="center">
+    <img src="https://raw.githubusercontent.com/qchapp/lungs-segmentation-app/refs/heads/master/assets/example.gif" width="300">
+</p>
+
 ---
 
 ## 🚀 Quick Start
