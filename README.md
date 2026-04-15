@@ -16,7 +16,7 @@ An intelligent RAG + AI agent system that helps users discover the right imaging
 - **📊 Rich UI**: Chat interface with image previews, file management, and execution traces
 
 <p align="center">
-    <img src="https://github.com/Imaging-Plaza/ai-agent/blob/develop/assets/example.gif?raw=true" width="300">
+    <img src="https://github.com/Imaging-Plaza/ai-agent/blob/develop/assets/example.gif?raw=true" height="700">
 </p>
 
 ---
