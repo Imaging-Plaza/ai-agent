@@ -1,6 +1,6 @@
 [project]
 name = "ai_agent"
-version = "0.1.1"
+version = "1.0.0"
 description = "AI imaging agent with Gradio UI and RAG pipeline"
 readme = "README.md"
 requires-python = ">=3.10"

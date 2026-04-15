@@ -6,27 +6,34 @@ For the complete, detailed changelog, see [CHANGELOG.md](https://github.com/imag
 
 ## Recent Releases
 
-### [Unreleased]
+### [1.0.0]
 
-#### Added
-- **New chat-based interface** (`ai_agent chat`) with conversational AI assistant
-- **Imaging Plaza branding**: Custom green theme and logo
-- **Similarity-based query expansion**: Dynamic embedding-based matching
-- **Iterative retrieval with retry**: Automatic retry when results insufficient
-- **Agent alternative search tool**: Agent-driven search refinement
-- **YAML model configuration**: Flexible multi-model support
-- **DeepWiki MCP integration**: Fast repository info without rate limits
+#### 🚀 Added
 
-#### Changed
-- CLI now supports `ai_agent chat` (removed `ai_agent ui`)
-- Enhanced retrieval pipeline with automatic retry
-- Simplified UI state management
-- Removed legacy code paths
+- **Chat-based interface** (`ai_agent chat`) with conversational AI assistant and tool integration  
+- **Imaging Plaza UI**: Custom branding, theme, and improved layout  
+- **Iterative retrieval with automatic retry** for low-result queries  
+- **Alternative search tool** for agent-driven query refinement  
+- **YAML configuration** (`config.yaml`) for flexible model and backend setup  
+- **DeepWiki MCP integration** for fast GitHub repository documentation access  
 
-#### Removed
-- `VLMToolSelector` class (replaced by PydanticAI agent)
-- Legacy refine intent detection
-- Outdated test files
+---
+
+#### 🔄 Changed
+
+- CLI updated: `ai_agent chat` replaces deprecated `ai_agent ui`  
+- Retrieval pipeline enhanced with smarter expansion and retry logic  
+- UI state management simplified  
+- Agent-based architecture fully replaces legacy pipelines  
+
+---
+
+#### 🧹 Removed
+
+- `VLMToolSelector` (replaced by agent-based tool selection)  
+- Legacy refine intent detection system  
+- Deprecated UI command (`ai_agent ui`)  
+- Outdated tests and unused code paths  
 
 ### [0.1.3] - 2025-10-22
 

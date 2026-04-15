@@ -2,137 +2,108 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.0.0]
 
-### Removed
-- **Agent run_example tool**: Removed autonomous tool execution capability from agent. Agent now only recommends tools - all execution requires explicit user approval via approval buttons. This enforces consistent security/UX model where users maintain full control over tool execution. The underlying `gradio_space_tool.py` remains for UI-initiated demo execution.
+### 🚀 Major Features
 
-### Added
-- **Startup catalog pre-embedding**: Pipeline now pre-embeds the software catalog at application startup when FAISS is empty, so user requests only require query embedding + FAISS search. Controlled by `EMBED_CATALOG_ON_START` (default `1`).
-- **Project and maintainer documentation expansion**:
-  - Added [AGENTS.md](AGENTS.md) with repository-wide agent workflow guidance, dev-container-first defaults, and documentation maintenance rules.
-  - Added [docs/guide.md](docs/guide.md) as a detailed contributor map covering module responsibilities, Python/package defaults, command baseline, known inconsistencies, and improvement guidelines.
-  - Linked the new guide from [README.md](README.md), [docs/index.md](docs/index.md), and [mkdocs.yml](mkdocs.yml) navigation.
-- **New chat-based interface** (`ai_agent chat`) with conversational AI assistant
-  - Chatbot component with rich media rendering (images, files, JSON, code blocks)
-  - Inline file upload support for PNG, JPG, WEBP, TIFF, DICOM, NIfTI, CSV, JSON, XML, MP3, MP4
-  - File previews with format-specific icons rendered in chat messages
-  - Tool recommendation cards with detailed metadata (modality, dimensions, license, tags)
-  - Tool execution traces displayed as collapsible `<details>` sections after responses
-  - Debug sidebar showing conversation state, excluded tools, and preview images
-  - Full conversation context maintained across multi-turn interactions
-  - Affirmative response detection for demo confirmations (yes, sure, ok, etc.)
-- `respond(message, files, state) -> (reply, media, state)` core interface function
-  - Encapsulates all agent logic in testable, UI-independent function
-  - State management via `ChatState` dataclass with serialization
-  - `ChatMessage` dataclass for rich reply composition with markdown, images, files, traces
-- `handlers.py` module with agent response logic
-- `components.py` module for reusable chat UI components
-- `formatters.py` helpers for rich message and media formatting
-- `state.py` chat state models and serialization utilities
-- `visualizations.py` helpers for rendering previews, traces, and visual state
-- `app.py` Gradio app implementing the chat UI
-- **Imaging Plaza branding**: Custom CSS theme with Plaza green colors (#00A991)
-- **Logo integration**: Official Imaging Plaza white logo displayed in header
-- **Redesigned layout**: Reorganized UI with header banner, left chat panel, and right sidebar for files and state
-- **Similarity-Based Query Expansion**: Replaced hard-coded synonym dictionaries with dynamic embedding-based similarity matching using BGE-M3 embeddings. Vocabulary is automatically extracted from catalog and updated on catalog changes.
-- **Iterative Retrieval with Retry**: Added automatic retry logic (up to 2 attempts) when initial search returns insufficient results (<5 candidates). System generates alternative queries using semantic neighbors.
-- **Agent Alternative Search Tool**: New `search_alternative` tool allows agent to explicitly request searches with different query formulations (up to 3 per conversation). Enables agent-driven iterative refinement.
-- **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
-- **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
-- **3D Lungs Segmentation Tool**: New MCP tool (`agent/tools/lungs_segmentation_tool.py`) that integrates with HuggingFace Space (https://qchapp-3d-lungs-segmentation.hf.space/) for 3D U-Net based lung segmentation in CT volumes. Supports DICOM, NIfTI, and TIFF stack inputs with robust file materialization strategy handling multiple Gradio output formats (FileData dict, URL string, local path, server path).
-- **Tool Usage Analytics**: Real-time visualization in chat UI showing tool call frequency bar chart and timeline plot. Tracks all tool executions with timestamps and success/failure status. Provides users with transparency about which tools are being used during their session.
-- **Downloadable Results Section**: New `download_files` component (gr.File with `file_count="multiple"`) positioned below chatbot for easy access to tool outputs. Files returned by tools (e.g., segmentation masks) are automatically extracted and presented as downloadable items separate from inline previews.
-- **Inline Tool Approval Button**: Button-based tool execution approval appears dynamically in chat flow within a styled group box. Shows "🤖 Tool Recommendation" header with contextual button label (e.g., "🚀 Run Lungs Segmentation") only when tool approval is pending. Replaces previous text-based approval pattern for better UX and extensibility.
-- **Tool Registry System** (`agent/tools/mcp/registry.py`): Centralized tool registration pattern that eliminates tool-specific UI code
-  - `ToolConfig` dataclass for declarative tool configuration with field mappings
-  - `TOOL_REGISTRY` global dictionary for dynamic tool lookup
-  - `CATALOG_NAME_TO_TOOL` reverse mapping dict to handle catalog name → tool name resolution
-  - **Catalog name mapping**: Tools can specify `catalog_names` list to map dataset names (e.g., "lungs-segmentation") to internal tool names (e.g., "lungs_segmentation")
-  - **Clean registration pattern**: Single `ensure_tools_registered()` call in app.py replaces individual tool imports
-  - `get_tool()` automatically resolves both registry names and catalog names for seamless integration with RAG recommendations
-  - Supports lazy loading to avoid loading heavy dependencies at import time
-- **MCP Tools Subpackage** (`agent/tools/mcp/`): Organized separation of registered imaging tools (MCP protocol) from agent utilities. Base models, registry, and imaging tools (e.g., lungs_segmentation) now in dedicated subpackage for clarity.
-- **Base Tool Models** (`agent/tools/mcp/base.py`): Standard Pydantic schemas for tool consistency
-- **Tool Registration**: Lungs segmentation tool self-registers with complete field mappings
-- **In-process metadata cache** (`utils/image_meta.py`): `summarize_image_metadata` now caches results keyed by `(resolved_path, mtime_ns, size_bytes)`. Eliminates redundant file reads across the three call sites per request. Saves ~290 ms per warm request.
-- **Pre-computed metadata forwarded to `run_agent`** (`ui/handlers.py`): The `image_metadata` string computed by `_build_preview_for_vlm` is now forwarded directly to `run_agent`, skipping the second `summarize_image_metadata` call that previously occurred unconditionally inside the agent entry point.
-- **Dynamic `Agent` instance caching** (`agent/agent.py`): Runtime `Agent` objects created for custom model/endpoint combinations are stored in a module-level dict keyed by `(model, base_url, api_key_env, num_choices)`. Subsequent requests with the same non-default configuration reuse the cached instance.
+- **Chat-based AI interface** (`ai_agent chat`)
+  - Conversational assistant with rich media support (images, files, JSON, code)
+  - Inline file uploads (PNG, JPG, TIFF, DICOM, NIfTI)
+  - Tool recommendation cards and execution traces
+  - Debug sidebar with conversation state and previews
+  - Persistent multi-turn conversation context
 
-### Changed
-- **Preview image simplification and size cap**: VLM preview generation no longer writes metadata text overlays onto preview images. Previews are now downscaled with aspect ratio preservation using a configurable maximum side length (`PREVIEW_MAX_SIDE_PX`, default `500`) to keep large images lightweight.
-- **Batched-only repository verification in agent loop**: Agent prompt and runtime tool registration now use `repo_info_batch(urls)` as the single repository verification path (including one-item lists for single repos), removing mixed single-vs-batch behavior during recommendation runs.
+- **Tool execution workflow**
+  - Button-based approval system for safe tool execution
+  - Inline “Tool Recommendation” UI with contextual actions
+  - Downloadable results section for tool outputs
+  - Separation of preview vs original result files
 
-### Removed
-- **Legacy single-repo agent adapter**: Removed the unused `repo_info` agent adapter function to avoid confusion; agent recommendation runs now verify repositories exclusively through `repo_info_batch`.
-- **Fast mode controls**: Removed fast mode from runtime, prompts, and UI settings to keep behavior deterministic and avoid dual execution paths.
-- **Repo summary performance optimization**: `repo_info` now uses an in-memory TTL cache (configurable via `REPO_INFO_CACHE_TTL_SECONDS`, default 3600s) and in-flight request deduplication for identical repository URLs. This avoids repeated DeepWiki/repocards fetches during iterative agent runs and parallel tool calls.
-- **Parallel repository verification tool**: Added `repo_info_batch(urls)` tool to fetch multiple GitHub repository summaries concurrently, reducing end-to-end latency when verifying several finalists.
-- **Latency observability**: Agent now logs per-tool durations and a request-level latency summary (`total_ms`, metadata time, model execution time, and aggregated tool timing) to make bottlenecks directly visible in runtime logs.
-- **Startup sync freshness skip**: Added optional local-freshness short-circuit in catalog sync to avoid repeated remote SPARQL fetches on quick restarts when local catalog + FAISS artifacts are present. Controlled by `SYNC_SKIP_IF_FRESH_SECONDS` (disabled by default) and `SYNC_FORCE=1` to bypass.
-- **Preview generation cache**: Added in-memory TTL cache for generated VLM previews keyed by file fingerprints (path/mtime/size), reducing repeated 3D orthogonal composite generation for identical inputs. Controlled by `PREVIEW_CACHE_TTL_SECONDS` (default 1800) and `PREVIEW_CACHE_MAX_ENTRIES` (default 64).
-- **Port fallback pre-selection**: UI launch now pre-checks for the first available port in the fallback range before calling Gradio launch, reducing repeated bind-failure retries when the preferred port is busy.
-- **Config-driven retrieval backends**: Added `retrieval.embedder` and `retrieval.reranker` blocks in `config.yaml` so embedder/reranker setup can be configured without `.env`-only wiring. Supports `backend: remote|local` with simple fields (`model_name`, `base_url`, `api_key_env`, `timeout_s`, optional `device`). Environment variables remain as fallback.
-- **Remote embedder integration**: Retrieval embeddings now call the EPFL OpenAI-compatible endpoint by default (`https://inference-rcp.epfl.ch/v1`) using model `Qwen/Qwen3-Embedding-8B` and key from `EPFL_API_KEY_EMBEDDER`.
-- **Remote reranker integration**: Retrieval reranking now calls a remote endpoint instead of loading a local CrossEncoder model. Default settings target EPFL (`https://inference-rcp.epfl.ch/v1`) with model `BAAI/bge-reranker-v2-m3`, using `EPFL_API_KEY_EMBEDDER` for authentication.
-- **Documentation cleanup**: Removed stale references to `[NO_RERANK]` and `[REFINE]` control-tag behavior from user/architecture docs, and updated structure/instruction docs to current agent layout (`agent/tools/`, `agent/utils.AgentState`), active CLI usage (`ai_agent chat`), and current testing guidance.
-- CLI now supports `ai_agent chat`
-- **DeepWiki MCP integration**: Repository info tool now uses DeepWiki MCP server (https://mcp.deepwiki.com/sse) as primary source for GitHub repository documentation. DeepWiki provides fast, pre-indexed documentation access without API rate limits.
-- Automatic fallback to `repocards` library (replacing previous direct GitHub API implementation) when DeepWiki is unavailable or times out, ensuring robust repository information retrieval for both indexed and newly-created repositories.
-- Updated `pydantic-ai` dependency to include MCP support via `pydantic-ai[mcp]` extra.
-- Enhanced `RepoSummaryOutput` schema to include `source` field indicating whether data came from "deepwiki" or "repocards".
-- Repository info tool logs now track data source (DeepWiki vs repocards) for observability.
-- Replaced previous direct GitHub API implementation with `repocards` library as the fallback mechanism for repository information retrieval.
-- **YAML Model Configuration**: New `config.yaml` file for flexible model configuration supporting OpenAI, EPFL inference server, and any OpenAI-compatible API endpoints.
-- **Multi-Model Support**: Can now configure different models for agent (main reasoning & tool selection).
-- **Configuration Module**: New `utils/config.py` with Pydantic models for type-safe configuration loading and validation.
-- **Query Expansion Method**: Moved from dictionary-based to similarity-based expansion using catalog vocabulary. Queries are now expanded with semantically related terms found via cosine similarity.
-- **Retrieval Pipeline**: Enhanced `retrieve_no_rerank()` with automatic retry and alternative query generation when results are insufficient.
-- **Agent Prompt**: Updated to explain new retrieval capabilities including similarity expansion, automatic retry, and when/how to use `search_alternative` tool.
-- **Import Paths**: Fixed and standardized all import paths to use `ai_agent.` prefix for consistency.
-- **Model Initialization**: Agent now uses configuration from `config.yaml`.
-- **API Client Creation**: OpenAI clients now support custom `base_url` for alternative API endpoints (EPFL, custom deployments).
-- **Dependency**: Added `pyyaml` to `pyproject.toml` dependencies.
-- **.env.dist**: Updated with documentation about new config.yaml system and backward compatibility notes.
-- **UI State Management Simplified**: Removed complex refine intent detection system. Agent now naturally handles requests for alternatives via conversation history without hard-coded heuristics.
-- **UI Handler Simplified**: Reduced `handle_message()` parameters from 8 to 6, removing `last_task_state`, `last_suggestions_state`, and `excluded_names` state tracking.
-- **Agent-Only Path**: Removed `USE_AGENT` conditional (always uses Pydantic AI agent). Deleted dead code path for non-agent pipeline invocation.
-- **UI redesign**: File upload moved to dedicated right panel for cleaner workflow
-- **Visual hierarchy**: Header with gradient green banner and logo
-- **Button styling**: Primary actions use Imaging Plaza green theme colors
-- **Tool Approval Workflow**: Replaced text-based approval (responding "yes"/"sure"/"ok" in chat) with explicit button-based approval. Tool execution now requires clicking a dedicated approval button that appears inline in the chat, improving clarity and preventing accidental tool execution.
-- **Tool Approval Button Position**: Moved approval button from standalone position below input controls to inline group box between chatbot and downloads section. Button now appears as part of "🤖 Tool Recommendation" box with dynamic label showing tool name (e.g., "🚀 Run Lungs Segmentation").
-- **Generic Tool Execution** (`ui/handlers.py`): Replaced tool-specific `execute_lungs_segmentation()` with generic `execute_tool_with_approval()`
-  - **Architectural benefit**: Adding 70+ tools requires ZERO changes to handlers.py
-- **LungsSegmentationOutput Schema**: Enhanced with separate `result_origin` (original format file for download), `result_preview` (PNG preview for display), `metadata_text` (file metadata string), and `api_name` fields. Maintains backward compatibility with `result_path` field (now set to preview when available, else origin).
-- **Download vs Display Separation**: Tool results now distinguish between files for download (`result_origin` - TIFF/NIfTI/DICOM) and inline display (`result_preview` - PNG). Downloads section shows original format files while chat shows converted previews for better compatibility.
-- **HuggingFace Space Client Timeout**: Extended timeout to 300 seconds (5 minutes) via `httpx_kwargs={"timeout": 300.0}` parameter in `_make_gradio_client()` to handle slow Space cold starts and large medical imaging file uploads/downloads without timing out. Includes graceful fallback for older gradio_client versions without `httpx_kwargs` support.
-- **Tool Execution Handler**: `execute_tool_with_approval()` in handlers.py now uses `result_preview` for inline images and `result_origin` for downloadable files, ensuring users get both viewable previews in chat and original format files for download.
+- **Tooling system (MCP integration)**
+  - Centralized tool registry with dynamic lookup
+  - Catalog-to-tool name mapping
+  - Lazy loading for heavy tools
+  - First integrated tool: 3D lung segmentation (HuggingFace Space)
 
-### Removed
-- **VLMToolSelector**: Deleted unused `generator/generator.py` containing VLMToolSelector class. The pydantic-ai agent handles all tool selection directly.
-- **Dead Functions**: Removed `is_refine_intent()` and `strip_refine_keywords()` from `utils/tags.py` along with `_REFINE_KEYWORDS` constant.
-- **Legacy UI Code**: Removed `_load_catalog()` function (unused), complex refine intent detection logic (~60 lines), and base_task/prev_suggestions tracking.
-- **Pipeline Simplification**: Removed `force_clarification` logic and `has_refine` import from `api/pipeline.py` (legacy code path never invoked by agent).
-- **Legacy Method**: Removed `recommend_and_link()` method from `api/pipeline.py` (~180 lines) - only used by outdated tests, replaced by agent-based approach.
-- **State Variables**: Removed 3 Gradio State objects: `last_task_state`, `last_suggestions_state`, `excluded_names`.
-- **Outdated Tests**: Removed `tests/full_test.py` which only tested the removed `recommend_and_link()` method.
-- CLI no more supports `ai_agent ui` command
+---
 
-### Fixed
-- **Startup refresh regression**: Fixed CLI background refresh unpacking after UI function signature changes (`ValueError: too many values to unpack`) and delayed first auto-refresh cycle to avoid duplicate immediate catalog sync right after startup sync.
-- **Structured output validation robustness**: Reduced `Exceeded maximum retries ... for output validation` failures by increasing agent output retries for custom endpoint runs and making ToolSelection parsing more tolerant to common formatting drift (status/reason/rank/accuracy coercion).
-- **Retrieval query drift guardrails**: Added sanitization for LLM-generated retrieval queries to strip repository-oriented terms (e.g., `github`, `repository`, `official`) and avoid tool-name-only drift. Repeated `search_tools` attempts are now rerouted as alternative searches instead of failing with quota errors.
-- **FAISS rebuild on embedder changes**: When the catalog content is unchanged but the embedding model/dimension changes, sync now detects incompatible/missing FAISS artifacts and rebuilds the index instead of keeping stale artifacts. This prevents empty retrieval results after embedder migrations.
-- **Pydantic Forward Reference**: Reordered class definitions in `schema.py` so `Conversation` and `ConversationStatus` are defined before `ToolSelection` to prevent "class-not-fully-defined" errors.
-- **Conversation Context**: Agent now properly maintains conversation history, enabling natural understanding of follow-up requests like "show me alternatives".
-- **Clear Button**: Disabled during processing to prevent race conditions with ongoing requests.
-- **Alternative Tool Requests**: All recommended tools are now automatically added to the exclusion list (banlist) and properly passed to the agent through AgentState, ensuring follow-up requests like "I would like another tool" correctly return different tools.
-- **History Table**: Follow-up requests (without files) no longer create duplicate history entries. Only primary requests with files are logged to the History table.
-- **Duplicate Function Definition**: Removed duplicate `clear_chat()` function definition in `components.py` that was causing syntax errors.
-- **Text-Based Tool Approval Logic**: Removed legacy `_is_affirmative()` check in `handlers.py` that was conflicting with new button-based approval system. Tool execution now only triggered by explicit button click, preventing ambiguous user messages from unintentionally executing tools.
-- **Gradio Component Compatibility**: Changed `gr.Box` to `gr.Group` for approval button container to ensure compatibility with Gradio 5.42.0 (gr.Box not available in this version).
-- **Component Output Count**: Fixed inconsistent yield statements throughout `handle_chat()` generator function - all yields now consistently return 9 values (chatbot, state, 3 charts, state display, downloads, approval box visibility, button label) to match event handler output declarations.
+### 🧠 Retrieval & Agent Improvements
+
+- Iterative retrieval with retry for low-result queries
+- Alternative search tool (`search_alternative`) for agent-driven refinement
+- Batch repository verification via `repo_info_batch`
+- Improved agent prompt and structured output reliability
+
+---
+
+### ⚙️ Configuration & Model Support
+
+- YAML-based configuration (`config.yaml`)
+  - Supports OpenAI, EPFL, and OpenAI-compatible APIs
+- Configurable:
+  - Agent model
+  - Embedding backend
+  - Reranker backend
+- Type-safe config loading via Pydantic
+
+---
+
+### 🎨 UI & UX
+
+- Redesigned layout with:
+  - Header banner and Imaging Plaza branding
+  - Chat panel + sidebar separation
+- Tool analytics:
+  - Execution frequency charts
+  - Timeline visualization
+- Improved file handling and previews
+
+---
+
+### ⚡ Performance Improvements
+
+- Startup catalog pre-embedding (FAISS warm start)
+- Metadata caching for images
+- Preview generation caching
+- Agent instance caching for custom models
+- Repository info caching with TTL + deduplication
+- Port pre-selection to avoid UI startup retries
+
+---
+
+### 🏗️ Architecture
+
+- Modular structure:
+  - handlers.py, components.py, state.py, formatters.py, visualizations.py
+- Core interface:
+  - `respond(message, files, state)`
+- Clear separation of UI, agent logic, and tool execution
+- MCP tools moved to dedicated subpackage
+
+---
+
+### 🧹 Cleanup & Simplification
+
+- Removed:
+  - Legacy non-agent pipeline
+  - Fast mode
+  - Text-based tool approval
+  - Refine intent system
+  - Deprecated CLI (`ai_agent ui`)
+- Simplified UI state management
+- Standardized import paths (`ai_agent.*`)
+
+---
+
+### 🛠️ Fixes
+
+- Fixed startup refresh issues and duplicate sync
+- Improved structured output validation reliability
+- Prevented retrieval query drift
+- Fixed FAISS rebuild when embeddings change
+- Resolved Gradio compatibility issues
+- Fixed race conditions and duplicate history entries
+- Ensured consistent UI event outputs
 
 ## [0.1.3] - 2025-10-22
 

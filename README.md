@@ -498,15 +498,15 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ### Recent Highlights
 
-**[Unreleased]**
-- ✨ New chat-based interface with conversational AI
-- 🔧 YAML model configuration for flexible deployment
-- 🔍 Metadata-aware retrieval with iterative retry for low-result queries
-- 🔗 DeepWiki MCP integration for GitHub repo docs
-- 🎨 Imaging Plaza branding and custom theme
-- 🛠️ Agent-based architecture replacing legacy VLM selector
-- ⚡ Iterative retrieval with automatic retry logic
-- 🗑️ Removed deprecated code paths and outdated tests
+**[1.0.0]**
+- ✨ New chat-based interface (`ai_agent chat`) with rich media and tool integration  
+- 🛠️ Fully agent-based architecture replacing legacy pipelines  
+- 🔍 Smarter retrieval with automatic retry  
+- 🔗 DeepWiki MCP integration for fast GitHub repository documentation access  
+- 🔧 YAML configuration (`config.yaml`) for flexible model and backend setup  
+- 🎨 Redesigned UI with Imaging Plaza branding and improved UX  
+- ⚡ Performance improvements (pre-embedding, caching, faster startup)  
+- 🧹 Major cleanup: removed deprecated code paths, legacy UI, and outdated tests  
 
 **[0.1.3] - 2025-10-22**
 - Gradio space runner tool

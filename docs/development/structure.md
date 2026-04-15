@@ -228,7 +228,7 @@ Python package metadata and dependencies.
 ```toml
 [project]
 name = "ai_agent"
-version = "0.1.1"
+version = "1.0.0"
 dependencies = [...]
 
 [project.scripts]
