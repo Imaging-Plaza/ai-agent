@@ -1,26 +1,27 @@
 # utils/previews.py
 from __future__ import annotations
 from pathlib import Path
+import json
 import os
 import numpy as np
 import imageio.v3 as iio
 import tempfile
 import logging
 import time
-import threading
 import tifffile as tiff
 from typing import List, Optional, Tuple
 from PIL import Image
 from ai_agent.utils.image_meta import summarize_image_metadata
 from ai_agent.utils.image_io import load_any
+from ai_agent.utils.cache_db import get_cache_db
 
 log = logging.getLogger("pipeline")
 
 PREVIEW_CACHE_TTL_SECONDS = int(os.getenv("PREVIEW_CACHE_TTL_SECONDS", "1800"))
 PREVIEW_CACHE_MAX_ENTRIES = int(os.getenv("PREVIEW_CACHE_MAX_ENTRIES", "64"))
 PREVIEW_MAX_SIDE_PX = int(os.getenv("PREVIEW_MAX_SIDE_PX", "500"))
-_PREVIEW_CACHE: dict[tuple[str, ...], tuple[float, str, Optional[str]]] = {}
-_PREVIEW_CACHE_LOCK = threading.Lock()
+
+_PREVIEW_NS = "preview"
 
 
 def _fingerprint_paths(paths: List[str]) -> tuple[str, ...]:
@@ -35,35 +36,29 @@ def _fingerprint_paths(paths: List[str]) -> tuple[str, ...]:
     return tuple(fps)
 
 
-def _evict_expired_preview_entries(now: float) -> None:
-    expired = [k for k, (exp, _, _) in _PREVIEW_CACHE.items() if exp <= now]
-    for key in expired:
-        _PREVIEW_CACHE.pop(key, None)
-
-
 def _clear_preview_cache_for_tests() -> None:
     """Test helper to avoid cache state leakage across test cases."""
-    with _PREVIEW_CACHE_LOCK:
-        _PREVIEW_CACHE.clear()
+    get_cache_db().clear(_PREVIEW_NS)
 
 
 def _preview_cache_get(key: tuple[str, ...]) -> Tuple[Optional[str], Optional[str]]:
     if PREVIEW_CACHE_TTL_SECONDS <= 0:
         return None, None
-    now = time.monotonic()
-    with _PREVIEW_CACHE_LOCK:
-        _evict_expired_preview_entries(now)
 
-        entry = _PREVIEW_CACHE.get(key)
-        if not entry:
-            return None, None
+    db_key = json.dumps(key)
+    raw = get_cache_db().get(_PREVIEW_NS, db_key)
+    if raw is None:
+        return None, None
 
-        _, preview_path, meta_text = entry
-        if not Path(preview_path).exists():
-            _PREVIEW_CACHE.pop(key, None)
-            return None, None
+    entry = json.loads(raw)
+    preview_path: str = entry["path"]
+    meta_text: Optional[str] = entry.get("meta")
 
-        return preview_path, meta_text
+    if not Path(preview_path).exists():
+        get_cache_db().delete(_PREVIEW_NS, db_key)
+        return None, None
+
+    return preview_path, meta_text
 
 
 def _preview_cache_set(
@@ -71,17 +66,15 @@ def _preview_cache_set(
 ) -> None:
     if PREVIEW_CACHE_TTL_SECONDS <= 0:
         return
-    expires_at = time.monotonic() + PREVIEW_CACHE_TTL_SECONDS
-    with _PREVIEW_CACHE_LOCK:
-        _evict_expired_preview_entries(time.monotonic())
-        _PREVIEW_CACHE[key] = (expires_at, preview_path, meta_text)
-        if len(_PREVIEW_CACHE) <= PREVIEW_CACHE_MAX_ENTRIES:
-            return
-        # Evict oldest by expiration timestamp first.
-        items = sorted(_PREVIEW_CACHE.items(), key=lambda it: it[1][0])
-        over = len(_PREVIEW_CACHE) - PREVIEW_CACHE_MAX_ENTRIES
-        for k, _ in items[:over]:
-            _PREVIEW_CACHE.pop(k, None)
+    db_key = json.dumps(key)
+    value = json.dumps({"path": preview_path, "meta": meta_text})
+    get_cache_db().set(
+        _PREVIEW_NS,
+        db_key,
+        value,
+        ttl_seconds=PREVIEW_CACHE_TTL_SECONDS,
+        max_entries=PREVIEW_CACHE_MAX_ENTRIES,
+    )
 
 
 def _norm_uint8(a: np.ndarray) -> np.ndarray:

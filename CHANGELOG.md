@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Replaced all in-memory caches (image metadata, preview, repo info) with a
+  shared SQLite-backed `CacheDB` (`utils/cache_db.py`).  Caches now survive
+  short process restarts and share a single on-disk file
+  (`$TMPDIR/ai_agent_cache.db`, overridable via `CACHE_DB_PATH`).
+
+### Added
+- `utils/shutdown.py`: background cleanup thread that runs immediately on
+  startup and then every `CLEANUP_INTERVAL_SECONDS` (default 3600 s):
+  - Sweeps expired rows from the cache DB.
+  - Deletes log files under `LOG_DIR` older than `LOG_RETENTION_DAYS`
+    (default 7 days); only `app_*.log*` files are touched.
+- `atexit` hook performs a final VACUUM + connection close on process exit.
+- New env vars: `CACHE_DB_PATH`, `CLEANUP_INTERVAL_SECONDS`, `LOG_RETENTION_DAYS`.
+
+---
+
 ## [1.0.0]
 
 ### 🚀 Major Features
