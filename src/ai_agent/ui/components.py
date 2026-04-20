@@ -1,39 +1,30 @@
 import logging
 import os
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 import gradio as gr
 
 from ai_agent.utils.previews import _build_preview_for_vlm
 from ai_agent.retriever.software_doc import SoftwareDoc
 
-from .handlers import respond
+from ai_agent.core.handlers import respond
+from ai_agent.core.chat_state import ChatState, format_stats_markdown
+from ai_agent.core.model_config import (
+    get_available_models,
+    get_default_model_display_name,
+    get_model_config,
+)
 from .visualizations import (
     create_tool_usage_chart,
     create_tool_timeline,
     create_disabled_tools_display,
 )
-from .utils import get_available_models, get_default_model_display_name
-from .state import format_stats_markdown
 
 log = logging.getLogger("chat_components")
 
 # Load model configurations from config.yaml
 MODEL_CONFIGS = get_available_models()
-
-
-def get_model_config(model_display_name: str) -> Dict[str, Optional[str]]:
-    """Get model configuration from display name."""
-    return MODEL_CONFIGS.get(
-        model_display_name,
-        {
-            "name": model_display_name,
-            "base_url": None,
-            "provider": "Unknown",
-            "api_key_env": "OPENAI_API_KEY",
-        },
-    )
 
 
 def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
@@ -479,8 +470,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
 
         def handle_tool_approval(history: List[dict], state_dict: dict):
             """Handle tool approval button click - executes the pending tool."""
-            from .handlers import execute_tool_with_approval
-            from .state import ChatState
+            from ai_agent.core.handlers import execute_tool_with_approval
+            from ai_agent.core.chat_state import ChatState
 
             state = ChatState.from_dict(state_dict)
 

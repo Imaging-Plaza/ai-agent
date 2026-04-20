@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Extracted frontend-agnostic business logic from `ui/` into `core/` package:
+  - `core/chat_state.py` — `ChatState`, `ChatMessage`, `format_stats_markdown`
+  - `core/handlers.py` — `respond()`, `execute_tool_with_approval()`
+  - `core/formatters.py` — `format_tool_card()`
+  - `core/model_config.py` — model configuration lookup (`get_model_config`, `get_available_models`, etc.)
+  - `core/app_setup.py` — logging, pipeline init, tool registration, doc index management
+- `ui/` modules are now thin re-export wrappers for backward compatibility
+- `ui/app.py` retains only Gradio-specific launch logic
+- `cli.py` imports infrastructure from `core.app_setup` instead of `ui.app`
+
 ## [1.0.0]
 
 ### 🚀 Major Features
