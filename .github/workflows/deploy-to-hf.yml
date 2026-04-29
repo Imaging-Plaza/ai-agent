@@ -16,6 +16,12 @@ jobs:
           fetch-depth: 0
           lfs: true
 
+      # Remove assets so they are not pushed to HF
+      - name: Remove assets folder for HF push
+        run: |
+          rm -rf assets
+          git rm -r --cached assets || true
+
       # 👇 This step ONLY changes README in the CI workspace, not in your repo
       - name: Generate Hugging Face README with YAML frontmatter
         run: |
