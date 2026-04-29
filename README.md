@@ -1,107 +1,346 @@
-# AI Imaging Agent — RAG + VLM Tool Picker
+# AI Imaging Agent (Imaging Plaza)
 
-A tiny “AI-assisted search” that helps users find the **right imaging software** for their image and task.  
-Users drop an image and describe what they want (e.g., *“segment the lungs”*). The app:
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-1. **Retrieves** candidate tools from a local catalog (text-only query + format token).
-2. **Selects** the best tool with a **single VLM call** (text + image + candidates + original image metadata).
-3. **Returns a link** to the tool’s **public runnable demo** (Hugging Face Space, notebook viewer, etc.).  
-   *(We don’t run the tool or upload user data to third-party endpoints.)*
+An intelligent RAG + AI agent system that helps users discover the right imaging software for their images and tasks. Upload an image, describe what you want to do, and get ranked tool recommendations with links to runnable demos.
+
+## ✨ Key Features
+
+- **🤖 Conversational AI Agent**: Natural language interaction with multi-turn context
+- **🔍 Smart Retrieval**: BGE-M3 embeddings + FAISS + CrossEncoder reranking
+- **👁️ Vision-Aware Selection**: VLM-based tool selection considering both image content and metadata
+- **🏥 Medical Imaging Focus**: Specialized support for CT, MRI, DICOM, NIfTI, and other medical formats
+- **🎯 Format-Aware Matching**: IO compatibility scoring based on file formats and dimensions
+- **🚀 Demo Integration**: Direct execution of Gradio Space demos on your images
+- **📊 Rich UI**: Chat interface with image previews, file management, and execution traces
+
+<p align="center">
+    <img src="https://github.com/Imaging-Plaza/ai-agent/blob/develop/assets/example.gif?raw=true" height="700">
+</p>
 
 ---
 
-## What’s in here
+## 🚀 Quick Start
 
-- **Retrieval**: FAISS/BGE-M3 + Cross-Encoder reranker.
-- **Single-shot selection**: OpenAI VLM (`gpt-4o`/`gpt-4o-mini` by default).
-- **Image metadata awareness**: The original file extension & shape are passed to the VLM (even if a `.tif`/`.nii.gz` is rasterized to PNG for the preview), so IO compatibility matters in the choice.
-- **Gradio UI**: One textbox + one file input → result = selected software + demo link.
-- **Logging**: Console + rotating file logs; optional **prompt snapshots** to `logs/`.
+### Prerequisites
 
-> ⚠️ **Medical disclaimer**: This app is a software recommender, not a diagnostic tool.
-
----
-
-## Quickstart
-
-### 1) Requirements
 - Python 3.10–3.12
-- A working internet connection (for model calls)
-- An OpenAI API key
+- OpenAI API key (or compatible API endpoint)
+- Internet connection for model calls
+
+### Installation
 
 ```bash
-git clone <your-repo>
+# Clone the repository
+git clone <your-repo-url>
 cd ai-agent
-python -m venv env
-# Windows
-env\Scripts\activate
-# macOS/Linux
-source env/bin/activate
 
-# Install with pip using pyproject.toml
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+# On Linux/macOS:
+source .venv/bin/activate
+# On Windows:
+.venv\Scripts\activate
+
+# Install the package
 pip install --upgrade pip
-pip install .
+pip install -e .
 
 # For development (includes test dependencies)
 pip install -e ".[dev]"
 ```
 
-### 2) Configure `.env`
+### Configuration
 
-Create a `.env` file at repo root:
+Create a `.env` file at the repository root:
 
 ```dotenv
+# Required: OpenAI API key
 OPENAI_API_KEY=sk-xxxx
-# Optional model overrides (defaults work):
-OPENAI_MODEL=gpt-4o
 
-# Software catalog
-SOFTWARE_CATALOG=path/to/your/catalog.jsonl
+# Optional: GitHub token for repo info tool
+GITHUB_TOKEN=ghp_xxxx
+
+# Optional: Alternative model providers (EPFL, etc.)
+EPFL_API_KEY=sk-xxxx
+EPFL_API_KEY_EMBEDDER=sk-xxxx
+
+# Software catalog path
+SOFTWARE_CATALOG=dataset/catalog.jsonl
 
 # Pipeline configuration
 TOP_K=8                # Number of candidates to retrieve
 NUM_CHOICES=3          # Number of tools to recommend
+AGENT_OUTPUT_RETRIES=3 # Structured output validation retries
+EMBED_CATALOG_ON_START=1  # Pre-embed catalog if FAISS is empty
 
 # Logging configuration
 LOGLEVEL_CONSOLE=WARNING
 LOGLEVEL_FILE=INFO
 FILE_LOG=1
 LOG_DIR=logs
-LOG_PROMPTS=0         # write selector prompt snapshots
+LOG_PROMPTS=0         # Set to 1 to save prompt snapshots for debugging
+
+# Custom config path
+CONFIG_PATH=config.yaml
 ```
 
-### 3) Run the app
+### Model Configuration
+
+The agent model can be configured via `config.yaml`:
+
+```yaml
+# AI Agent Model Configuration
+
+# Default/fallback model (used for CLI and initial startup)
+agent_model:
+  name: "gpt-5.1"
+  base_url: null                        # null for default OpenAI endpoint
+  api_key_env: "OPENAI_API_KEY"
+
+# Available models for UI dropdown
+available_models:
+  - display_name: "gpt-4o-mini"
+    name: "gpt-4o-mini"
+    base_url: null
+    provider: "OpenAI"
+    api_key_env: "OPENAI_API_KEY"
+  
+  - display_name: "gpt-4o"
+    name: "gpt-4o"
+    base_url: null
+    provider: "OpenAI"
+    api_key_env: "OPENAI_API_KEY"
+  
+  - display_name: "gpt-5-mini"
+    name: "gpt-5-mini"
+    base_url: null
+    provider: "OpenAI"
+    api_key_env: "OPENAI_API_KEY"
+
+  - display_name: "gpt-5.1"
+    name: "gpt-5.1"
+    base_url: null
+    provider: "OpenAI"
+    api_key_env: "OPENAI_API_KEY"
+
+retrieval:
+  embedder:
+    backend: "remote"   # "remote" or "local"
+    model_name: "Qwen/Qwen3-Embedding-8B"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
+    # local example:
+    # backend: "local"
+    # model_name: "BAAI/bge-m3"
+    # device: "cpu" # optional
+
+  reranker:
+    backend: "remote"   # "remote" or "local"
+    model_name: "BAAI/bge-reranker-v2-m3"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
+    # local example:
+    # backend: "local"
+    # model_name: "BAAI/bge-reranker-v2-m3"
+    # device: "cpu" # optional
+```
+
+### Running the App
 
 ```bash
-ai_agent ui
+# Start the chat interface
+ai_agent chat
+
+# Open your browser to:
+# http://127.0.0.1:7860
 ```
 
-Open http://127.0.0.1:7860 and try:  
-> “I want to segment the lungs from this CT scan image” + a `.tif` lung volume slice (or any image).
+Try uploading a cat image and asking:
+> "I want to segment the cat from this image"
 
 ---
 
-## Catalog format
+## 💬 Usage
 
-The catalog is JSON **or** JSONL. Each line/object is a **SoftwareDoc**. Minimal fields:
+### Chat Interface
+
+The chat interface provides a natural conversation flow:
+
+1. **Upload Files**: Drop images (PNG, JPG, TIFF, DICOM, NIfTI, etc.) or other supported files
+2. **Describe Your Task**: Use natural language like "segment the lungs" or "register brain MRI"
+3. **Review Recommendations**: Get ranked tool suggestions with accuracy scores and explanations
+4. **Run Demos**: Click "Run demo" to execute tools directly on your uploaded images
+5. **Iterate**: Ask for alternatives, refine your query, or upload different files
+
+### Supported File Formats
+
+**Images:**
+- Standard: PNG, JPG, JPEG, WEBP, BMP, GIF
+- Medical: DICOM (.dcm), NIfTI (.nii, .nii.gz), TIFF stacks
+- Scientific: Multi-page TIFF, TIFF with metadata
+
+**Other Files:**
+- Data: CSV, JSON, XML
+- Media: MP3, MP4
+
+### Example Queries
+
+- "Segment the lungs from this CT scan"
+- "Register these two brain MRI images"
+- "Extract text from this medical report image"
+- "Classify what organ is shown in this ultrasound"
+- "Detect tumors in this MRI scan"
+- "I need to analyze DICOM files, what tools are available?"
+
+### Understanding Results
+
+Each recommendation includes:
+- **Rank**: Priority order (1 = best match)
+- **Accuracy Score**: Confidence level (0-100%)
+- **Explanation**: Why this tool matches your request
+- **Metadata**: Supported modalities, dimensions, formats, license
+- **Demo Link**: Direct link to runnable example
+
+---
+
+## 🏗️ Architecture
+
+### Pipeline Overview
+
+The system follows a two-stage architecture:
+
+```
+User Input (Image + Text Query)
+        ↓
+┌───────────────────────────────┐
+│   RETRIEVAL STAGE             │
+│  - BGE-M3 Embeddings          │
+│  - FAISS Vector Search        │
+│  - CrossEncoder Reranking     │
+│  - Format Token Matching      │
+└───────────────────────────────┘
+        ↓ Top-K Candidates
+┌───────────────────────────────┐
+│   AGENT SELECTION             │
+│  - Pydantic AI Agent          │
+│  - OpenAI VLM                 │
+│  - Image + Metadata Analysis  │
+│  - Multi-Tool Reasoning       │
+└───────────────────────────────┘
+        ↓
+   Ranked Recommendations
+```
+
+### Retrieval Stage
+
+**No LLM calls** - purely text-based search:
+
+1. **Query Construction**: User task + format tokens from uploaded files
+2. **Embedding**: BGE-M3 model generates query embedding
+3. **Vector Search**: FAISS retrieves top candidates
+4. **Reranking**: CrossEncoder refines results for precision
+5. **Retry Broadening**: If too few hits, retry with a shorter/broader query
+
+### Agent Selection Stage
+
+**Single VLM call** - multimodal reasoning:
+
+1. **Input Preparation**:
+   - Text: User query + candidate table + file metadata
+   - Image: PNG preview (converted from any format)
+   - Context: Original file format, dimensions, modality
+
+2. **Agent Tools**:
+   - `search_tools`: Search catalog with query
+   - `search_alternative`: Find alternatives (iterative)
+  - `repo_info`: Fetch GitHub documentation via DeepWiki MCP
+
+3. **Output**: Ranked tool selections with accuracy scores and explanations
+
+### Key Components
+
+- **`api/pipeline.py`**: RAG retrieval orchestrator
+- **`agent/agent.py`**: Pydantic AI agent with tool definitions
+- **`retriever/`**: Embedding, FAISS indexing, reranking
+- **`generator/`**: Prompts and schema for tool selection
+- **`ui/`**: Gradio chat interface components
+- **`utils/`**: Image processing, metadata extraction, file validation
+- **`catalog/`**: Catalog syncing from GraphDB (optional)
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `OPENAI_API_KEY` | OpenAI API key | - | ✅ |
+| `EPFL_API_KEY_EMBEDDER` | API key for remote embedder and reranker endpoints | - | ✅ (when `retrieval.embedder.backend: remote` and/or `retrieval.reranker.backend: remote`) |
+| `GITHUB_TOKEN` | GitHub token for repo info | - | ❌ |
+| `SOFTWARE_CATALOG` | Path to catalog JSONL | `dataset/catalog.jsonl` | ✅ |
+| `TOP_K` | Retrieval candidates count | `8` | ❌ |
+| `NUM_CHOICES` | Tools to recommend | `3` | ❌ |
+| `AGENT_OUTPUT_RETRIES` | Structured output validation retries | `3` | ❌ |
+| `EMBED_CATALOG_ON_START` | Pre-embed catalog on startup when FAISS is empty | `1` | ❌ |
+| `LOGLEVEL_CONSOLE` | Console log level | `WARNING` | ❌ |
+| `LOGLEVEL_FILE` | File log level | `INFO` | ❌ |
+| `FILE_LOG` | Enable file logging | `1` | ❌ |
+| `LOG_DIR` | Log directory | `logs` | ❌ |
+| `LOG_PROMPTS` | Save prompt snapshots | `0` | ❌ |
+| `CONFIG_PATH` | Model config file | `config.yaml` | ✅ |
+
+### GraphDB Catalog Sync (Optional)
+
+For automatic catalog syncing from a GraphDB instance:
+
+```dotenv
+GRAPHDB_URL=https://your-graphdb.example.com
+GRAPHDB_GRAPH=your-graph-name
+GRAPHDB_USER=username
+GRAPHDB_PASSWORD=password
+GRAPHDB_QUERY_FILE=/path/to/query.rq
+SYNC_EVERY_HOURS=24  # Auto-refresh interval (0 to disable)
+OUTPUT_JSONLD=dataset/catalog.jsonld
+OUTPUT_JSONL=dataset/catalog.jsonl
+```
+
+Run manual sync:
+```bash
+ai_agent sync
+```
+
+---
+
+## 📋 Catalog Format
+
+The catalog is a JSONL file where each line is a `SoftwareDoc` following schema.org SoftwareSourceCode structure.
+
+### Minimal Example
 
 ```json
 {
   "name": "3d-lungs-segmentation",
   "description": "3D lung segmentation from CT; returns a mask/overlay.",
-
-  "applicationCategory": [],
+  
+  "applicationCategory": ["Medical Imaging"],
   "featureList": ["segmentation"],
   "imagingModality": ["CT"],
   "dims": [3],
   "anatomy": ["lung"],
   "keywords": ["mask", "overlay", "lung segmentation", "CT"],
-
+  
   "programmingLanguage": "Python",
   "requiresGPU": false,
   "isAccessibleForFree": true,
   "license": "Apache-2.0",
-
+  
   "supportingData": [
     {
       "datasetFormat": "TIFF",
@@ -110,13 +349,13 @@ The catalog is JSON **or** JSONL. Each line/object is a **SoftwareDoc**. Minimal
       "hasDimensionality": 3
     },
     {
-      "datasetFormat": "TIF",
+      "datasetFormat": "DICOM",
       "bodySite": "lung",
       "imagingModality": "CT",
       "hasDimensionality": 3
     }
   ],
-
+  
   "runnableExample": [
     {
       "hostType": "gradio",
@@ -127,146 +366,187 @@ The catalog is JSON **or** JSONL. Each line/object is a **SoftwareDoc**. Minimal
 }
 ```
 
-> You can add multiple runnable types (e.g., `"type": "notebook"`, `"type": "webapp"`, `"type": "jvm"`); the pipeline just picks the **best base URL** to show to the user.
+### Key Fields
+
+- **name**: Unique identifier for the tool
+- **description**: Clear explanation of what the tool does
+- **featureList**: Operations (e.g., segmentation, registration, classification)
+- **imagingModality**: Medical imaging types (CT, MRI, XR, US, PET)
+- **dims**: Supported dimensions (2D, 3D, 4D)
+- **anatomy**: Body parts/organs
+- **supportingData**: Format compatibility information (critical for matching)
+- **runnableExample**: Links to live demos (HuggingFace Spaces, notebooks, web apps)
 
 ---
 
-## How the pipeline works
+## 🔧 Development
 
-### Retrieval (fast, no LLM)
-- Build a text query from the user prompt
-- If user uploaded a file, add a **format token** (e.g., `format:TIF` or `format:NII.GZ`)
-- Embed with **BGE-M3**, rerank with Cross-Encoder
-- Return top-K candidates (configurable via `TOP_K`)
-
-### Selection (one VLM call)
-- Call the **VLM** with:
-  - **Text**: user request + compact table of top-K candidates
-  - **Image**: a **PNG preview** (safe for the API)
-  - **Metadata**: original file info (name, extension, shape, etc.)
-- VLM responds with **strict JSON**:
-  ```json
-  {
-    "choices": [
-      {
-        "name": "tool-name",
-        "rank": 1,
-        "accuracy": 95.5,
-        "why": "Best match because..."
-      },
-      {
-        "name": "alternative-tool",
-        "rank": 2,
-        "accuracy": 82.3,
-        "why": "Good alternative..."
-      }
-    ]
-  }
-  ```
-
-- Returns up to `NUM_CHOICES` ranked tools with accuracy scores
-- UI displays choices with explanation and demo links
-
----
-
-## Logging & Debugging
-
-- **Console log level** via `LOGLEVEL_CONSOLE` (default `INFO`).
-- **File logs** in `logs/app_YYYYMMDD.log` (enable with `FILE_LOG=1`).
-- **Prompt snapshots** (when `LOG_PROMPTS=1`):
-  - `logs/vlm_selector_YYYYMMDD_HHMMSS.txt` — the system/user text the model saw
-  - `logs/vlm_selector_YYYYMMDD_HHMMSS.png` — the exact PNG sent to the VLM
-
----
-
-## Security & Privacy
-
-- The app does **not** upload your image to third-party demos.  
-  It only shows a **link** to a public demo page.
-- The only external API call on your content is the **single VLM request** to OpenAI for tool selection (preview image + brief metadata + text).  
-  Turn off prompt snapshots if you don’t want local copies of previews: `LOG_PROMPTS=0`.
-
----
-
-## Project layout
+### Project Structure
 
 ```
-ai_agent/
-  api/
-    pipeline.py       # RAG pipeline implementation
-  generator/
-    generator.py      # VLMToolSelector implementation
-    prompts.py       # System prompts and templates
-    schema.py        # Pydantic models for validation
-  retriever/
-    embedders.py     # Vector search components
-  ui/
-    app.py           # Gradio interface
-  utils/
-    file_validator.py  # File format validation
-    image_meta.py     # Metadata extraction
-    image_io.py       # Image loading/conversion
-    image_analyzer.py # VLM image analysis
-    tags.py           # Tags passed to the VLM
-    previews.py       # Building previews for user
-tests/               # Unit tests
-pyproject.toml       # Project configuration and dependencies
+ai-agent/
+├── src/ai_agent/
+│   ├── agent/              # Pydantic AI agent and tools
+│   │   ├── agent.py        # Agent definition
+│   │   ├── models.py       # Agent state models
+│   │   ├── tools/          # Agent tool implementations
+│   │   │   ├── search_tool.py
+│   │   │   ├── search_alternative_tool.py
+│   │   │   ├── gradio_space_tool.py
+│   │   │   ├── repo_info_tool.py
+│   │   │   └── deepwiki_tool.py
+│   │   └── utils.py
+│   ├── api/                # Pipeline orchestration
+│   │   └── pipeline.py     # RAGImagingPipeline
+│   ├── retriever/          # Retrieval components
+│   │   ├── text_embedder.py
+│   │   ├── vector_index.py
+│   │   ├── reranker.py
+│   │   └── software_doc.py
+│   ├── generator/          # Agent prompts and schemas
+│   │   ├── prompts.py
+│   │   └── schema.py
+│   ├── ui/                 # Gradio interface
+│   │   ├── app.py
+│   │   ├── handlers.py
+│   │   ├── components.py
+│   │   ├── formatters.py
+│   │   ├── state.py
+│   │   └── visualizations.py
+│   ├── utils/              # Shared utilities
+│   │   ├── config.py       # Configuration management
+│   │   ├── file_validator.py
+│   │   ├── image_meta.py   # Metadata extraction
+│   │   ├── image_io.py
+│   │   ├── previews.py
+│   │   └── tags.py
+│   ├── catalog/            # Catalog syncing
+│   │   └── sync.py
+│   └── cli.py              # CLI entry point
+├── tests/                  # Test suite
+│   ├── test_retrieval_pipeline.py
+│   ├── test_repo_summary.py
+│   └── data/
+├── artifacts/              # Generated artifacts
+│   └── rag_index/          # FAISS index
+├── dataset/                # Catalog data
+│   └── catalog.jsonl
+├── logs/                   # Application logs
+├── config.yaml             # Model configuration
+├── pyproject.toml          # Project metadata & dependencies
+├── Dockerfile              # Production Docker image
+├── tools/image/Dockerfile  # Development Docker image
+└── justfile                # Task runner commands
 ```
 
----
-
-## Docker deployment
-
-You can find the docker image in `tools/image/Dockerfile`
-
-### Build and run - app starts automatically
+### Local Development
 
 ```bash
-docker build -t ai-agent:latest -f tools/image/Dockerfile .
-docker run -d --rm -p 7860:7860 ai-agent:latest
+# Install in development mode
+pip install -e ".[dev]"
+
+# Run tests
+pytest tests/
 ```
 
-### With environment variables
+### Testing
+
+Run the test suite:
 
 ```bash
-docker run -d --rm -p 7860:7860 \
-  -e OPENAI_API_KEY="your-key" \
-  ai-agent:latest
+# All tests
+pytest tests/
+
+# Specific test file
+pytest tests/test_retrieval_pipeline.py
+
+# With verbose output
+pytest -v tests/
+
+# With coverage
+pytest --cov=ai_agent tests/
 ```
 
----
+### Logging & Debugging
 
-## Development tips
+**Console Logs**: Set `LOGLEVEL_CONSOLE=DEBUG` for verbose output
 
-- Run UI from project root:  
-  `python -m ui.gradio_app`
-- Save selector prompts to compare changes:  
-  `LOG_PROMPTS=1`
-- Use a devcontainer when working with `vscode`
-  `.devcontainer/devcontainer.json`
+**File Logs**: Automatically saved to `logs/app_YYYYMMDD.log` (rotates daily)
+
+**Prompt Snapshots**: Enable `LOG_PROMPTS=1` to save:
+- `logs/vlm_selector_YYYYMMDD_HHMMSS.txt` - System/user prompts
 
 ---
 
-## Future improvements
+## 📚 API & CLI Reference
 
-- [x] **Notebook / JVM runnable examples** — support known viewer/launcher patterns (e.g., nbviewer URLs, custom JVM launch pages) in `runnables`.
-- [x] **Multi-image / volume support** — accept stacks, generate 3D/4D previews, and summarize richer DICOM / NIfTI metadata.
-- [x] **Index persistence** — save the FAISS index to disk with support for incremental updates.
-- [x] **Catalog ingestion** — integrate all Imaging Plaza software entries into the catalog.
+### CLI Commands
 
-- [ ] **Deep links** — detect Space endpoints that accept `file_url` and safely assemble one-click URLs when explicitly allowed by the maintainer.
-- [ ] **Additional VLM providers** — add Anthropic / Google APIs or local open-source VLMs behind a simple provider interface.
-- [ ] **Reranker fine-tuning** — train a domain-specific CrossEncoder on curated (query, tool) pairs and optionally distill to a lighter model for speed.
-- [ ] **Evaluation harness** — provide a small benchmark set (queries + expected tools) with metrics such as top-1 accuracy, MRR, and score margins.
-- [ ] **UI enhancements** — add result history, “copy demo link” buttons, compact toolcards with tags/modality/license, and lightweight opt-in analytics.
-- [ ] **Containerization** — supply Dockerfile and docker-compose for reproducible deployment, with GPU acceleration support if available.
-- [ ] **Testing / CI** — expand unit tests (metadata parsing, preview builders, link selectors) and configure GitHub Actions for linting, tests, and catalog validation.
+```bash
+# Launch chat interface
+ai_agent chat
 
+# Sync catalog from GraphDB
+ai_agent sync
+```
+
+## 🗺️ Maintainer Guide
+
+For full project documentation with detailed folder responsibilities, environment defaults, and improvement guidelines, see [docs/guide.md](docs/guide.md).
+
+---
+
+## 📝 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+### Recent Highlights
+
+**[1.0.0]**
+- ✨ New chat-based interface (`ai_agent chat`) with rich media and tool integration  
+- 🛠️ Fully agent-based architecture replacing legacy pipelines  
+- 🔍 Smarter retrieval with automatic retry  
+- 🔗 DeepWiki MCP integration for fast GitHub repository documentation access  
+- 🔧 YAML configuration (`config.yaml`) for flexible model and backend setup  
+- 🎨 Redesigned UI with Imaging Plaza branding and improved UX  
+- ⚡ Performance improvements (pre-embedding, caching, faster startup)  
+- 🧹 Major cleanup: removed deprecated code paths, legacy UI, and outdated tests  
+
+**[0.1.3] - 2025-10-22**
+- Gradio space runner tool
+- Repository info tool
+- UI fixes and polish
 
 ---
 
-## License
+## 📄 License
 
-No license for now.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
+
+## 🙏 Credits & Acknowledgments
+
+**Developed by**: Imaging Plaza Team
+
+**Technologies:**
+- [Pydantic AI](https://github.com/pydantic/pydantic-ai) - AI agent framework
+- [OpenAI](https://openai.com) - GPT vision model
+- [FAISS](https://github.com/facebookresearch/faiss) - Vector search
+- [BGE-M3](https://huggingface.co/BAAI/bge-m3) - Multilingual embeddings
+- [Gradio](https://gradio.app) - Interactive web UI
+- [DeepWiki](https://deepwiki.com) - GitHub repository documentation
+
+**Medical Imaging Formats:**
+- [pydicom](https://github.com/pydicom/pydicom) - DICOM support
+- [nibabel](https://nipy.org/nibabel/) - NIfTI support
+
+---
+
+## 📮 Support
+
+For issues, questions, or contributions, please contact the Imaging Plaza team.
+
+---
+
+**🏥 Medical Disclaimer**: This software is a tool recommendation system, not a diagnostic tool. Always consult qualified medical professionals for clinical decisions.

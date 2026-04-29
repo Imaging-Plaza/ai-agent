@@ -13,10 +13,10 @@ The system follows a two-stage pipeline:
 ### Key Components
 
 - **`api/pipeline.RAGImagingPipeline`**: Main orchestrator. Handles file validation, metadata extraction, retrieval, and VLM selection.
-- **`retriever/embedders.py`**: FAISS vector index with BGE-M3 + CrossEncoder reranker for candidate retrieval.
-- **`generator/generator.VLMToolSelector`**: Vision-language model that selects best tools from candidates.
+- **`retriever/text_embedder.py`**, **`retriever/vector_index.py`**, **`retriever/reranker.py`**, **`retriever/software_doc.py`**: Embedding, FAISS indexing, reranking, and catalog schema for retrieval.
+- **`agent/agent.py`**: PydanticAI agent that orchestrates tool search, alternatives, and recommendation assembly.
 - **`utils/image_meta.py`**: Robust metadata extraction for DICOM, NIfTI, TIFF stacks with medical imaging focus.
-- **`utils/tags.py`**: Control tags system for query refinement (`[EXCLUDE:tool1|tool2]`, `[NO_RERANK]`, `[REFINE]`).
+- **`utils/tags.py`**: Control tag parsing/stripping utilities (notably `[EXCLUDE:tool1|tool2]`).
 
 ## Data Flow Patterns
 
@@ -48,8 +48,6 @@ The VLM receives:
 ### Control Tags System
 Users can control behavior via tags in their queries:
 - `[EXCLUDE:toolname1|toolname2]` - Exclude specific tools from results
-- `[NO_RERANK]` - Skip CrossEncoder reranker (faster, less accurate)
-- `[REFINE]` - Force clarification turn for alternatives
 
 ### Conversation Flow
 - **Complete**: Normal success with tool recommendations
@@ -64,12 +62,11 @@ Users can control behavior via tags in their queries:
 pip install -e ".[dev]"
 
 # Configure .env with OPENAI_API_KEY and SOFTWARE_CATALOG path
-ai_agent ui  # Launches Gradio on port 7860
+ai_agent chat  # Launches Gradio chat UI
 ```
 
 ### Testing
-- **`tests/full_test.py`**: End-to-end pipeline tests driven by `tests/data/test_data.json`
-- Uses test doubles for VLM calls to avoid API costs
+- Run targeted tests in `tests/` (e.g., retrieval, agent tools, repo info)
 - Run with: `pytest tests/`
 
 ### Change Documentation

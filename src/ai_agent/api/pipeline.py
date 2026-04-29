@@ -2,27 +2,21 @@
 from __future__ import annotations
 
 import os
+import re
+import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
-import re
-from utils.tags import strip_tags, parse_exclusions, has_no_rerank, has_refine
+from ai_agent.retriever.reranker import CrossEncoderReranker
+from ai_agent.retriever.software_doc import SoftwareDoc
+from ai_agent.retriever.text_embedder import LocalBGEEmbedder
+from ai_agent.retriever.vector_index import IndexItem, VectorIndex
+from ai_agent.utils.config import get_retrieval_config
 
-from retriever.embedders import (
-    LocalBGEEmbedder,
-    VectorIndex,
-    IndexItem,
-    CrossEncoderReranker,
-    SoftwareDoc,
-)
-from generator.generator import VLMToolSelector
-from generator.schema import CandidateDoc, NoToolReason
-from utils.file_validator import FileValidator
-
-from utils.image_meta import detect_ext_token
-from utils.previews import _build_preview_for_vlm, _cleanup_old_previews
-from utils.utils import _best_runnable_link
+from ai_agent.utils.tags import strip_tags
+from ai_agent.utils.image_meta import detect_ext_token, summarize_image_metadata
+from ai_agent.utils.utils import _env_flag
 
 log = logging.getLogger("pipeline")
 
@@ -30,40 +24,176 @@ log = logging.getLogger("pipeline")
 class RAGImagingPipeline:
     def __init__(
         self,
-        docs: List[SoftwareDoc],
         index_dir: Optional[str] = None,
+        min_results: int = 5,
+        max_retries: int = 2,
     ):
-        self.index_dir = Path(index_dir or os.getenv("RAG_INDEX_DIR", "artifacts/rag_index"))
+        """Initialize the RAG imaging pipeline."""
+        self.index_dir = Path(
+            index_dir or os.getenv("RAG_INDEX_DIR", "artifacts/rag_index")
+        )
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
-        self.embedder = LocalBGEEmbedder()
-        self.reranker = CrossEncoderReranker()
-        self.selector_vlm = VLMToolSelector()
+        self.min_results = min_results
+        self.max_retries = max_retries
 
-        try:
-            _cleanup_old_previews(hours=24)
-        except Exception:
-            logging.getLogger("api").exception("Preview cleanup at init failed; continuing")
+        retrieval_cfg = get_retrieval_config()
+        embed_cfg = retrieval_cfg.get("embedder", {}) if isinstance(retrieval_cfg, dict) else {}
+        rerank_cfg = retrieval_cfg.get("reranker", {}) if isinstance(retrieval_cfg, dict) else {}
+
+        self.embedder = LocalBGEEmbedder(
+            model_name=embed_cfg.get("model_name", "Qwen/Qwen3-Embedding-8B"),
+            device=embed_cfg.get("device"),
+            backend=embed_cfg.get("backend", "remote"),
+            base_url=embed_cfg.get("base_url", "https://inference-rcp.epfl.ch/v1"),
+            api_key_env=embed_cfg.get("api_key_env", "EPFL_API_KEY_EMBEDDER"),
+            timeout_s=float(embed_cfg.get("timeout_s", 20.0)),
+        )
+        self.reranker = CrossEncoderReranker(
+            model_name=rerank_cfg.get("model_name", "BAAI/bge-reranker-v2-m3"),
+            base_url=rerank_cfg.get("base_url", "https://inference-rcp.epfl.ch/v1"),
+            backend=rerank_cfg.get("backend", "remote"),
+            api_key_env=rerank_cfg.get("api_key_env", "EPFL_API_KEY_EMBEDDER"),
+            timeout_s=float(rerank_cfg.get("timeout_s", 20.0)),
+            device=rerank_cfg.get("device"),
+        )
 
         self.index = self._load_or_build_index()
-        if docs:
-            stats = self.index.sync_with_catalog([IndexItem(id=d.name, doc=d) for d in docs])
-            if any(stats.values()):
-                self.index.save(self.index_dir)
+        self._startup_embed_enabled = _env_flag("EMBED_CATALOG_ON_START", default=True)
+        self._startup_status_emitted = False
+
+        # Optional startup pre-embedding: embed catalog once so runtime queries
+        # only need query embedding and FAISS lookup.
+        if self._startup_embed_enabled:
+            self._ensure_catalog_embedded_once()
+            log.info("Startup catalog embedding complete")
+        else:
+            log.info("Startup catalog embedding disabled (EMBED_CATALOG_ON_START=0)")
+
+        log.info(
+            "Pipeline initialized with index at %s (docs=%d, startup_embed=%s)",
+            self.index_dir,
+            len(self.index.docs),
+            self._startup_embed_enabled,
+        )
+        self._emit_startup_status_once()
+
+    def _emit_startup_status_once(self) -> None:
+        """Emit startup embedding status once, even if constructor logs were missed."""
+        if self._startup_status_emitted:
+            return
+
+        if self._startup_embed_enabled:
+            log.info(
+                "Startup status: embedding enabled (index docs=%d)",
+                len(self.index.docs),
+            )
+        else:
+            log.info("Startup status: embedding disabled by EMBED_CATALOG_ON_START")
+
+        self._startup_status_emitted = True
 
     def _load_or_build_index(self) -> VectorIndex:
         try:
-            idx = VectorIndex.load(self.index_dir, self.embedder)
-            return idx
+            return VectorIndex.load(self.index_dir, self.embedder)
         except Exception:
+            log.exception(
+                "Failed to load FAISS index from %s; creating empty in-memory index",
+                self.index_dir,
+            )
             return VectorIndex(self.embedder)
 
-    def refresh_catalog(self, docs: List[SoftwareDoc]) -> Dict[str, int]:
-        items = [IndexItem(id=d.name, doc=d) for d in docs]
-        stats = self.index.sync_with_catalog(items)
-        if any(stats.values()):
-            self.index.save(self.index_dir)
-        return stats
+    def reload_index(self) -> bool:
+        try:
+            new_idx = VectorIndex.load(self.index_dir, self.embedder)
+            self.index = new_idx
+            return True
+        except Exception:
+            logging.getLogger("api").exception("reload_index failed")
+            return False
+
+    def _read_catalog_docs(self, catalog_path: Path) -> List[SoftwareDoc]:
+        docs: List[SoftwareDoc] = []
+        if not catalog_path.exists():
+            return docs
+
+        # Peek at the first non-whitespace character to decide the format.
+        first_char = ""
+        try:
+            with catalog_path.open("r", encoding="utf-8") as fh:
+                for ch in iter(lambda: fh.read(1), ""):
+                    if not ch.isspace():
+                        first_char = ch
+                        break
+        except Exception:
+            log.exception("Failed reading catalog from %s", catalog_path)
+            return docs
+
+        if first_char == "[":
+            # JSON array — must be loaded all at once.
+            try:
+                text = catalog_path.read_text(encoding="utf-8")
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    parsed = [parsed]
+                if isinstance(parsed, list):
+                    for row in parsed:
+                        try:
+                            docs.append(SoftwareDoc.model_validate(row))
+                        except Exception:
+                            continue
+            except Exception:
+                log.exception("Failed reading JSON array catalog: %s", catalog_path)
+        else:
+            # JSONL (or single JSON object) — stream line by line.
+            try:
+                with catalog_path.open("r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            docs.append(SoftwareDoc.model_validate(json.loads(line)))
+                        except Exception:
+                            continue
+            except Exception:
+                log.exception("Failed reading JSONL catalog: %s", catalog_path)
+        return docs
+
+    def _ensure_catalog_embedded_once(self) -> None:
+        # If index already contains docs, startup embedding is done.
+        if len(self.index.docs) > 0:
+            log.info(
+                "Startup embedding skipped: FAISS already has %d docs",
+                len(self.index.docs),
+            )
+            return
+
+        catalog_path = Path(os.getenv("SOFTWARE_CATALOG", "dataset/catalog.jsonl"))
+        docs = self._read_catalog_docs(catalog_path)
+        if not docs:
+            log.warning(
+                "Startup embedding skipped: no docs loaded from %s", catalog_path
+            )
+            return
+
+        items = [IndexItem(id=d.name, doc=d) for d in docs if getattr(d, "name", None)]
+        if not items:
+            log.warning(
+                "Startup embedding skipped: catalog had no valid named docs in %s",
+                catalog_path,
+            )
+            return
+
+        delta = self.index.sync_with_catalog(items)
+        self.index.save(self.index_dir)
+        log.info(
+            "Startup catalog embedding complete: docs=%d (added=%d, updated=%d, removed=%d)",
+            len(items),
+            delta["added"],
+            delta["updated"],
+            delta["removed"],
+        )
 
     def _apply_reranker(self, query: str, hits: List[dict], top_k: int) -> List[dict]:
         if not hits:
@@ -99,87 +229,38 @@ class RAGImagingPipeline:
                     break
         return out
 
-    def recommend(self, user_task: str, image_paths: Optional[List[str]], top_k: int = 5,
-                persisted_exclusions: Optional[List[str]] = None
-        ) -> Tuple[List[dict], Dict[str, float]]:
-
-        """
-        Retrieve candidate tools for the given request. Control tags:
-        [NO_RERANK]      -> skip CrossEncoder reranker
-        [EXCLUDE:a|b]    -> exclude these tool names *before* reranking/top-k
-        [EXCLUDED:a|b]   -> alias of EXCLUDE
-        """
-        def _norm(s: str) -> str:
-            # normalize: lowercase, trim, collapse whitespace
-            return re.sub(r"\s+", " ", (s or "").strip().lower())
-
-        # --- Control tags ---------------------------------------------------------
-        skip_rerank = has_no_rerank(user_task)
-        excluded_raw = set(parse_exclusions(user_task))
-        if persisted_exclusions:
-            excluded_raw |= set(persisted_exclusions)
-        excluded_norm = {_norm(x) for x in excluded_raw}
-
-        # Work with a clean task (no control tags) for retrieval
-        clean_task = strip_tags(user_task)
-
-        # --- Build retrieval query ------------------------------------------------
-        ext_tok = detect_ext_token(image_paths)  # e.g., "DICOM NIfTI TIFF"
-        query = (clean_task or "").strip()
-        if ext_tok:
-            query = f"{query} format:{ext_tok}"
-
-        # --- Vector search (generous pool) ---------------------------------------
-        pool_k = max(50, top_k * 3)
-        raw_hits = self.index.search(query, k=pool_k, reranker=None)
-
-        # Exclude BEFORE reranking (normalized name compare)
-        if excluded_norm:
-            _before = len(raw_hits)
-            raw_hits = [
-                h for h in raw_hits
-                if _norm(getattr(h["doc"], "name", "")) not in excluded_norm
-            ]
-            log.info("Excluded %d/%d by name (norm)", _before - len(raw_hits), _before)
-
-        # --- Optional reranker ----------------------------------------------------
-        if skip_rerank:
-            hits = raw_hits[:top_k]
-            for h in hits:
-                h.setdefault("score", h.get("score", 0.0))
-                h["rerank_score"] = None
-        else:
-            hits = self._apply_reranker(query, raw_hits, top_k=top_k)
-
-        # --- Score summary for telemetry/UX --------------------------------------
-        try:
-            top = float(hits[0].get("rerank_score") or hits[0].get("score", 0.0)) if hits else 0.0
-            second = float(hits[1].get("rerank_score") or hits[1].get("score", 0.0)) if len(hits) > 1 else 0.0
-            margin = top - second
-        except Exception:
-            top = second = margin = 0.0
-
-        # Summary log (preserved + show excluded count)
-        log.info(
-            "Retrieval: top=%.3f  second=%.3f  margin=%.3f  skip_rerank=%s  excluded=%d",
-            top, second, margin, "YES" if skip_rerank else "NO", len(excluded_norm)
-        )
-
-        # Per-hit debug log (preserved)
-        for i, h in enumerate(hits, 1):
-            name = getattr(h["doc"], "name", "?")
-            sim = float(h.get("score", 0.0))
-            rrs = float(h.get("rerank_score") or 0.0)
-            log.debug("Hit %02d | name=%s | sim=%.3f | rerank=%.3f", i, name, sim, rrs)
-
-        # Attach normalized convenience fields used later
-        for h in hits:
-            h["__sim__"] = float(h.get("score", 0.0))
-            h["__rerank__"] = float(h.get("rerank_score") or 0.0)
-
-        return hits, {"top": top, "second": second, "margin": margin}
-
     # ----------------------- Agent-facing lightweight APIs -------------------
+    def _build_image_hint_text(self, image_paths: Optional[List[str]]) -> str:
+        """
+        Turn image paths into extra text hints for retrieval.
+
+        - Converts file extensions into format:xxx tokens (matching SoftwareDoc keywords)
+        - Adds a short metadata summary (modality, body region, dims...)
+
+        Result is a single string that we append to the text query before embedding.
+        """
+        if not image_paths:
+            return ""
+
+        hints: List[str] = []
+
+        # 1) Format tokens (DICOM / NIfTI / TIFF / ...)
+        ext_str = detect_ext_token(image_paths)
+        if ext_str:
+            for tok in ext_str.split():
+                # match keywords like "format:tiff" that SoftwareDoc.to_retrieval_text()
+                # puts into the index.
+                hints.append(f"format:{tok.lower()}")
+
+        # 2) Human-readable metadata (includes modality/body/dims)
+        meta = summarize_image_metadata(image_paths)
+        if meta:
+            # collapse whitespace and keep it reasonably short
+            compact = " ".join(meta.split())
+            hints.append(compact[:300])
+
+        return " ".join(hints)
+
     def retrieve_no_rerank(
         self,
         query: str,
@@ -187,25 +268,103 @@ class RAGImagingPipeline:
         top_k: int = 30,
         exclusions: Optional[List[str]] = None,
     ) -> List[dict]:
-        """Return raw vector hits WITHOUT applying the CrossEncoder reranker.
-        Each item: {id, doc, score}. Exclusions are case-insensitive on name.
         """
+        Return raw vector hits WITHOUT applying the CrossEncoder reranker.
+
+        Each item: {id, doc, score}. Optional `image_paths` are used to derive
+        additional text hints (format / modality / anatomy / dims) that are
+        appended to the query before embedding.
+
+        Relies on BGE-M3 semantic embeddings and approximate nearest-neighbor
+        vector search.
+        """
+        # Fallback visibility: if constructor-time logs were not emitted by runtime
+        # logging configuration, emit startup status on first real retrieval.
+        self._emit_startup_status_once()
+
         def _norm(s: str) -> str:
-            import re as _re
-            return _re.sub(r"\s+", " ", (s or "").strip().lower())
+            return re.sub(r"\s+", " ", (s or "").strip().lower())
+
         excluded_norm = {_norm(x) for x in (exclusions or []) if x}
-        ext_tok = detect_ext_token(image_paths) if image_paths else ""
+
+        # 1) Strip any tags from the query
         clean_q = strip_tags(query)
-        if ext_tok:
-            clean_q = f"{clean_q} format:{ext_tok}" if clean_q else f"format:{ext_tok}"
+
+        # 2) Add image-derived hints (format, modality, anatomy, dims, ...)
+        image_hints = self._build_image_hint_text(image_paths)
+        if image_hints:
+            final_q = f"{clean_q} {image_hints}".strip()
+        else:
+            final_q = clean_q
+
+        log.info(
+            f"Retrieval query: {clean_q}"
+            + (f" + metadata: {image_hints[:50]}..." if image_hints else "")
+            + (
+                f" | startup_embed={self._startup_embed_enabled}"
+                f" docs={len(self.index.docs)}"
+            )
+        )
+
+        # 4) Vector search
         pool_k = max(50, top_k * 3)
-        hits = self.index.search(clean_q, k=pool_k, reranker=None)
+        hits = self.index.search(final_q, k=pool_k, reranker=None)
+
+        # 5) Apply name-based exclusions if any
         if excluded_norm:
-            hits = [h for h in hits if _norm(getattr(h["doc"], "name", "")) not in excluded_norm]
-        # attach convenience fields expected downstream similar to recommend()
+            hits = [
+                h
+                for h in hits
+                if _norm(getattr(h["doc"], "name", "")) not in excluded_norm
+            ]
+
+        # 6) Check if results are sufficient, retry with broader terms if not
+        attempt = 0
+        while len(hits) < self.min_results and attempt < self.max_retries:
+            attempt += 1
+            log.info(
+                f"Insufficient results ({len(hits)} < {self.min_results}), attempting retry {attempt}/{self.max_retries}"
+            )
+
+            # Generate alternative by simplifying query (remove specific terms, keep general ones)
+            # Strategy: use first 2-3 words only to broaden the search
+            words = clean_q.split()
+            if len(words) > 3:
+                alt_task = " ".join(words[:3])
+                log.info(f"Trying broader query: {alt_task}")
+
+                # Build alternative query with image hints
+                if image_hints:
+                    alt_q = f"{alt_task} {image_hints}".strip()
+                else:
+                    alt_q = alt_task
+
+                # Search with alternative
+                alt_hits = self.index.search(alt_q, k=pool_k, reranker=None)
+
+                # Merge results (avoiding duplicates)
+                existing_ids = {h["id"] for h in hits}
+                for h in alt_hits:
+                    if h["id"] not in existing_ids:
+                        if (
+                            not excluded_norm
+                            or _norm(getattr(h["doc"], "name", "")) not in excluded_norm
+                        ):
+                            hits.append(h)
+                            existing_ids.add(h["id"])
+
+                log.info(f"After retry {attempt}: {len(hits)} total results")
+            else:
+                log.warning(
+                    f"Query too short to generate alternative for retry {attempt}"
+                )
+                break
+
+        # 7) Attach convenience fields expected downstream
         for h in hits:
             h["__sim__"] = float(h.get("score", 0.0))
             h["__rerank__"] = 0.0
+
         return hits[:top_k]
 
     def rerank_only(self, query: str, hits: List[dict], top_k: int = 10) -> List[dict]:
@@ -218,272 +377,40 @@ class RAGImagingPipeline:
         ranked = self._apply_reranker(strip_tags(query), hits, top_k=top_k)
         return ranked
 
+    def retrieve(
+        self,
+        query: str,
+        image_paths: Optional[List[str]] = None,
+        top_k: int = 10,
+        exclusions: Optional[List[str]] = None,
+    ) -> List[dict]:
+        """
+        Retrieve and automatically rerank results using BGE-M3 + CrossEncoder.
+
+        This is the main retrieval method that combines:
+        1. Semantic search via BGE-M3 embeddings (no query expansion)
+        2. Precision reranking via CrossEncoder
+        3. Image metadata hints (format, modality, dimensions)
+
+        Returns top_k results after CrossEncoder reranking.
+        """
+        # Get more candidates than needed for reranking
+        pool_k = max(30, top_k * 3)
+        hits = self.retrieve_no_rerank(
+            query=query,
+            image_paths=image_paths,
+            top_k=pool_k,
+            exclusions=exclusions,
+        )
+
+        # Apply reranking to get final top_k
+        if hits:
+            return self.rerank_only(query, hits, top_k=top_k)
+        return []
+
     def get_doc(self, name: str) -> Optional[SoftwareDoc]:
         """Lookup a SoftwareDoc by name (case-sensitive match)."""
         try:
             return self.index.docs.get(name)
         except Exception:
             return None
-
-
-    def _select(self, hits, image_meta_text, user_task, preview_path):
-        num_choices = int(os.getenv("NUM_CHOICES", "3"))
-
-        candidates = []
-        for h in hits:
-            d = h["doc"]
-            try:
-                cd = CandidateDoc.model_validate(d.model_dump(mode="python"))
-            except Exception:
-                cd = CandidateDoc(
-                    name=getattr(d, "name", None),
-                    description=getattr(d, "description", None),
-                    url=getattr(d, "url", None),
-                    tasks=getattr(d, "tasks", []),
-                    modality=getattr(d, "modality", []),
-                    dims=getattr(d, "dims", []),
-                    programming_language=getattr(d, "programming_language", None),
-                    gpu_required=getattr(d, "gpu", None),
-                    runnable_examples=getattr(d, "runnable_example", []),
-                    executable_notebooks=getattr(d, "has_executable_notebook", []),
-                )
-            candidates.append(cd)
-
-        sel = self.selector_vlm.select(
-            user_task=user_task,
-            candidates=candidates,
-            image_path=preview_path,
-            image_meta=image_meta_text or "",
-        )
-
-        sel_json = sel.model_dump(mode="json") if hasattr(sel, "model_dump") else dict(sel or {})
-
-        # ------------------ EARLY EXIT: terminal no-tool ------------------
-        # If the selector says there is NO suitable tool (choices empty) and
-        # it's not asking a clarification question, and it gives a reason or
-        # explanation, we return this result AS-IS (no top-up!).
-        conv = sel_json.get("conversation") or {}
-        status = str(conv.get("status", "complete")).lower()
-        has_choices = bool(sel_json.get("choices"))
-        reason = sel_json.get("reason")
-        explanation = sel_json.get("explanation")
-
-        if (not has_choices) and (status != "needs_clarification") and (reason or (explanation and str(explanation).strip())):
-            # Normalize shape for downstream code
-            sel_json["conversation"] = {"status": "complete"}
-            # If enums were serialized as objects, convert to string
-            if hasattr(reason, "value"):
-                sel_json["reason"] = reason.value
-            return sel_json
-        # ------------------------------------------------------------------
-
-        selected_names = [c.get("name") for c in sel_json.get("choices", []) if c.get("name")]
-        selected_names = [n for i, n in enumerate(selected_names) if n not in selected_names[:i]]
-
-        if len(selected_names) < num_choices:
-            for h in hits:
-                nm = h["doc"].name
-                if nm not in selected_names:
-                    selected_names.append(nm)
-                if len(selected_names) >= num_choices:
-                    break
-
-            new_choices = []
-            for i, nm in enumerate(selected_names[:num_choices], start=1):
-                existing = next((c for c in sel_json.get("choices", []) if c.get("name") == nm), None)
-                if existing:
-                    c = dict(existing)
-                    c["rank"] = i
-                else:
-                    rr = float(next((x.get("rerank_score") or x.get("__rerank__") or 0.0 for x in hits if x["doc"].name == nm), 0.0))
-                    sim = float(next((x.get("score") or x.get("__sim__") or 0.0 for x in hits if x["doc"].name == nm), 0.0))
-                    base = 85.0 if i == 1 else 75.0
-                    acc = max(60.0, min(98.0, base + rr * 10.0))
-                    c = {
-                        "name": nm,
-                        "rank": i,
-                        "accuracy": float(acc),
-                        "why": f"High retrieval/reranker match (rerank={rr:.3f}, sim={sim:.3f}).",
-                    }
-                new_choices.append(c)
-            sel_json["choices"] = new_choices
-
-        sel_json["choices"] = sel_json.get("choices", [])[:num_choices]
-        return sel_json
-
-    def recommend_and_link(
-        self,
-        image_paths: Optional[List[str]],
-        user_task: str,
-        conversation_history: Optional[List[str]] = None,
-        persisted_exclusions: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        # --- helpers ------------------------------------------------------------
-
-        def _norm(s: str) -> str:
-            return re.sub(r"\s+", " ", (s or "").strip().lower())
-
-        # --- fold conversation context into the task ---------------------------
-        full_task = user_task
-        if conversation_history:
-            full_task = "\n".join(
-                ["Previous conversation:", *conversation_history, "\nCurrent request:", user_task]
-            )
-
-        # --- control tags ------------------------------------------------------
-        force_clarification = has_refine(full_task)
-        exclude_names = set(parse_exclusions(full_task))
-        if persisted_exclusions:
-            exclude_names |= set(persisted_exclusions)
-        selector_task_clean = strip_tags(full_task)
-        excluded_norm = {_norm(x) for x in exclude_names}
-
-        # --- validate files ----------------------------------------------------
-        if image_paths:
-            valid_paths, errors = FileValidator.validate_files(image_paths)
-            if errors:
-                return {
-                    "error": "File validation failed:\n" + "\n".join(errors),
-                    "choices": [],
-                    "reason": NoToolReason.INVALID_FILES,
-                }
-            image_paths = valid_paths
-
-        # --- preview / metadata (best-effort) ----------------------------------
-        preview_path = None
-        image_meta_text = ""
-        try:
-            preview_path, image_meta_text = _build_preview_for_vlm(image_paths or [])
-        except Exception:
-            image_meta_text = ""
-
-        # --- retrieve candidates ----------------------------------------------
-        top_k       = int(os.getenv("TOP_K", "8"))
-        num_choices = int(os.getenv("NUM_CHOICES", "3"))
-
-        hits, _scores = self.recommend(
-            full_task, image_paths, top_k=top_k,
-            persisted_exclusions=list(exclude_names) if exclude_names else None
-        )
-        
-        if not hits:
-            return {
-                "conversation": {"status": "complete"},
-                "choices": [],
-                "reason": "no_suitable_tool",
-                "explanation": "No candidates retrieved for this query.",
-            }
-
-        # apply exclusions from prior round (defensive; also done inside recommend when tag is present)
-        if excluded_norm:
-            hits = [h for h in hits if _norm(getattr(h["doc"], "name", "")) not in excluded_norm]
-            if not hits:
-                return {
-                    "conversation": {
-                        "status": "needs_clarification",
-                        "question": "All previous options were excluded. What key constraint should change?",
-                        "context": "A single constraint (task/modality/format/2D–3D/GPU/licensing) unlocks different tools.",
-                        "options": ["Different task", "Different modality/format", "No GPU", "Open-source only", "Other (specify)"],
-                    },
-                    "choices": [],
-                }
-
-        # --- build selector prompt (tag-free, include metadata) ----------------
-        selector_task = selector_task_clean
-        if image_meta_text:
-            selector_task += f"\n\nImage metadata: {image_meta_text}"
-
-        # --- run selector -------------------------------------------------------
-        selection = self._select(hits, image_meta_text, selector_task, preview_path)
-
-        # --- normalize result ---------------------------------------------------
-        result = {
-            "conversation": selection.get("conversation", {"status": "complete"}),
-            "choices": selection.get("choices", []),
-        }
-
-        status = result["conversation"].get("status", "complete")
-        if hasattr(status, "value"):  # enum -> string
-            status = status.value
-        status = str(status).lower()
-        result["conversation"]["status"] = status  # keep normalized in the result
-
-        # 1) If the selector asked a question → return immediately (no top-up)
-        if result["conversation"].get("status") == "needs_clarification":
-            result["choices"] = []  # ensure nothing leaks
-            return result
-
-        # 2) Terminal "no suitable tool" path → return immediately (no top-up)
-        sel_reason = selection.get("reason")
-        sel_expl   = selection.get("explanation")
-        if not result["choices"] and (sel_reason or sel_expl):
-            result["conversation"]["status"] = "complete"
-            if sel_reason:
-                result["reason"] = sel_reason
-            if sel_expl:
-                result["explanation"] = sel_expl
-            return result
-
-        # 3) If user pressed "Find alternatives", force a clarify turn unless selector already did
-        if force_clarification and result["conversation"].get("status") != "needs_clarification":
-            result["conversation"]["status"] = "needs_clarification"
-            result["conversation"].setdefault(
-                "question", "What one detail should we change so the tool fits your file and task?"
-            )
-            result["conversation"].setdefault(
-                "context", "A single targeted constraint will steer to better alternatives."
-            )
-            result["choices"] = []
-            return result
-
-        # 4) Otherwise, top-up to NUM_CHOICES from remaining hits (exclude rejected)
-        def _fallback_score(i: int, hit: dict) -> float:
-            rr = float(hit.get("rerank_score") or hit.get("__rerank__") or 0.0)
-            base = 85.0 if i == 1 else 75.0
-            return max(60.0, min(98.0, base + rr * 10.0))
-
-        chosen_names = [c.get("name") for c in result["choices"] if c.get("name")]
-        # de-dup preserve order
-        chosen_names = [n for i, n in enumerate(chosen_names) if n and n not in chosen_names[:i]]
-
-        if len(chosen_names) < num_choices:
-            for h in hits:
-                nm = getattr(h["doc"], "name", "")
-                if _norm(nm) in excluded_norm:
-                    continue
-                if nm not in chosen_names:
-                    chosen_names.append(nm)
-                if len(chosen_names) >= num_choices:
-                    break
-
-            filled: List[dict] = []
-            for i, nm in enumerate(chosen_names[:num_choices], start=1):
-                existing = next((c for c in result["choices"] if c.get("name") == nm), None)
-                if existing:
-                    c = dict(existing); c["rank"] = i
-                else:
-                    hit = next((x for x in hits if getattr(x["doc"], "name", "") == nm), None)
-                    sim = float((hit or {}).get("score") or (hit or {}).get("__sim__") or 0.0)
-                    rr  = float((hit or {}).get("rerank_score") or (hit or {}).get("__rerank__") or 0.0)
-                    c = {
-                        "name": nm,
-                        "rank": i,
-                        "accuracy": float(_fallback_score(i, hit or {})),
-                        "why": f"High retrieval/reranker match (rerank={rr:.3f}, sim={sim:.3f}).",
-                    }
-                filled.append(c)
-            result["choices"] = filled
-
-        # cap to NUM_CHOICES
-        result["choices"] = result["choices"][:num_choices]
-
-        # add demo links when conversation is complete
-        if result["conversation"]["status"] == "complete" and result.get("choices"):
-            for choice in result["choices"]:
-                doc = next((h["doc"] for h in hits if getattr(h["doc"], "name", "") == choice["name"]), None)
-                if doc:
-                    link = _best_runnable_link(doc)
-                    if link:
-                        choice["demo_link"] = link
-
-        return result
