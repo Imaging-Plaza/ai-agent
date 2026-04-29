@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - update-hf-deploy
   workflow_dispatch:
 
 jobs:
@@ -22,9 +23,9 @@ jobs:
           git config user.email "ci@github.actions"
           git config user.name "github-actions[bot]"
 
-          mv README.md README.project.md
+          original_readme="$(cat README.md)"
 
-          cat << 'EOF' > README.md
+          cat > README.md <<EOF
           ---
           title: AI Agent
           emoji: 🤖
@@ -35,19 +36,17 @@ jobs:
           pinned: false
           ---
 
+          $original_readme
           EOF
-
-          cat README.project.md >> README.md
 
           rm -rf assets
 
           git checkout --orphan hf-deploy
-          git reset
 
           git add -A
           git commit -m "Deploy to Hugging Face Space"
 
-      - name: Push to HF Space from branch
+      - name: Push to HF Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
