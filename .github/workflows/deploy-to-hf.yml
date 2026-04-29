@@ -48,17 +48,7 @@ jobs:
           git add -A
           git commit -m "Deploy to Hugging Face Space"
 
-      - name: Push to HF Space DEV from branch
-        if: github.ref != 'refs/heads/main'
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          git push --force \
-            https://SDSC:${HF_TOKEN}@huggingface.co/spaces/SDSC/ai-agent-dev \
-            hf-deploy:main
-
-      - name: Push to HF Space PROD from main
-        if: github.ref == 'refs/heads/main'
+      - name: Push to HF Space from branch
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
