@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - update-hf-deploy
   workflow_dispatch:
 
 jobs:
