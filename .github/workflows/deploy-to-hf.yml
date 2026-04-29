@@ -1,8 +1,9 @@
-name: Deploy main to Hugging Face Space (SDSC/ai-agent)
+name: Deploy to Hugging Face Space
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -13,23 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          lfs: true
+          fetch-depth: 1
+          lfs: false
 
-      # Remove assets so they are not pushed to HF
-      - name: Remove assets folder for HF push
+      - name: Prepare clean HF deploy branch without assets
         run: |
-          rm -rf assets
-          git rm -r --cached assets || true
+          git config user.email "ci@github.actions"
+          git config user.name "github-actions[bot]"
 
-      # 👇 This step ONLY changes README in the CI workspace, not in your repo
-      - name: Generate Hugging Face README with YAML frontmatter
-        run: |
-          # Keep original README content
-          mv README.md README.project.md
+          original_readme="$(cat README.md)"
 
-          # Create new README with HF config at the top
-          cat << 'EOF' > README.md
+          cat > README.md <<EOF
           ---
           title: AI Agent
           emoji: 🤖
@@ -40,22 +35,20 @@ jobs:
           pinned: false
           ---
 
+          $original_readme
           EOF
 
-          # Append the original README content below the YAML block
-          cat README.project.md >> README.md
+          rm -rf assets
 
-          # Commit this *locally* so we can push it to the HF remote
-          git config user.email "ci@github.actions"
-          git config user.name "github-actions[bot]"
-          git add README.md
-          git commit -m "Add HF Spaces frontmatter to README for deployment" || echo "No changes to commit"
+          git checkout --orphan hf-deploy
 
-      - name: Push main to HF Space SDSC/ai-agent
+          git add -A
+          git commit -m "Deploy to Hugging Face Space"
+
+      - name: Push to HF Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Push the current branch (main, with the local README commit) to the Space's main
           git push --force \
             https://SDSC:${HF_TOKEN}@huggingface.co/spaces/SDSC/ai-agent \
-            HEAD:main
+            hf-deploy:main
