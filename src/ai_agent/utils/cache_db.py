@@ -210,11 +210,12 @@ class CacheDB:
         """
         self.sweep_expired()
         with self._lock:
+            previous_isolation_level = self._conn.isolation_level
             try:
                 self._conn.isolation_level = None
                 self._conn.execute("VACUUM")
             finally:
-                self._conn.isolation_level = ""
+                self._conn.isolation_level = previous_isolation_level
         self.close()
 
     def close(self) -> None:
