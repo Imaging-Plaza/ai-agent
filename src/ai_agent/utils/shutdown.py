@@ -68,11 +68,12 @@ def _vacuum_and_close_cache_db() -> None:
         _sweep_cache_db()
         with db._lock:
             # VACUUM must run outside any transaction.
+            previous_isolation_level = db._conn.isolation_level
             try:
                 db._conn.isolation_level = None
                 db._conn.execute("VACUUM")
             finally:
-                db._conn.isolation_level = ""
+                db._conn.isolation_level = previous_isolation_level
         log.info("Cache DB shutdown: VACUUM complete.")
         db.close()
     except Exception:
