@@ -5,7 +5,7 @@ from typing import List, Dict
 
 import gradio as gr
 
-from ai_agent.utils.previews import _build_preview_for_vlm
+from ai_agent.utils.previews import _build_preview_for_vlm, resize_uploaded_image
 from ai_agent.retriever.software_doc import SoftwareDoc
 
 from ai_agent.core.handlers import respond
@@ -194,7 +194,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                                 "e.g., 'I need to segment lungs in CT scans' or "
                                 "'Find tools for microscopy image denoising'"
                             ),
-                            lines=2,
+                            lines=1,
+                            max_lines=6,
                         )
                     with gr.Column(scale=2):
                         file_input = gr.File(
@@ -296,7 +297,27 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
             history.append(user_msg)
             yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
                 visible=False
-            ), gr.update()
+            ), gr.update(), gr.update(interactive=False)
+
+            # ------------------------------------------------------------------
+            # Resize uploaded image files (max 500×500 px, aspect ratio kept).
+            # The resized paths are used for BOTH the preview and the backend.
+            # Non-image files (DICOM, NIfTI, CSV, …) are passed through as-is.
+            # ------------------------------------------------------------------
+            if files:
+                resized_files: List[str] = []
+                for f in files:
+                    if isinstance(f, str):
+                        raw_path = f
+                    elif isinstance(f, dict):
+                        raw_path = f.get("name") or f.get("path") or ""
+                    elif hasattr(f, "name"):
+                        raw_path = f.name
+                    else:
+                        raw_path = str(f)
+                    if raw_path:
+                        resized_files.append(resize_uploaded_image(raw_path))
+                files = resized_files  # replace with resized versions for all downstream use
 
             # If files were uploaded, build and show preview immediately
             if files:
@@ -327,7 +348,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                             )
                             yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
                                 visible=False
-                            ), gr.update()
+                            ), gr.update(), gr.update()
                     except Exception as e:
                         log.warning("Preview generation failed: %r", e)
 
@@ -336,7 +357,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
             history.append(thinking_msg)
             yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
                 visible=False
-            ), gr.update()
+            ), gr.update(), gr.update()
 
             # Call respond function with settings
             try:
@@ -434,6 +455,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     downloaded_files,
                     gr.update(visible=box_visible),  # approval_box
                     gr.update(value=button_label),  # approve_tool_btn
+                    gr.update(interactive=True),     # submit_btn re-enabled
                 )
 
             except Exception as e:
@@ -450,7 +472,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 history.append(error_msg)
                 yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
                     visible=False
-                ), gr.update()
+                ), gr.update(), gr.update(interactive=True)
 
         def clear_chat():
             """Reset everything."""
@@ -533,6 +555,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 download_files,
                 approval_box,
                 approve_tool_btn,
+                submit_btn,
             ],
         ).then(
             lambda: ("", None),  # Clear inputs
@@ -561,6 +584,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 download_files,
                 approval_box,
                 approve_tool_btn,
+                submit_btn,
             ],
         ).then(
             lambda: ("", None),  # Clear inputs

@@ -22,6 +22,71 @@ PREVIEW_MAX_SIDE_PX = int(os.getenv("PREVIEW_MAX_SIDE_PX", "500"))
 _PREVIEW_CACHE: dict[tuple[str, ...], tuple[float, str, Optional[str]]] = {}
 _PREVIEW_CACHE_LOCK = threading.Lock()
 
+# Extensions that PIL can resize; others are passed through unchanged.
+_RESIZABLE_IMAGE_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"
+}
+
+
+def resize_uploaded_image(
+    path: str,
+    max_width: int = PREVIEW_MAX_SIDE_PX,
+    max_height: int = PREVIEW_MAX_SIDE_PX,
+) -> str:
+    """Resize an uploaded image to fit within *max_width* × *max_height* px.
+
+    Aspect ratio is always preserved via :meth:`PIL.Image.thumbnail`.
+    Images that already fit within the bounds are returned as-is (no copy).
+    Non-image files (DICOM, NIfTI, CSV, …) are passed through unchanged.
+
+    Args:
+        path: Absolute path to the uploaded file.
+        max_width: Maximum output width in pixels (default: PREVIEW_MAX_SIDE_PX).
+        max_height: Maximum output height in pixels (default: PREVIEW_MAX_SIDE_PX).
+
+    Returns:
+        Path to the (possibly resized) image.  When resizing occurs the
+        returned path points to a new temp file; the original is untouched.
+    """
+    ext = Path(path).suffix.lower()
+    if ext not in _RESIZABLE_IMAGE_EXTENSIONS:
+        return path
+
+    try:
+        img = Image.open(path)
+        orig_w, orig_h = img.size
+
+        if orig_w <= max_width and orig_h <= max_height:
+            return path  # already within bounds – no work needed
+
+        # thumbnail() shrinks in-place preserving aspect ratio, never upscales.
+        img = img.copy()
+        img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+
+        # Persist transparency for PNG/WebP; flatten to RGB for JPEG.
+        if ext in (".jpg", ".jpeg"):
+            if img.mode in ("RGBA", "P", "LA"):
+                img = img.convert("RGB")
+            suffix, fmt, save_kw = ".jpg", "JPEG", {"quality": 85, "optimize": True}
+        elif ext == ".webp":
+            suffix, fmt, save_kw = ".webp", "WEBP", {"quality": 85}
+        else:
+            suffix, fmt, save_kw = ".png", "PNG", {}
+
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+        img.save(tmp_path, format=fmt, **save_kw)
+
+        log.debug(
+            "Resized upload %s from %dx%d → %dx%d (saved to %s)",
+            path, orig_w, orig_h, img.width, img.height, tmp_path,
+        )
+        return tmp_path
+
+    except Exception:
+        log.warning("resize_uploaded_image: could not resize %s; using original", path, exc_info=True)
+        return path
+
 
 def _fingerprint_paths(paths: List[str]) -> tuple[str, ...]:
     fps: list[str] = []

@@ -4,8 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `utils/previews.py`: `resize_uploaded_image()` — server-side image resizing to
+  a configurable maximum (default 500×500 px) with aspect-ratio preservation.
+  PNG/WebP transparency is retained; JPEG output is always RGB.  Non-image files
+  (DICOM, NIfTI, CSV, …) are passed through unchanged.
+- 7 new unit tests for `resize_uploaded_image` covering landscape, portrait,
+  small/exact-bound pass-through, JPEG RGB conversion, non-image pass-through,
+  and custom bound parameters.
+- Chat input now sends the message when **Enter** is pressed (Shift+Enter inserts
+  a newline).  Uses Gradio's built-in `gr.Textbox.submit` event — no custom
+  JavaScript required.
+
 ### Changed
-- Extracted frontend-agnostic business logic from `ui/` into `core/` package:
+- `ui/components.py`: uploaded image files are resized to ≤500×500 px
+  **before** preview generation and before being forwarded to the VLM/backend.
+  Original full-resolution files are no longer sent to the pipeline.
+- `ui/components.py`: `msg_input` textbox and `submit_btn` button no longer
+  carry custom `elem_id` attributes (only needed for the removed JS hook).
+- `ui/components.py`: `submit_btn` is now part of `handle_chat` outputs so
+  Gradio can disable it (`interactive=False`) when processing starts and
+  re-enable it (`interactive=True`) when the response (or error) is returned.
+
   - `core/chat_state.py` — `ChatState`, `ChatMessage`, `format_stats_markdown`
   - `core/handlers.py` — `respond()`, `execute_tool_with_approval()`
   - `core/formatters.py` — `format_tool_card()`

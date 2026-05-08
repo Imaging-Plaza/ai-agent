@@ -122,3 +122,88 @@ def test_resize_for_preview_does_not_upscale():
     resized = previews._resize_for_preview(img, max_side_px=500)
 
     assert resized.size == (320, 200)
+
+
+# ---------------------------------------------------------------------------
+# Tests for resize_uploaded_image
+# ---------------------------------------------------------------------------
+
+def test_resize_uploaded_image_large_landscape(tmp_path: Path):
+    """4000×3000 image → 500×375 (landscape, aspect ratio preserved)."""
+    src = tmp_path / "big.png"
+    Image.new("RGB", (4000, 3000), color=(255, 0, 0)).save(str(src))
+
+    result = previews.resize_uploaded_image(str(src))
+
+    assert result != str(src), "Should write to a new temp file"
+    out_img = Image.open(result)
+    assert out_img.size == (500, 375)
+
+
+def test_resize_uploaded_image_large_portrait(tmp_path: Path):
+    """3000×4000 image → 375×500 (portrait, aspect ratio preserved)."""
+    src = tmp_path / "portrait.png"
+    Image.new("RGB", (3000, 4000), color=(0, 255, 0)).save(str(src))
+
+    result = previews.resize_uploaded_image(str(src))
+
+    assert result != str(src)
+    out_img = Image.open(result)
+    assert out_img.size == (375, 500)
+
+
+def test_resize_uploaded_image_already_small_unchanged(tmp_path: Path):
+    """Images within bounds are returned as-is (no temp copy created)."""
+    src = tmp_path / "small.png"
+    Image.new("RGB", (200, 100), color=(0, 0, 255)).save(str(src))
+
+    result = previews.resize_uploaded_image(str(src))
+
+    assert result == str(src), "Small images should not be resized"
+
+
+def test_resize_uploaded_image_exact_bound_unchanged(tmp_path: Path):
+    """A 500×500 image is exactly at the limit and should not be resized."""
+    src = tmp_path / "exact.png"
+    Image.new("RGB", (500, 500), color=(128, 128, 128)).save(str(src))
+
+    result = previews.resize_uploaded_image(str(src))
+
+    assert result == str(src)
+
+
+def test_resize_uploaded_image_non_image_passthrough(tmp_path: Path):
+    """Non-image files (e.g. DICOM, CSV) are returned unchanged."""
+    dcm = tmp_path / "scan.dcm"
+    dcm.write_bytes(b"\x00" * 128 + b"DICM" + b"\x00" * 100)
+
+    result = previews.resize_uploaded_image(str(dcm))
+
+    assert result == str(dcm)
+
+
+def test_resize_uploaded_image_jpeg_no_transparency(tmp_path: Path):
+    """JPEG output must be RGB (no alpha channel)."""
+    src = tmp_path / "rgba.jpg"
+    # Create a large RGBA PNG but save as JPEG (which strips alpha anyway via convert)
+    img = Image.new("RGBA", (2000, 1500), color=(10, 20, 30, 128))
+    img.convert("RGB").save(str(src), format="JPEG")
+
+    result = previews.resize_uploaded_image(str(src))
+
+    assert result != str(src)
+    out_img = Image.open(result)
+    assert out_img.mode == "RGB"
+    assert out_img.size == (500, 375)
+
+
+def test_resize_uploaded_image_custom_bounds(tmp_path: Path):
+    """Custom max_width / max_height are respected."""
+    src = tmp_path / "img.png"
+    Image.new("RGB", (1000, 500), color=(0, 0, 0)).save(str(src))
+
+    result = previews.resize_uploaded_image(str(src), max_width=200, max_height=200)
+
+    out_img = Image.open(result)
+    # 1000×500 scaled to fit 200×200: width limited → 200×100
+    assert out_img.size == (200, 100)
