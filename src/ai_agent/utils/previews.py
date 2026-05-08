@@ -45,20 +45,27 @@ def _preview_cache_get(key: tuple[str, ...]) -> Tuple[Optional[str], Optional[st
     if PREVIEW_CACHE_TTL_SECONDS <= 0:
         return None, None
 
-    db_key = json.dumps(key)
-    raw = get_cache_db().get(_PREVIEW_NS, db_key)
-    if raw is None:
+    try:
+        db_key = json.dumps(key)
+        raw = get_cache_db().get(_PREVIEW_NS, db_key)
+        if raw is None:
+            return None, None
+
+        entry = json.loads(raw)
+        preview_path: str = entry["path"]
+        meta_text: Optional[str] = entry.get("meta")
+
+        if not Path(preview_path).exists():
+            try:
+                get_cache_db().delete(_PREVIEW_NS, db_key)
+            except Exception:
+                pass
+            return None, None
+
+        return preview_path, meta_text
+    except Exception:
+        log.warning("Preview cache get failed; skipping cache.", exc_info=True)
         return None, None
-
-    entry = json.loads(raw)
-    preview_path: str = entry["path"]
-    meta_text: Optional[str] = entry.get("meta")
-
-    if not Path(preview_path).exists():
-        get_cache_db().delete(_PREVIEW_NS, db_key)
-        return None, None
-
-    return preview_path, meta_text
 
 
 def _preview_cache_set(
@@ -66,15 +73,18 @@ def _preview_cache_set(
 ) -> None:
     if PREVIEW_CACHE_TTL_SECONDS <= 0:
         return
-    db_key = json.dumps(key)
-    value = json.dumps({"path": preview_path, "meta": meta_text})
-    get_cache_db().set(
-        _PREVIEW_NS,
-        db_key,
-        value,
-        ttl_seconds=PREVIEW_CACHE_TTL_SECONDS,
-        max_entries=PREVIEW_CACHE_MAX_ENTRIES,
-    )
+    try:
+        db_key = json.dumps(key)
+        value = json.dumps({"path": preview_path, "meta": meta_text})
+        get_cache_db().set(
+            _PREVIEW_NS,
+            db_key,
+            value,
+            ttl_seconds=PREVIEW_CACHE_TTL_SECONDS,
+            max_entries=PREVIEW_CACHE_MAX_ENTRIES,
+        )
+    except Exception:
+        log.warning("Preview cache set failed; continuing without caching.", exc_info=True)
 
 
 def _norm_uint8(a: np.ndarray) -> np.ndarray:

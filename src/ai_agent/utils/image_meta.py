@@ -20,6 +20,8 @@ _META_CACHE_MAX = int(os.getenv("IMAGE_META_CACHE_MAX", "128"))
 
 _META_NS = "meta"
 
+_meta_log = __import__("logging").getLogger("cache_db.meta")
+
 
 def _meta_cache_key(p: Path) -> str:
     """Stable cache key derived from resolved path, mtime, and size."""
@@ -31,11 +33,18 @@ def _meta_cache_key(p: Path) -> str:
 
 
 def _meta_cache_get(key: str) -> Optional[str]:
-    return get_cache_db().get(_META_NS, key)
+    try:
+        return get_cache_db().get(_META_NS, key)
+    except Exception:
+        _meta_log.warning("Metadata cache get failed; skipping cache.", exc_info=True)
+        return None
 
 
 def _meta_cache_set(key: str, value: str) -> None:
-    get_cache_db().set(_META_NS, key, value, max_entries=_META_CACHE_MAX)
+    try:
+        get_cache_db().set(_META_NS, key, value, max_entries=_META_CACHE_MAX)
+    except Exception:
+        _meta_log.warning("Metadata cache set failed; continuing without caching.", exc_info=True)
 
 # ---- small helpers -----------------------------------------------------------
 
