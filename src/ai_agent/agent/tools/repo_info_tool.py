@@ -83,7 +83,11 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
     db = get_cache_db()
 
     # --- Cache read outside the lock so we don't block other coroutines ---
-    raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
+    try:
+        raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
+    except Exception:
+        log.warning("Repo info cache read failed; treating as cache miss.", exc_info=True)
+        raw = None
     if raw is not None:
         log.info(f"Repo info cache hit for {effective_url}")
         return RepoSummaryOutput.model_validate_json(raw)
@@ -93,7 +97,11 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
     try:
         # Re-check the cache inside the lock in case another coroutine wrote it
         # between our lockless read above and acquiring the lock now.
-        raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
+        try:
+            raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
+        except Exception:
+            log.warning("Repo info cache read (after lock) failed; treating as cache miss.", exc_info=True)
+            raw = None
         if raw is not None:
             log.info(f"Repo info cache hit (after lock) for {effective_url}")
             return RepoSummaryOutput.model_validate_json(raw)
@@ -127,14 +135,17 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
 
     # --- DB write outside the lock so waiting coroutines aren't blocked ---
     if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
-        await asyncio.to_thread(
-            db.set,
-            _REPO_INFO_NS,
-            cache_key,
-            result.model_dump_json(),
-            ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
-            max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
-        )
+        try:
+            await asyncio.to_thread(
+                db.set,
+                _REPO_INFO_NS,
+                cache_key,
+                result.model_dump_json(),
+                ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
+                max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
+            )
+        except Exception:
+            log.warning("Repo info cache write failed; result will not be cached.", exc_info=True)
 
     # --- Re-acquire lock only to resolve the future and clean up bookkeeping ---
     await _REPO_INFO_LOCK.acquire()
