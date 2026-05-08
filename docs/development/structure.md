@@ -7,28 +7,33 @@ The AI Imaging Agent is organized into modular components with clear separation 
 ```
 ai-agent/
 ├── .github/
-│   └── workflows/          # CI/CD workflows
-│       └── deploy_docs.yml # Documentation deployment
+│   └── copilot-instructions.md  # Architecture + agent instructions
 ├── artifacts/
-│   └── rag_index/          # FAISS index and embeddings
+│   └── rag_index/               # FAISS index and metadata
+│       ├── index.faiss
+│       └── meta.json
 ├── dataset/
-│   └── catalog.jsonl       # Software catalog
-├── docs/                   # MkDocs documentation
-├── logs/                   # Application logs
+│   ├── catalog.jsonl            # Software catalog (JSONL)
+│   ├── catalog.jsonld           # Raw JSON-LD from SPARQL fetch
+│   └── catalog.jsonl.sha1       # SHA-1 for change detection
+├── docs/                        # MkDocs documentation source
+├── logs/                        # Application logs
 ├── src/
-│   └── ai_agent/          # Main package
-│       ├── agent/         # PydanticAI agent
-│       ├── api/           # Pipeline orchestration
-│       ├── catalog/       # Catalog management
-│       ├── generator/     # VLM selection (schemas)
-│       ├── retriever/     # Text retrieval
-│       ├── ui/            # Gradio interface
-│       └── utils/         # Shared utilities
-├── tests/                 # Test suite
-├── config.yaml            # Model configuration
-├── mkdocs.yml            # Documentation config
-├── pyproject.toml        # Package metadata
-└── README.md             # Project readme
+│   └── ai_agent/               # Main package
+│       ├── agent/              # PydanticAI agent + tools
+│       ├── api/                # Pipeline orchestration
+│       ├── catalog/            # Catalog sync (SPARQL → JSONL)
+│       ├── core/               # Shared pipeline singleton
+│       ├── generator/          # VLM schemas and prompts
+│       ├── queries/            # SPARQL query files
+│       ├── retriever/          # Embedding, FAISS, reranking
+│       ├── ui/                 # Gradio interface
+│       └── utils/              # Shared utilities
+├── tests/                      # Test suite
+├── config.yaml                 # Model and retrieval configuration
+├── mkdocs.yml                  # Documentation config
+├── pyproject.toml              # Package metadata, dependencies
+└── README.md                   # Project readme
 ```
 
 ## Core Modules
@@ -44,18 +49,31 @@ PydanticAI conversational agent implementation.
 ```
 agent/
 ├── __init__.py
-├── agent.py               # Agent definition, tool adapters
+├── agent.py               # Agent definition, tool registration, run_agent()
 ├── models.py              # Agent output/log models
-├── utils.py               # Agent state and tool quota helpers
-└── tools/                 # Tool implementations (search, repo_info, mcp)
+├── utils.py               # AgentState, limit_tool_calls() decorator
+└── tools/
+    ├── __init__.py
+    ├── deepwiki_tool.py       # Repository info via DeepWiki MCP
+    ├── gradio_space_tool.py   # Gradio Space demo discovery
+    ├── query_utils.py         # Query preprocessing helpers
+    ├── repo_info_tool.py      # repo_info_batch (GitHub + DeepWiki)
+    ├── search_alternative_tool.py  # search_alternative tool
+    ├── search_tool.py         # search_tools primary tool
+    ├── utils.py               # Shared tool helpers
+    └── mcp/                   # MCP server integrations
+        ├── __init__.py
+        ├── base.py
+        ├── lungs_segmentation_tool.py
+        └── registry.py
 ```
 
 **Key components**:
 
-- `agent.py`: Agent instance, system prompt, tool definitions
+- `agent.py`: Agent instance, system prompt, `run_agent()` entry point
 - `models.py`: Agent output and tool usage schemas
-- `utils.py`: `AgentState` plus call caps/prepare hooks
-- `tools/`: Tool implementations (search, alternatives, repo info, mcp tools)
+- `utils.py`: `AgentState` model, `limit_tool_calls()` prepare hook
+- `tools/`: Modular tool implementations (search, alternatives, repo info, MCP)
 
 **Dependencies**: `api/`, `utils/`
 
@@ -80,21 +98,47 @@ api/
 
 #### catalog/
 
-Software catalog synchronization.
+Software catalog synchronization via SPARQL.
 
 ```
 catalog/
 ├── __init__.py
-└── sync.py                # Catalog sync logic
+└── sync.py                # sync_once() — SPARQL fetch → JSON-LD → JSONL → FAISS
 ```
 
 **Functions**:
 
-- Load catalog from JSONL
-- Check for changes (SHA1)
-- Trigger index rebuild
+- Fetch catalog from GraphDB SPARQL endpoint
+- Convert JSON-LD to JSONL with SHA-1 change detection
+- Trigger FAISS index rebuild when catalog changes
+- `sync_once()`: one-shot sync; runs at startup and on schedule
 
 **Dependencies**: `retriever/`
+
+#### core/
+
+Shared pipeline singleton used across CLI, UI, and tools.
+
+```
+core/
+├── __init__.py
+└── pipeline_registry.py   # Singleton get_pipeline() / reset_pipeline()
+```
+
+**Key function**: `get_pipeline()` returns the shared `RAGImagingPipeline` instance, initializing it on first call.
+
+**Dependencies**: `api/`
+
+#### queries/
+
+SPARQL query files used by the catalog sync.
+
+```
+queries/
+└── get_relevant_software.rq   # SPARQL query with {graph} placeholder
+```
+
+The query file path can be overridden via the `GRAPHDB_QUERY_FILE` environment variable.
 
 #### generator/
 
@@ -108,9 +152,10 @@ generator/
 
 **Models**:
 
-- `ToolRecommendation`: Individual tool recommendation
-- `AgentResponse`: Complete response with status
-- `ConversationStatus`: Enum for conversation states
+- `ToolSelection`: Selected tool with accuracy score
+- `ToolChoice`: Individual recommendation
+- `Conversation`: Full conversation output with status
+- `ConversationStatus`: Enum (complete / needs_clarification / no_tool)
 - `ToolReason`: Enum for recommendation reasons
 
 **Dependencies**: None (pure schemas)
@@ -122,18 +167,18 @@ Text-based retrieval pipeline.
 ```
 retriever/
 ├── __init__.py
-├── text_embedder.py       # BGE-M3 embedding model
-├── vector_index.py        # FAISS index management
-├── reranker.py            # CrossEncoder reranking
-└── software_doc.py        # Catalog schema and loading
+├── text_embedder.py       # LocalBGEEmbedder — remote (Qwen3-Embedding-8B) or local
+├── vector_index.py        # FAISS IndexFlatIP management
+├── reranker.py            # CrossEncoderReranker — remote (BGE-M3) or local
+└── software_doc.py        # SoftwareDoc schema and catalog loading
 ```
 
 **Pipeline flow**:
 
-1. `text_embedder.py`: Embed query
-2. `vector_index.py`: FAISS search
-3. `reranker.py`: CrossEncoder reranking
-4. Output: Top-K candidates
+1. `text_embedder.py`: Embed query with Qwen3-Embedding-8B (remote by default)
+2. `vector_index.py`: FAISS exact inner-product search
+3. `reranker.py`: BGE-M3 CrossEncoder reranking (disabled if API key missing)
+4. Output: Top-K candidates with relevance scores
 
 **Dependencies**: None (pure retrieval)
 

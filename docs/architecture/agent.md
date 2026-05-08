@@ -45,21 +45,28 @@ graph TB
 
 ### Agent Definition
 
+The agent model is determined by `config.yaml` (`agent_model` section). When a `base_url` is provided, `OpenAIChatModel` (chat/completions API) is used; otherwise `OpenAIResponsesModel` (Responses API) is used:
+
 ```python
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from ai_agent.generator.prompts import get_agent_system_prompt
-from ai_agent.generator.schema import ToolSelection
 from ai_agent.agent.utils import AgentState
 
-provider = OpenAIProvider(api_key=os.getenv("OPENAI_API_KEY"))
-openai_model = OpenAIResponsesModel(model_name="gpt-4o-mini", provider=provider)
+# Custom endpoint (e.g. EPFL) → OpenAIChatModel
+provider = OpenAIProvider(base_url="https://inference-rcp.epfl.ch/v1", api_key=api_key)
+openai_model = OpenAIChatModel(model_name="openai/gpt-oss-120b", provider=provider)
+
+# Default OpenAI endpoint → OpenAIResponsesModel
+# provider = OpenAIProvider(api_key=api_key)
+# openai_model = OpenAIResponsesModel(model_name="gpt-4o-mini", provider=provider)
 
 agent = Agent(
     model=openai_model,
     system_prompt=get_agent_system_prompt(num_choices=3),
     deps_type=AgentState,
+    output_retries=3,  # configurable via AGENT_OUTPUT_RETRIES
 )
 ```
 
@@ -68,7 +75,11 @@ agent = Agent(
 - `model`: VLM model to use (configurable via `config.yaml`)
 - `system_prompt`: Agent role, scoring rules, and output format (from `generator/prompts.py`)
 - `deps_type`: `AgentState` — tracks tool calls, quotas, and session overrides
-- `output_type`: `ToolSelection` — passed to `agent.run_sync()` to enforce structured JSON output (not set on the `Agent` constructor)
+- `output_retries`: Number of times the agent retries if output validation fails (env `AGENT_OUTPUT_RETRIES`, default `3`)
+- `output_type`: `ToolSelection` — passed to `agent.run_sync()` to enforce structured JSON output
+
+!!! note "Agent cache"
+    A bounded LRU cache of agent instances (max size `AGENT_CACHE_MAX`, default 16) avoids rebuilding the provider/model objects on every request when the same custom endpoint + model combination is used repeatedly.
 
 ### Conversation State
 
@@ -98,110 +109,86 @@ class AgentState(BaseModel):
 
 ## Agent Tools
 
-Tools extend agent capabilities beyond chat:
+The agent has three registered tools, each with a hard per-run call limit enforced by the `@limit_tool_calls` decorator:
+
+| Tool | Cap | Description |
+|------|-----|-------------|
+| `search_tools` | 1 | Initial semantic search — called exactly once per run |
+| `search_alternative` | 3 | Alternative query formulation for broader/different search |
+| `repo_info_batch` | 4 | Batch GitHub repository summary lookup |
+
+### search_tools
+
+Initial tool retrieval — called **exactly once** per agent run:
+
+```python
+@agent.tool(retries=2, prepare=cap_prepare)
+@limit_tool_calls("search_tools", cap=1)
+async def search_tools(
+    ctx: RunContext[AgentState],
+    query: str,
+    excluded: List[str] | None = None,
+    top_k: int = 12,
+) -> List[dict]:
+    """Initial semantic search with automatic reranking."""
+    ...
+```
+
+Automatically injects `excluded_tools`, `image_paths`, and `original_formats` from `AgentState`, so the LLM does not reason about file paths.
 
 ### search_alternative
 
-Request alternative search with different query formulation:
+Try a different query formulation (up to 3 times per run):
 
 ```python
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("search_alternative", cap=3)
 async def search_alternative(
-    ctx: RunContext[AgentState], 
+    ctx: RunContext[AgentState],
     alternative_query: str,
     excluded: List[str] | None = None,
     top_k: int = 12,
 ) -> List[dict]:
-    """Search for tools using an alternative query formulation."""
-    
-    inp = SearchAlternativeInput(
-        alternative_query=alternative_query,
-        excluded=excluded or [],
-        top_k=top_k,
-        original_formats=ctx.deps.original_formats,
-        image_paths=ctx.deps.image_paths,
-    )
-    out = tool_search_alternative(inp)
-    return [c.model_dump(mode="python") for c in out.candidates]
+    """Search with an alternative query formulation (includes automatic reranking)."""
+    ...
 ```
-
-**Usage**:
-
-- Agent invokes when user asks for alternatives
-- Up to 3 calls per conversation
-- Formulates semantically different queries
 
 **Example**:
 ```
 User: Show me alternatives
-Agent: [Calls search_alternative with "pulmonary segmentation CT"]
+Agent: [Calls search_alternative with "pulmonary airway segmentation CT volume"]
 ```
 
-### repo_info
+### repo_info_batch
 
-Fetch GitHub repository details:
+Fetch GitHub repository summaries for **multiple repositories in parallel** (up to 4 calls per run):
 
 ```python
 @agent.tool(retries=2, prepare=cap_prepare)
-@limit_tool_calls("repo_info", cap=12)
-async def repo_info(ctx: RunContext[AgentState], url: str, tool_name: str | None = None) -> dict:
-    """Fetch a short summary of a GitHub repository."""
-    
-    # Normalize to canonical GitHub URL
-    norm_url = coerce_github_url_or_none(url)
-    
-    # Call tool_repo_summary (tries DeepWiki MCP first, falls back to repocards)
-    out = await tool_repo_summary(RepoSummaryInput(url=norm_url, tool_name=tool_name))
-    return out.model_dump(mode="python")
+@limit_tool_calls("repo_info_batch", cap=4)
+async def repo_info_batch(
+    ctx: RunContext[AgentState],
+    urls: List[str],
+) -> List[dict]:
+    """Fetch repository summaries for multiple repositories in parallel."""
+    ...
 ```
 
-**Data sources**:
+- Accepts a list of GitHub URLs; non-GitHub URLs are skipped with a `NON_GITHUB_URL` reason
+- Deduplicates URLs before fetching
+- Uses `asyncio.gather()` for parallel fetching
+- Falls back gracefully if a single repo fetch fails
 
-1. **DeepWiki MCP**: Pre-indexed, fast, no rate limits
-2. **Repocards**: Direct fetch, fallback for new repos
+**Data sources** (tried in order):
 
-**Returns**:
-
-- Repository description
-- Stars, language, topics
-- Last update date
-- License information
+1. **DeepWiki MCP**: Pre-indexed repository documentation — fast, no rate limits
+2. **Repocards**: Direct library-based fetch — fallback for repos not yet in DeepWiki
 
 **Example**:
 ```
-User: Tell me about TotalSegmentator
-Agent: [Calls repo_info("https://github.com/wasserth/TotalSegmentator")]
-      
-      TotalSegmentator is an automated multi-organ segmentation tool...
-      ⭐ 1.2k stars | Python | Apache-2.0 license
-      Topics: segmentation, medical-imaging, deep-learning
+Agent: [Calls repo_info_batch(["https://github.com/wasserth/TotalSegmentator",
+                                "https://github.com/MIC-DKFZ/nnUNet"])]
 ```
-
-### run_example
-
-Execute Gradio Space demos (optional, experimental):
-
-```python
-@agent.tool(retries=0, prepare=cap_prepare)
-@limit_tool_calls("run_example", cap=1)
-async def run_example(
-    ctx: RunContext[AgentState],
-    tool_name: str,
-    endpoint_url: str | None = None,
-    extra_text: str | None = None,
-) -> dict:
-    """Run an example / demo for a given tool via its Gradio space."""
-    
-    out = tool_run_example(RunExampleInput(
-        tool_name=tool_name,
-        endpoint_url=endpoint_url,
-        extra_text=extra_text,
-    ))
-    return out.model_dump(mode="python")
-```
-
-**Status**: Partially implemented, limited to specific demo formats.
 
 ## Selection and Ranking
 
@@ -212,7 +199,7 @@ The PydanticAI agent performs tool selection and ranking directly as part of its
 The agent system prompt is assembled by `get_agent_system_prompt()` in `generator/prompts.py` and covers:
 
 - **Image analysis**: Instructions to analyze the attached preview image and reference visual observations in explanations
-- **Tool call sequence**: When to call `search_tools`, `search_alternative`, `repo_info`, and `run_example`
+- **Tool call sequence**: When to call `search_tools`, `search_alternative`, `repo_info_batch`
 - **Scoring rules**: Accuracy (0–100) = Task match (40) + Format compatibility (30) + Features (30)
 - **Output format**: Single JSON object matching the `ToolSelection` schema
 
@@ -227,7 +214,7 @@ system_prompt = get_agent_system_prompt(num_choices=3)
 
 #### Step 1: Tool Calls (Retrieval)
 
-The agent calls `search_tools` once (and optionally `search_alternative` up to 3 times) to retrieve candidate tools from the vector index:
+The agent calls `search_tools` **exactly once** (and optionally `search_alternative` up to 3 times) to retrieve candidate tools from the vector index:
 
 ```
 Agent → search_tools(query="segment lungs", top_k=12)
@@ -236,11 +223,11 @@ Agent → search_tools(query="segment lungs", top_k=12)
 
 #### Step 2: Verification
 
-For each finalist the agent plans to recommend, it calls `repo_info` to fetch up-to-date GitHub metadata:
+For finalists the agent plans to recommend, it calls `repo_info_batch` in a **single batch call**:
 
 ```
-Agent → repo_info(url="https://github.com/wasserth/TotalSegmentator")
-      ← {stars: 1200, language: "Python", topics: [...], description: "..."}
+Agent → repo_info_batch(urls=["https://github.com/wasserth/TotalSegmentator", ...])
+      ← [{stars: 1200, language: "Python", topics: [...], description: "..."}, ...]
 ```
 
 #### Step 3: Structured Output

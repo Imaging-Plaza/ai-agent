@@ -32,9 +32,18 @@ CONFIG_PATH=config.yaml
 
 ## Required Configuration
 
-### OpenAI API Key
+### API Key
 
-The AI Imaging Agent requires an OpenAI API key for the vision-language model:
+The AI Imaging Agent requires an API key for the vision-language model. Which key you need depends on the `agent_model` in `config.yaml`:
+
+**For the default EPFL endpoint** (`config.yaml` default):
+
+```dotenv
+EPFL_API_KEY=your-epfl-key
+EPFL_API_KEY_EMBEDDER=your-epfl-embedder-key
+```
+
+**For a standard OpenAI endpoint**:
 
 1. Sign up for an account at [OpenAI](https://platform.openai.com/)
 2. Navigate to [API Keys](https://platform.openai.com/api-keys)
@@ -47,22 +56,22 @@ OPENAI_API_KEY=sk-your-actual-key-here
 
 ## Model Configuration
 
-The agent model can be configured via `config.yaml`:
+The agent model and retrieval stack are configured via `config.yaml`. The defaults use the EPFL OpenAI-compatible inference endpoint:
 
 ```yaml
 # AI Agent Model Configuration
 
-# Default/fallback model (used for CLI and initial startup)
+# Default model (used for CLI and initial startup)
 agent_model:
-  name: "gpt-4o-mini"
-  base_url: null                        # null for default OpenAI endpoint
-  api_key_env: "OPENAI_API_KEY"
+  name: "openai/gpt-oss-120b"
+  base_url: "https://inference-rcp.epfl.ch/v1"
+  api_key_env: "EPFL_API_KEY"
 
 # Available models for UI dropdown
 available_models:
   - display_name: "gpt-4o-mini"
     name: "gpt-4o-mini"
-    base_url: null
+    base_url: null          # null = standard OpenAI endpoint
     provider: "OpenAI"
     api_key_env: "OPENAI_API_KEY"
   
@@ -71,31 +80,78 @@ available_models:
     base_url: null
     provider: "OpenAI"
     api_key_env: "OPENAI_API_KEY"
-  
-  - display_name: "gpt-5.1"
-    name: "gpt-5.1"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
+
+  - display_name: "openai/gpt-oss-120b [EPFL]"
+    name: "openai/gpt-oss-120b"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    provider: "EPFL"
+    api_key_env: "EPFL_API_KEY"
+
+# Retrieval stack (embedder + reranker)
+retrieval:
+  embedder:
+    backend: "remote"
+    model_name: "Qwen/Qwen3-Embedding-8B"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
+
+  reranker:
+    backend: "remote"
+    model_name: "BAAI/bge-reranker-v2-m3"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
 ```
+
+### Using Standard OpenAI Models
+
+To use standard OpenAI models instead of the EPFL endpoint, update `agent_model` in `config.yaml`:
+
+```yaml
+agent_model:
+  name: "gpt-4o-mini"
+  base_url: null                        # null = default OpenAI endpoint
+  api_key_env: "OPENAI_API_KEY"
+```
+
+Then add `OPENAI_API_KEY` to your `.env`.
 
 ### Using Alternative Model Providers
 
-You can configure custom OpenAI-compatible endpoints:
+Any OpenAI-compatible endpoint can be configured:
 
 ```yaml
-available_models:
-  - display_name: "EPFL Inference"
-    name: "gpt-4o-mini"
-    base_url: "https://inference.epfl.ch/v1"
-    provider: "EPFL"
-    api_key_env: "EPFL_API_KEY"
+agent_model:
+  name: "your-model-name"
+  base_url: "https://your-endpoint.example.com/v1"
+  api_key_env: "YOUR_CUSTOM_API_KEY"
 ```
 
 Then add the corresponding API key to your `.env`:
 
 ```dotenv
-EPFL_API_KEY=your-epfl-key
+YOUR_CUSTOM_API_KEY=your-key
+```
+
+### Local Retrieval (No Remote Embedder)
+
+To run the embedder and reranker locally (no remote endpoint needed):
+
+```yaml
+retrieval:
+  embedder:
+    backend: "local"
+    model_name: "BAAI/bge-m3"
+  reranker:
+    backend: "local"
+    model_name: "BAAI/bge-reranker-v2-m3"
+```
+
+Install the required extras:
+
+```bash
+pip install sentence-transformers
 ```
 
 ## Optional Configuration
@@ -108,11 +164,30 @@ For the repository info tool (optional):
 GITHUB_TOKEN=ghp_your_github_personal_access_token
 ```
 
-This enables the agent to fetch detailed information about GitHub repositories.
+This enables the agent to fetch detailed information about GitHub repositories via direct API calls. Without it, the tool falls back to DeepWiki MCP or the repocards library.
 
 ### Pipeline Parameters
 
-Adjust retrieval and recommendation settings directly in the app setting. You can change the `TOP_K` and `NUM_CHOICES` parameters.
+Adjust recommendations via environment variables:
+
+```dotenv
+NUM_CHOICES=3    # Number of tool recommendations (default: 3)
+```
+
+You can also override these values per-session from the UI settings panel.
+
+### Catalog Sync
+
+The `ai_agent sync` command (and background auto-refresh) requires a GraphDB SPARQL endpoint:
+
+```dotenv
+GRAPHDB_URL=https://graphdb.example.com/repositories/imaging
+GRAPHDB_GRAPH=https://example.org/graph/imaging-tools
+GRAPHDB_QUERY_FILE=get_relevant_software.rq
+SYNC_EVERY_HOURS=24     # 0 to disable background refresh
+```
+
+See [Environment Variables](../reference/environment.md) for the full list.
 
 ### Logging
 

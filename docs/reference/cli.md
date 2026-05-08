@@ -51,27 +51,31 @@ ai_agent sync
 
 **What it does**:
 
-1. Loads the software catalog from `SOFTWARE_CATALOG` path
-2. Embeds all tool descriptions using BGE-M3
-3. Builds FAISS vector index
-4. Saves artifacts to `artifacts/rag_index/`
+1. Queries the GraphDB SPARQL endpoint (`GRAPHDB_URL`) using the configured query file
+2. Saves the raw JSON-LD response to `OUTPUT_JSONLD`
+3. Converts JSON-LD to JSONL and saves to `OUTPUT_JSONL`
+4. Detects catalog changes via SHA-1 hash
+5. If changed: embeds all tool descriptions and rebuilds the FAISS index
+6. Saves index artifacts to `RAG_INDEX_DIR` (`artifacts/rag_index/` by default)
+
+**Required environment variables**:
+
+```dotenv
+GRAPHDB_URL=https://graphdb.example.com/repositories/imaging
+GRAPHDB_GRAPH=https://example.org/graph/imaging-tools
+GRAPHDB_QUERY_FILE=get_relevant_software.rq
+```
 
 **When to use**:
 
-- After editing `catalog.jsonl`
-- After adding new tools
-- To force index rebuild
-- For testing catalog changes
+- To pull the latest catalog from GraphDB
+- To force index rebuild from the remote source
+- After graph database updates
 
-**Example**:
+**Skip freshness check** (force sync even if catalog is recent):
 
 ```bash
-$ ai_agent sync
-[sync] 150 → dataset/catalog.jsonl
-[sync] Embedding 150 tools... (5.2s)
-[sync] Building FAISS index...
-[sync] Saved to artifacts/rag_index/
-[sync] Sync complete.
+SYNC_FORCE=1 ai_agent sync
 ```
 
 ## Command Aliases

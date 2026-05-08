@@ -293,21 +293,60 @@ Tools are included based on:
 
 ## Synchronization
 
-### Auto-Sync
+The catalog is populated by querying a **GraphDB SPARQL endpoint** and converting the results to JSONL. This is handled by `catalog/sync.py` via the `sync_once()` function (called at startup and by `ai_agent sync`).
 
-Configured via `.env`:
+### Sync Flow
+
+```mermaid
+graph LR
+    A[GraphDB SPARQL] --> B[fetch_jsonld]
+    B --> C[catalog.jsonld]
+    C --> D[full_processing]
+    D --> E[catalog.jsonl]
+    E --> F[VectorIndex.sync_with_catalog]
+    F --> G[FAISS index]
+```
+
+1. **Query** — load SPARQL query from `GRAPHDB_QUERY_FILE` (default: `get_relevant_software.rq`)
+2. **Fetch** — send query to `GRAPHDB_URL`, receive JSON-LD (falls back to TURTLE → rdflib → JSON-LD)
+3. **Save snapshot** — write raw result to `OUTPUT_JSONLD` (default: `dataset/catalog.jsonld`)
+4. **Convert** — run `full_processing()` to transform JSON-LD into flat JSONL (`OUTPUT_JSONL`, default: `dataset/catalog.jsonl`)
+5. **Diff** — compute SHA-1 hash of normalized docs; compare with previous hash to detect changes
+6. **Rebuild index** — if changed (or FAISS is missing), rebuild and save to `RAG_INDEX_DIR`
+
+### Required Environment Variables for Sync
+
+| Variable | Description |
+|----------|-------------|
+| `GRAPHDB_URL` | SPARQL endpoint URL (required for `ai_agent sync`) |
+| `GRAPHDB_GRAPH` | Named graph IRI to query (absolute IRI, required) |
+| `GRAPHDB_QUERY_FILE` | Path to `.rq` SPARQL query file (default: `get_relevant_software.rq`) |
+| `GRAPHDB_USER` | GraphDB username (optional, for authenticated endpoints) |
+| `GRAPHDB_PASSWORD` | GraphDB password (optional) |
+
+See [Environment Variables](../reference/environment.md) for all options.
+
+### Freshness Skip
+
+You can skip remote sync if the local catalog is recent enough:
+
+```dotenv
+SYNC_SKIP_IF_FRESH_SECONDS=3600   # Skip if catalog is < 1 hour old
+SYNC_FORCE=1                       # Always sync, ignoring freshness
+```
+
+### Auto-Sync (Background)
+
+Configure periodic background sync via `.env`:
 
 ```dotenv
 SYNC_EVERY_HOURS=24
 ```
 
-**Process**:
-1. Background thread checks catalog every 24h
-2. Compares SHA1 checksum
-3. If changed:
-    - Reload catalog
-    - Re-embed all tools
-  - Rebuild FAISS index
+When the catalog changes (detected via SHA-1 diff), the background thread:
+1. Calls `sync_once()` to fetch and rebuild
+2. Calls `pipeline.reload_index()` to hot-reload FAISS without restart
+3. Refreshes UI tool card data
 
 ### Manual Sync
 
@@ -315,41 +354,18 @@ SYNC_EVERY_HOURS=24
 ai_agent sync
 ```
 
-**Output**:
-```
-[sync] 150 → dataset/catalog.jsonl
-[sync] Rebuilding embeddings...
-[sync] Embedding 150 tools... (5.2s)
-[sync] Building FAISS index...
-[sync] Saved to artifacts/rag_index/
-[sync] Sync complete.
-```
-
 ## Embeddings and Index
 
 ### Embedding Process
 
-For each tool, create text representation:
-
-```python
-tool_text = f"{tool['name']} {tool['description']} {' '.join(tool['keywords'])}"
-
-# Optional: Include supportingData
-if 'supportingData' in tool:
-    sd = tool['supportingData']
-    tool_text += f" {' '.join(sd.get('modalities', []))}"
-    tool_text += f" {' '.join(sd.get('tasks', []))}"
-
-# Embed
-embedding = embedder.encode(tool_text, normalize_embeddings=True)
-```
+At startup (or after sync), each tool doc is embedded and stored in a FAISS index. Embedding is performed by `VectorIndex.sync_with_catalog()` using the configured embedder (see [Retrieval Pipeline](retrieval.md)).
 
 ### Index Storage
 
 ```
 artifacts/rag_index/
-├── index.faiss          # FAISS IndexFlatIP
-└── meta.json            # Tool IDs, config, timestamps
+├── index.faiss          # FAISS IndexFlatIP binary
+└── meta.json            # Tool IDs, embedding config, timestamps
 ```
 
 **meta.json** structure:
@@ -357,14 +373,14 @@ artifacts/rag_index/
 ```json
 {
   "tool_ids": ["tool1", "tool2", ...],
-  "version": "1.0",
-  "embedding_model": "BAAI/bge-m3",
-  "embedding_dim": 1024,
+  "embedding_model": "Qwen/Qwen3-Embedding-8B",
   "num_tools": 150,
-  "created_at": "2024-03-01T12:00:00Z",
-  "catalog_sha1": "abc123..."
+  "created_at": "2025-05-08T12:00:00Z"
 }
 ```
+
+!!! note
+    The embedding model recorded in `meta.json` is set by `config.yaml → retrieval.embedder.model_name`. If you change the model, the index is rebuilt automatically during the next sync.
 
 ## Quality Assurance
 

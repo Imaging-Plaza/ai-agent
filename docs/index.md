@@ -14,7 +14,7 @@ AI Imaging Agent (also known as **Imaging Plaza**) is a conversational AI assist
 ## ✨ Key Features
 
 - **🤖 Conversational AI Agent**: Natural language interaction with multi-turn context
-- **🔍 Smart Retrieval**: BGE-M3 embeddings + FAISS + CrossEncoder reranking
+- **🔍 Smart Retrieval**: Qwen3-Embedding-8B embeddings + FAISS + BGE-M3 CrossEncoder reranking
 - **👁️ Vision-Aware Selection**: VLM-based tool selection considering both image content and metadata
 - **🏥 Medical Imaging Focus**: Specialized support for CT, MRI, DICOM, NIfTI, and other medical formats
 - **🎯 Format-Aware Matching**: IO compatibility scoring based on file formats and dimensions
@@ -59,7 +59,7 @@ Then in the web interface:
 
 The system uses a **two-stage pipeline**:
 
-1. **Retrieval Stage**: Fast text search using BGE-M3 embeddings and FAISS to find candidate tools from a curated catalog
+1. **Retrieval Stage**: Fast text search using Qwen3-Embedding-8B embeddings and FAISS to find candidate tools from a curated catalog
 2. **Agent Selection**: Vision-language model (GPT-4o) analyzes your image and task to rank the best tools with explanations
 
 Learn more in the [Architecture Overview](architecture/overview.md).

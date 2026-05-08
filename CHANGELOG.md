@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **Documentation sync**: Updated all documentation files to match current implementation exactly
+  - `docs/architecture/retrieval.md`: Fixed embedder model (Qwen3-Embedding-8B via remote EPFL endpoint, not local BGE-M3); fixed reranker (BAAI/bge-reranker-v2-m3 remote)
+  - `docs/architecture/agent.md`: Fixed default model (`openai/gpt-oss-120b` EPFL, not `gpt-4o-mini`); fixed tool names (`repo_info_batch`, not `repo_info`); updated tool caps and agent setup code
+  - `docs/architecture/catalog.md`: Added full GraphDB SPARQL sync flow, mermaid diagram, all required environment variables
+  - `docs/reference/environment.md`: Complete rewrite — comprehensive table of 27+ env vars including EPFL keys, GRAPHDB_* vars, SYNC_* vars, EMBED_CATALOG_ON_START, AGENT_CACHE_MAX, AGENT_OUTPUT_RETRIES, IMAGE_META_CACHE_MAX, DEBUG
+  - `docs/getting-started/configuration.md`: Fixed default model and config.yaml example to match actual defaults; added EPFL API key docs and GraphDB sync vars; added local retrieval instructions
+  - `docs/development/structure.md`: Added `core/` module, `queries/` directory, updated `agent/tools/` listing with all tool files and mcp/ subdir; fixed generator schema models; improved retriever pipeline description
+  - `docs/reference/cli.md`: Updated `ai_agent sync` to describe actual SPARQL/GraphDB mechanism and required env vars
+  - `docs/index.md`: Updated retrieval stack description to Qwen3-Embedding-8B + BGE-M3
+
 ## [1.0.0]
 
 ### 🚀 Major Features

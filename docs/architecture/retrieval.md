@@ -95,104 +95,75 @@ results = 7 tools  # Better!
 
 ## Step 3: Embedding
 
-### BGE-M3 Model
+### Embedder
 
-**Model**: `BAAI/bge-m3`
+The embedder is configured in `config.yaml` under `retrieval.embedder`. Two backends are supported:
 
-**Characteristics**:
+| Backend | Description | Default |
+|---------|-------------|---------|
+| `remote` | OpenAI-compatible HTTP embeddings endpoint | ✅ Yes |
+| `local` | Local `sentence-transformers` model | No |
 
-- Multilingual (but used for English)
-- 1024-dimensional embeddings
-- Trained for retrieval tasks
-- Fast inference (~10ms per query)
+**Default configuration (remote)**:
 
-**Embedding process**:
-
-```python
-from sentence_transformers import SentenceTransformer
-
-model = SentenceTransformer("BAAI/bge-m3")
-query_vector = model.encode(
-    query,
-    normalize_embeddings=True  # L2 normalization for cosine similarity
-)
-# Returns: np.array of shape (1024,)
+```yaml
+retrieval:
+  embedder:
+    backend: "remote"
+    model_name: "Qwen/Qwen3-Embedding-8B"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
 ```
+
+**Local backend example**:
+
+```yaml
+retrieval:
+  embedder:
+    backend: "local"
+    model_name: "BAAI/bge-m3"
+```
+
+The local backend uses `sentence-transformers` directly on the host machine. The remote backend sends requests to any OpenAI-compatible embeddings endpoint.
+
+**Query and corpus prefixes** (applied automatically):
+
+- Query: `"Represent the query for retrieving relevant software: <text>"`
+- Corpus: `"Represent the software for retrieval: <text>"`
 
 ### Catalog Embedding
 
-Software tools are pre-embedded during indexing:
+Software tools are pre-embedded at startup (unless `EMBED_CATALOG_ON_START=0`):
 
-```python
-# For each tool in catalog:
-tool_text = f"{tool.name} {tool.description} {' '.join(tool.keywords)}"
-tool_vector = model.encode(tool_text, normalize_embeddings=True)
-
-# Store in FAISS index
-faiss_index.add(tool_vector)
-```
+1. The pipeline reads `SOFTWARE_CATALOG` (default: `dataset/catalog.jsonl`)
+2. Each tool is converted to an `IndexItem` and passed to `VectorIndex.sync_with_catalog()`
+3. The index is saved to `artifacts/rag_index/`
 
 **Index structure**:
 
-- FAISS IndexFlatIP (inner product = cosine similarity for normalized vectors)
-- ~150 tools in current catalog
-- Index size: ~600KB
+- FAISS IndexFlatIP (inner product, works with normalized vectors)
+- Contains all tools from the catalog
+- Saved as `index.faiss` + `meta.json`
 
 ## Step 4: FAISS Search
 
 ### Vector Search
 
-FAISS performs fast similarity search:
+FAISS performs fast similarity search using the IndexFlatIP algorithm:
 
-```python
-import faiss
-
-# Search for top 20 most similar tools
-scores, indices = faiss_index.search(
-    query_vector.reshape(1, -1),
-    k=20
-)
-
-# Returns:
-# scores: [0.85, 0.82, 0.79, ...]  # Cosine similarities
-# indices: [42, 17, 89, ...]        # Tool IDs in catalog
-```
-
-**Search algorithm**:
-
-- IndexFlatIP: Exact search (brute force)
-- Fast for catalog size (~150 tools)
-- Could use IVF for larger catalogs (>10k tools)
-
-**Why top-20**:
-
-- More candidates than needed (default final: 8)
-- Provides options for reranking
-- Balances recall vs. later stage cost
+- **IndexFlatIP**: Exact (brute force) inner product search — suitable for catalog sizes up to ~10k tools
+- The top-N candidates (default: 12 per tool call) are retrieved by cosine similarity
 
 ### Candidate Retrieval
 
-```python
-candidates = [catalog[idx] for idx in indices[:20]]
-candidate_scores = scores[:20].tolist()
-
-# Example candidates:
-[
-    {
-        "name": "TotalSegmentator",
-        "score": 0.85,
-        "description": "Automated multi-organ segmentation...",
-        ...
-    },
-    ...
-]
-```
+FAISS returns candidate indices which are resolved to `SoftwareDoc` objects. These are filtered to remove any tools in the excluded list, then passed to the reranker.
 
 ## Step 5: CrossEncoder Reranking
 
 ### Why Rerank?
 
-**BiEncoder (BGE-M3)** limitations:
+**Bi-encoder** limitations:
 
 - Encodes query and documents independently
 - No query-document interaction
@@ -203,35 +174,40 @@ candidate_scores = scores[:20].tolist()
 - Jointly encodes query + document
 - Cross-attention between query and doc
 - More accurate relevance scoring
-- Slower (not suitable for entire catalog)
+- Slower (suitable only for a small candidate set)
 
 ### Reranking Model
 
-**Model**: `BAAI/bge-reranker-v2-m3`
+The reranker is configured in `config.yaml` under `retrieval.reranker`. Two backends are supported:
 
-**Characteristics**:
+| Backend | Description | Default |
+|---------|-------------|---------|
+| `remote` | OpenAI-compatible HTTP reranking endpoint | ✅ Yes |
+| `local` | Local `sentence-transformers` CrossEncoder | No |
 
-- Trained on MS-MARCO passage ranking
-- 6 layers, fast inference (~50ms per pair)
-- Direct relevance score (no embedding)
+**Default configuration (remote)**:
 
-**Reranking process**:
-
-```python
-from sentence_transformers import CrossEncoder
-
-reranker = CrossEncoder("BAAI/bge-reranker-v2-m3")
-
-# Score each (query, candidate) pair
-pairs = [(query, candidate.description) for candidate in candidates]
-rerank_scores = reranker.predict(pairs)
-
-# Re-sort by rerank scores
-sorted_indices = np.argsort(rerank_scores)[::-1]
-reranked_candidates = [candidates[i] for i in sorted_indices][:8]
+```yaml
+retrieval:
+  reranker:
+    backend: "remote"
+    model_name: "BAAI/bge-reranker-v2-m3"
+    base_url: "https://inference-rcp.epfl.ch/v1"
+    api_key_env: "EPFL_API_KEY_EMBEDDER"
+    timeout_s: 20
 ```
 
-**Output**: Top-8 candidates with refined ranking
+**Local backend example**:
+
+```yaml
+retrieval:
+  reranker:
+    backend: "local"
+    model_name: "BAAI/bge-reranker-v2-m3"
+```
+
+!!! note
+    If the reranker API key (`EPFL_API_KEY_EMBEDDER`) is not set, reranking is **disabled** and original FAISS scores are used instead.
 
 ## Output Format
 
@@ -266,38 +242,31 @@ Each candidate passed to Stage 2:
 
 ### Building the Index
 
-Done during catalog sync:
+The FAISS index is built automatically at startup by `RAGImagingPipeline` (see `EMBED_CATALOG_ON_START`). You can also force a rebuild via:
 
 ```bash
 ai_agent sync
 ```
 
-**Process**:
+The `sync` command queries a GraphDB SPARQL endpoint (see [Catalog Sync](catalog.md)), converts the results to JSONL, and rebuilds the FAISS index.
 
-1. Load catalog JSONL
-2. Embed each tool description
-3. Build FAISS index
-4. Save to disk: `artifacts/rag_index/`
+**Stored artifacts**:
 
-**Files**:
 ```
 artifacts/rag_index/
 ├── index.faiss          # FAISS binary index
-└── meta.json            # Metadata (tool IDs, config)
+└── meta.json            # Metadata (tool IDs, embedding config)
 ```
 
-### Loading the Index
+### Hot-Reload
 
-At startup:
+When catalog contents change (detected via SHA-1 hash), the pipeline reloads the index without restarting:
 
 ```python
-from retriever.vector_index import VectorIndex
+ok = pipeline.reload_index()   # returns True on success
+```
 
-index = VectorIndex()
-index.load("artifacts/rag_index")
-
-# Ready for queries
-results = index.search(query, k=20)
+The auto-refresh background thread calls this automatically when `SYNC_EVERY_HOURS > 0`.
 ```
 
 ### Updating the Index
