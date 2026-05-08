@@ -220,10 +220,11 @@ class CacheDB:
 
     def close(self) -> None:
         """Close the underlying database connection."""
-        try:
-            self._conn.close()
-        except Exception:
-            pass
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
 
 
 # ------------------------------------------------------------------
