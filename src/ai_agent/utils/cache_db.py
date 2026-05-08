@@ -76,8 +76,15 @@ class CacheDB:
     # Public API
     # ------------------------------------------------------------------
 
-    def get(self, namespace: str, key: str) -> Optional[str]:
-        """Return the cached value or *None* if missing / expired."""
+    def get(
+        self, namespace: str, key: str, *, track_lru: bool = True
+    ) -> Optional[str]:
+        """Return the cached value or *None* if missing / expired.
+
+        *track_lru* (default ``True``) updates *accessed_at* on a hit so that
+        LRU eviction in :meth:`set` works correctly.  Pass ``False`` when the
+        namespace has no capacity limit and you want to avoid the extra write.
+        """
         now = time.time()
         with self._lock:
             row = self._conn.execute(
@@ -95,12 +102,13 @@ class CacheDB:
                 )
                 self._conn.commit()
                 return None
-            # Touch for LRU tracking
-            self._conn.execute(
-                "UPDATE cache SET accessed_at = ? WHERE namespace = ? AND key = ?",
-                (now, namespace, key),
-            )
-            self._conn.commit()
+            if track_lru:
+                # Touch accessed_at so LRU eviction in set() stays accurate.
+                self._conn.execute(
+                    "UPDATE cache SET accessed_at = ? WHERE namespace = ? AND key = ?",
+                    (now, namespace, key),
+                )
+                self._conn.commit()
             return value
 
     def set(
@@ -179,6 +187,36 @@ class CacheDB:
                 self._conn.execute("DELETE FROM cache")
             self._conn.commit()
 
+    def sweep_expired(self) -> int:
+        """Delete all expired rows across every namespace.
+
+        Returns the number of rows removed.  Designed to be called from a
+        background thread or an atexit hook without touching private state.
+        """
+        now = time.time()
+        with self._lock:
+            deleted = self._conn.execute(
+                "DELETE FROM cache WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                (now,),
+            ).rowcount
+            self._conn.commit()
+        return deleted
+
+    def vacuum_and_close(self) -> None:
+        """Sweep expired rows, VACUUM the database, then close the connection.
+
+        VACUUM must run outside any open transaction; this method handles the
+        ``isolation_level`` toggling safely with a ``finally`` guard.
+        """
+        self.sweep_expired()
+        with self._lock:
+            try:
+                self._conn.isolation_level = None
+                self._conn.execute("VACUUM")
+            finally:
+                self._conn.isolation_level = ""
+        self.close()
+
     def close(self) -> None:
         """Close the underlying database connection."""
         try:
@@ -203,6 +241,16 @@ def get_cache_db() -> CacheDB:
             if _db is None:
                 _db = CacheDB()
                 log.info("Opened cache DB at %s", _DEFAULT_DB_PATH)
+    return _db
+
+
+def get_cache_db_or_none() -> Optional[CacheDB]:
+    """Return the singleton if it has already been initialised, else ``None``.
+
+    Unlike :func:`get_cache_db` this never creates the database — useful for
+    background housekeeping that should be a no-op before the first real cache
+    access.
+    """
     return _db
 
 

@@ -84,7 +84,7 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
 
     await _REPO_INFO_LOCK.acquire()
     try:
-        raw = db.get(_REPO_INFO_NS, cache_key)
+        raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
         if raw is not None:
             cached = RepoSummaryOutput.model_validate_json(raw)
             log.info(f"Repo info cache hit for {effective_url}")
@@ -120,7 +120,8 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
     await _REPO_INFO_LOCK.acquire()
     try:
         if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
-            db.set(
+            await asyncio.to_thread(
+                db.set,
                 _REPO_INFO_NS,
                 cache_key,
                 result.model_dump_json(),

@@ -39,18 +39,13 @@ CLEANUP_INTERVAL_SECONDS: int = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "7200"
 
 def _sweep_cache_db() -> None:
     """Delete expired rows from the cache DB (lightweight, runs periodically)."""
-    from ai_agent.utils.cache_db import _db  # noqa: PLC0415
+    from ai_agent.utils.cache_db import get_cache_db_or_none  # noqa: PLC0415
 
-    if _db is None:
+    db = get_cache_db_or_none()
+    if db is None:
         return
     try:
-        now = time.time()
-        with _db._lock:
-            deleted = _db._conn.execute(
-                "DELETE FROM cache WHERE expires_at IS NOT NULL AND expires_at <= ?",
-                (now,),
-            ).rowcount
-            _db._conn.commit()
+        deleted = db.sweep_expired()
         if deleted:
             log.debug("Cache sweep: removed %d expired row(s).", deleted)
     except Exception:
@@ -59,23 +54,14 @@ def _sweep_cache_db() -> None:
 
 def _vacuum_and_close_cache_db() -> None:
     """Final shutdown: VACUUM and close the cache DB (runs via atexit)."""
-    from ai_agent.utils.cache_db import _db, get_cache_db  # noqa: PLC0415
+    from ai_agent.utils.cache_db import get_cache_db_or_none  # noqa: PLC0415
 
-    if _db is None:
+    db = get_cache_db_or_none()
+    if db is None:
         return
     try:
-        db = get_cache_db()
-        _sweep_cache_db()
-        with db._lock:
-            # VACUUM must run outside any transaction.
-            previous_isolation_level = db._conn.isolation_level
-            try:
-                db._conn.isolation_level = None
-                db._conn.execute("VACUUM")
-            finally:
-                db._conn.isolation_level = previous_isolation_level
+        db.vacuum_and_close()
         log.info("Cache DB shutdown: VACUUM complete.")
-        db.close()
     except Exception:
         log.exception("Cache DB shutdown cleanup failed.")
 
