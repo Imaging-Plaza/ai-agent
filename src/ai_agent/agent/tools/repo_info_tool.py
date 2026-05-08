@@ -82,13 +82,21 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
     cache_key = _normalize_cache_key(effective_url)
     db = get_cache_db()
 
+    # --- Cache read outside the lock so we don't block other coroutines ---
+    raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
+    if raw is not None:
+        log.info(f"Repo info cache hit for {effective_url}")
+        return RepoSummaryOutput.model_validate_json(raw)
+
+    # --- Lock only for inflight bookkeeping (pure in-memory, no I/O) ---
     await _REPO_INFO_LOCK.acquire()
     try:
+        # Re-check the cache inside the lock in case another coroutine wrote it
+        # between our lockless read above and acquiring the lock now.
         raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
         if raw is not None:
-            cached = RepoSummaryOutput.model_validate_json(raw)
-            log.info(f"Repo info cache hit for {effective_url}")
-            return cached
+            log.info(f"Repo info cache hit (after lock) for {effective_url}")
+            return RepoSummaryOutput.model_validate_json(raw)
 
         inflight = _REPO_INFO_INFLIGHT.get(cache_key)
         if inflight is None:
@@ -117,18 +125,20 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
             _REPO_INFO_LOCK.release()
         raise
 
+    # --- DB write outside the lock so waiting coroutines aren't blocked ---
+    if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
+        await asyncio.to_thread(
+            db.set,
+            _REPO_INFO_NS,
+            cache_key,
+            result.model_dump_json(),
+            ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
+            max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
+        )
+
+    # --- Re-acquire lock only to resolve the future and clean up bookkeeping ---
     await _REPO_INFO_LOCK.acquire()
     try:
-        if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
-            await asyncio.to_thread(
-                db.set,
-                _REPO_INFO_NS,
-                cache_key,
-                result.model_dump_json(),
-                ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
-                max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
-            )
-
         if not inflight.done():
             inflight.set_result(result)
         _REPO_INFO_INFLIGHT.pop(cache_key, None)
