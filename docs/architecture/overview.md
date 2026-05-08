@@ -416,11 +416,6 @@ Typical request (~3-5 seconds total):
 - No credentials shared with demos
 - User's image uploaded to public spaces (warn users)
 
-## Next Steps
-
-- Deep dive into [Retrieval Pipeline](retrieval.md)
-- Learn about [Agent & VLM Selection](agent.md)
-
 ## Future Improvements
 
 The following areas are planned for future development:
@@ -437,3 +432,8 @@ Today, MCP (Model Context Protocol) tool adapters are defined by the development
 
 Conversation history, tool usage logs, and per-session state currently live only in memory. Adding a SQLite backend would enable persistent sessions, usage analytics, and a foundation for personalised recommendations over time.
 - Explore [Software Catalog](catalog.md)
+
+## Next Steps
+
+- Deep dive into [Retrieval Pipeline](retrieval.md)
+- Learn about [Agent & VLM Selection](agent.md)
