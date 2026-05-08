@@ -144,8 +144,8 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
                 ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
                 max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
             )
-        except Exception:
-            log.warning("Repo info cache write failed; result will not be cached.", exc_info=True)
+        except Exception as e:
+            log.warning(f"Failed to persist repo info cache for {effective_url}: {e}")
 
     # --- Re-acquire lock only to resolve the future and clean up bookkeeping ---
     await _REPO_INFO_LOCK.acquire()

@@ -139,6 +139,25 @@ def _cleanup_loop(interval: int, stop_event: threading.Event) -> None:
 # ---------------------------------------------------------------------------
 
 _stop_event: threading.Event | None = None
+_cleanup_thread: threading.Thread | None = None
+
+
+def _stop_background_cleanup_and_close_cache_db() -> None:
+    """Stop the background cleanup thread before closing the shared cache DB."""
+    global _stop_event, _cleanup_thread
+
+    if _stop_event is not None:
+        _stop_event.set()
+
+    thread = _cleanup_thread
+    if (
+        thread is not None
+        and thread.is_alive()
+        and thread is not threading.current_thread()
+    ):
+        thread.join(timeout=5.0)
+
+    _vacuum_and_close_cache_db()
 
 
 def register() -> None:
@@ -146,25 +165,33 @@ def register() -> None:
 
     Safe to call multiple times (idempotent).
     """
-    global _stop_event
+    global _stop_event, _cleanup_thread
 
     # Stop any previously running background thread before restarting.
     if _stop_event is not None:
         _stop_event.set()
 
+    previous_thread = _cleanup_thread
+    if (
+        previous_thread is not None
+        and previous_thread.is_alive()
+        and previous_thread is not threading.current_thread()
+    ):
+        previous_thread.join(timeout=5.0)
+
     _stop_event = threading.Event()
-    thread = threading.Thread(
+    _cleanup_thread = threading.Thread(
         target=_cleanup_loop,
         args=(CLEANUP_INTERVAL_SECONDS, _stop_event),
         name="cache-log-cleanup",
         daemon=True,  # won't block process exit
     )
-    thread.start()
+    _cleanup_thread.start()
     log.info(
         "Background cleanup started (interval: %ds, log retention: %dd).",
         CLEANUP_INTERVAL_SECONDS,
         LOG_RETENTION_DAYS,
     )
 
-    atexit.unregister(_vacuum_and_close_cache_db)
-    atexit.register(_vacuum_and_close_cache_db)
+    atexit.unregister(_stop_background_cleanup_and_close_cache_db)
+    atexit.register(_stop_background_cleanup_and_close_cache_db)
