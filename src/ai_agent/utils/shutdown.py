@@ -4,7 +4,7 @@
 Two mechanisms keep the app tidy at runtime and on exit:
 
 **Background cleanup thread** (started by :func:`register`):
-- Sweeps expired cache rows every ``CLEANUP_INTERVAL_SECONDS`` (default 3600).
+- Sweeps expired cache rows every ``CLEANUP_INTERVAL_SECONDS`` (default 7200).
 - Purges old log files on the same interval (files older than
   ``LOG_RETENTION_DAYS`` days, default 7).
 
