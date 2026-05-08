@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - `utils/shutdown.py`: background cleanup thread that runs immediately on
-  startup and then every `CLEANUP_INTERVAL_SECONDS` (default 3600 s):
+  startup and then every `CLEANUP_INTERVAL_SECONDS` (default 7200 s):
   - Sweeps expired rows from the cache DB.
   - Deletes log files under `LOG_DIR` older than `LOG_RETENTION_DAYS`
     (default 7 days); only `app_*.log*` files are touched.
