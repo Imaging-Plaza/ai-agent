@@ -4,43 +4,7 @@ The AI Imaging Agent uses a **two-stage pipeline** that combines fast text retri
 
 ## System Architecture
 
-```mermaid
-graph TB
-    subgraph "User Interface"
-        UI[Gradio Chat Interface]
-    end
-    
-    subgraph "API Layer"
-        Pipeline[RAGImagingPipeline]
-        Validator[File Validator]
-        MetaExtractor[Metadata Extractor]
-    end
-    
-    subgraph "Stage 1: Retrieval"
-        Embedder[BGE-M3 Text Embedder]
-        FAISS[FAISS Vector Index]
-        Reranker[CrossEncoder Reranker]
-        Catalog[Software Catalog JSONL]
-    end
-    
-    subgraph "Stage 2: Agent Selection"
-        Agent[PydanticAI Agent]
-        VLM[GPT-4o/4o-mini VLM]
-        Tools[Agent Tools]
-    end
-    
-    UI --> Pipeline
-    Pipeline --> Validator
-    Pipeline --> MetaExtractor
-    Pipeline --> Embedder
-    Embedder --> FAISS
-    FAISS --> Reranker
-    Catalog -.-> FAISS
-    Reranker --> Agent
-    Agent --> VLM
-    Agent --> Tools
-    Agent --> UI
-```
+![Architecture Diagram](../assets/architecture.png)
 
 ## Design Principles
 
@@ -456,4 +420,20 @@ Typical request (~3-5 seconds total):
 
 - Deep dive into [Retrieval Pipeline](retrieval.md)
 - Learn about [Agent & VLM Selection](agent.md)
+
+## Future Improvements
+
+The following areas are planned for future development:
+
+### UX/UI Enhancements
+
+The current Gradio interface is functional but has room for improvement. Planned work includes better result presentation, improved file management UX, and a more polished visual design to lower the barrier for non-expert users.
+
+### MCP Integration by Users
+
+Today, MCP (Model Context Protocol) tool adapters are defined by the development team. A future goal is to allow users to register and contribute their own MCP-compatible tools directly from the interface, making the catalog extensible without requiring code changes.
+
+### SQLite Integration
+
+Conversation history, tool usage logs, and per-session state currently live only in memory. Adding a SQLite backend would enable persistent sessions, usage analytics, and a foundation for personalised recommendations over time.
 - Explore [Software Catalog](catalog.md)

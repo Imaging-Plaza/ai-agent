@@ -57,6 +57,8 @@ Then in the web interface:
 
 ## How It Works
 
+![User Integration Flow](assets/user_flow.png)
+
 The system uses a **two-stage pipeline**:
 
 1. **Retrieval Stage**: Fast text search using Qwen3-Embedding-8B embeddings and FAISS to find candidate tools from a curated catalog
