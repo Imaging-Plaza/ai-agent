@@ -127,14 +127,17 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
 
     # --- DB write outside the lock so waiting coroutines aren't blocked ---
     if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
-        await asyncio.to_thread(
-            db.set,
-            _REPO_INFO_NS,
-            cache_key,
-            result.model_dump_json(),
-            ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
-            max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
-        )
+        try:
+            await asyncio.to_thread(
+                db.set,
+                _REPO_INFO_NS,
+                cache_key,
+                result.model_dump_json(),
+                ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
+                max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
+            )
+        except Exception as e:
+            log.warning(f"Failed to persist repo info cache for {effective_url}: {e}")
 
     # --- Re-acquire lock only to resolve the future and clean up bookkeeping ---
     await _REPO_INFO_LOCK.acquire()
