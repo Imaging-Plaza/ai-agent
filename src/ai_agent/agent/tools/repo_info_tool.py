@@ -133,7 +133,17 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
             _REPO_INFO_LOCK.release()
         raise
 
-    # --- DB write outside the lock so waiting coroutines aren't blocked ---
+    # --- Resolve the in-flight future immediately so waiters are unblocked
+    # before the (potentially slow) DB write happens. ---
+    await _REPO_INFO_LOCK.acquire()
+    try:
+        if not inflight.done():
+            inflight.set_result(result)
+        _REPO_INFO_INFLIGHT.pop(cache_key, None)
+    finally:
+        _REPO_INFO_LOCK.release()
+
+    # --- DB write after waiters are already released ---
     if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
         try:
             await asyncio.to_thread(
@@ -144,17 +154,8 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
                 ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
                 max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
             )
-        except Exception as e:
-            log.warning(f"Failed to persist repo info cache for {effective_url}: {e}")
-
-    # --- Re-acquire lock only to resolve the future and clean up bookkeeping ---
-    await _REPO_INFO_LOCK.acquire()
-    try:
-        if not inflight.done():
-            inflight.set_result(result)
-        _REPO_INFO_INFLIGHT.pop(cache_key, None)
-    finally:
-        _REPO_INFO_LOCK.release()
+        except Exception:
+            log.warning("Repo info cache write failed; result will not be cached.", exc_info=True)
 
     return result.model_copy(deep=True)
 

@@ -21,10 +21,8 @@ from __future__ import annotations
 import atexit
 import logging
 import os
-import re
 import threading
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger("ai_agent.shutdown")
@@ -73,17 +71,17 @@ def _vacuum_and_close_cache_db() -> None:
 def _purge_old_logs() -> None:
     """Delete log files older than LOG_RETENTION_DAYS inside LOG_DIR.
 
-    Age is determined by the date embedded in the filename (``app_YYYYMMDD``),
-    which is reliable even when the file's mtime has been reset (e.g. the file
-    was copied or recreated).  Falls back to mtime for files whose name does
-    not contain a parseable date.
+    Age is determined by each file's modification time (``st_mtime``), which
+    reflects when data was last written.  Parsing the date from the filename
+    prefix is deliberately avoided: ``TimedRotatingFileHandler`` keeps the
+    startup date in the base name when it rotates, so a filename-based age
+    would be wrong for rotated files.
     """
     log_dir = Path(os.getenv("LOG_DIR", "logs"))
     if not log_dir.is_dir():
         return
 
     cutoff = time.time() - LOG_RETENTION_DAYS * 86_400
-    _date_re = re.compile(r"app_(\d{8})")
     removed = 0
     errors = 0
     for entry in log_dir.iterdir():
@@ -92,16 +90,7 @@ def _purge_old_logs() -> None:
         if not (entry.name.startswith("app_") and ".log" in entry.name):
             continue
         try:
-            # Prefer the date in the filename over mtime.
-            m = _date_re.search(entry.name)
-            if m:
-                file_ts = datetime.strptime(m.group(1), "%Y%m%d").replace(
-                    tzinfo=timezone.utc
-                ).timestamp()
-            else:
-                file_ts = entry.stat().st_mtime
-
-            if file_ts < cutoff:
+            if entry.stat().st_mtime < cutoff:
                 entry.unlink()
                 removed += 1
         except Exception:
