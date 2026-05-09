@@ -16,6 +16,16 @@ for p in (ROOT, PKG_ROOT):
 
 from ai_agent.agent.tools.repo_info_tool import RepoSummaryInput, tool_repo_summary
 from ai_agent.agent.tools.deepwiki_tool import DeepWikiContentsOutput
+from ai_agent.utils.cache_db import CacheDB, reset_cache_db
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cache_db():
+    """Give every test a fresh in-memory SQLite cache."""
+    db = CacheDB(":memory:")
+    reset_cache_db(db)
+    yield
+    reset_cache_db(None)
 
 
 def test_tool_repo_summary_is_async():

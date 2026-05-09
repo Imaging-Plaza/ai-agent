@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import time
 from typing import Optional
 import repocards
 
@@ -10,6 +9,7 @@ from pydantic import BaseModel
 
 from .deepwiki_tool import get_wiki_contents, DeepWikiInput
 from .utils import _clip, get_catalog_docs, _is_github_url
+from ai_agent.utils.cache_db import get_cache_db
 
 import logging
 
@@ -18,7 +18,9 @@ log = logging.getLogger("agent.repo_info")
 REPO_INFO_CACHE_TTL_SECONDS = int(os.getenv("REPO_INFO_CACHE_TTL_SECONDS", "3600"))
 REPO_INFO_CACHE_MAX_ENTRIES = int(os.getenv("REPO_INFO_CACHE_MAX_ENTRIES", "256"))
 
-_REPO_INFO_CACHE: dict[str, tuple[float, "RepoSummaryOutput"]] = {}
+_REPO_INFO_NS = "repo_info"
+
+# In-flight request deduplication must remain in-memory (holds asyncio.Future objects)
 _REPO_INFO_INFLIGHT: dict[str, asyncio.Future["RepoSummaryOutput"]] = {}
 _REPO_INFO_LOCK = asyncio.Lock()
 
@@ -41,25 +43,9 @@ def _normalize_cache_key(url: str) -> str:
     return url.strip().lower()
 
 
-def _evict_expired_entries(now: float) -> None:
-    expired = [k for k, (exp, _) in _REPO_INFO_CACHE.items() if exp <= now]
-    for key in expired:
-        _REPO_INFO_CACHE.pop(key, None)
-
-
-def _enforce_cache_capacity() -> None:
-    if len(_REPO_INFO_CACHE) <= REPO_INFO_CACHE_MAX_ENTRIES:
-        return
-    # Evict oldest expiration first. Good enough for bounded in-memory cache.
-    keys_by_expiry = sorted(_REPO_INFO_CACHE.items(), key=lambda item: item[1][0])
-    over = len(_REPO_INFO_CACHE) - REPO_INFO_CACHE_MAX_ENTRIES
-    for key, _ in keys_by_expiry[:over]:
-        _REPO_INFO_CACHE.pop(key, None)
-
-
 def _clear_repo_summary_cache_for_tests() -> None:
     """Test helper to avoid state leakage across test cases."""
-    _REPO_INFO_CACHE.clear()
+    get_cache_db().clear(_REPO_INFO_NS)
     _REPO_INFO_INFLIGHT.clear()
 
 
@@ -94,17 +80,31 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
             log.warning(f"Failed to lookup repo URL from catalog: {e}")
 
     cache_key = _normalize_cache_key(effective_url)
-    now = time.monotonic()
+    db = get_cache_db()
 
+    # --- Cache read outside the lock so we don't block other coroutines ---
+    try:
+        raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
+    except Exception:
+        log.warning("Repo info cache read failed; treating as cache miss.", exc_info=True)
+        raw = None
+    if raw is not None:
+        log.info(f"Repo info cache hit for {effective_url}")
+        return RepoSummaryOutput.model_validate_json(raw)
+
+    # --- Lock only for inflight bookkeeping (pure in-memory, no I/O) ---
     await _REPO_INFO_LOCK.acquire()
     try:
-        _evict_expired_entries(now)
-
-        cached_entry = _REPO_INFO_CACHE.get(cache_key)
-        if cached_entry:
-            _, cached = cached_entry
-            log.info(f"Repo info cache hit for {effective_url}")
-            return cached.model_copy(deep=True)
+        # Re-check the cache inside the lock in case another coroutine wrote it
+        # between our lockless read above and acquiring the lock now.
+        try:
+            raw = await asyncio.to_thread(db.get, _REPO_INFO_NS, cache_key)
+        except Exception:
+            log.warning("Repo info cache read (after lock) failed; treating as cache miss.", exc_info=True)
+            raw = None
+        if raw is not None:
+            log.info(f"Repo info cache hit (after lock) for {effective_url}")
+            return RepoSummaryOutput.model_validate_json(raw)
 
         inflight = _REPO_INFO_INFLIGHT.get(cache_key)
         if inflight is None:
@@ -133,18 +133,29 @@ async def tool_repo_summary(input: RepoSummaryInput) -> RepoSummaryOutput:
             _REPO_INFO_LOCK.release()
         raise
 
+    # --- Resolve the in-flight future immediately so waiters are unblocked
+    # before the (potentially slow) DB write happens. ---
     await _REPO_INFO_LOCK.acquire()
     try:
-        if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
-            expires_at = time.monotonic() + REPO_INFO_CACHE_TTL_SECONDS
-            _REPO_INFO_CACHE[cache_key] = (expires_at, result)
-            _enforce_cache_capacity()
-
         if not inflight.done():
             inflight.set_result(result)
         _REPO_INFO_INFLIGHT.pop(cache_key, None)
     finally:
         _REPO_INFO_LOCK.release()
+
+    # --- DB write after waiters are already released ---
+    if result.source != "error" and REPO_INFO_CACHE_TTL_SECONDS > 0:
+        try:
+            await asyncio.to_thread(
+                db.set,
+                _REPO_INFO_NS,
+                cache_key,
+                result.model_dump_json(),
+                ttl_seconds=REPO_INFO_CACHE_TTL_SECONDS,
+                max_entries=REPO_INFO_CACHE_MAX_ENTRIES,
+            )
+        except Exception:
+            log.warning("Repo info cache write failed; result will not be cached.", exc_info=True)
 
     return result.model_copy(deep=True)
 
