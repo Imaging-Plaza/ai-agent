@@ -9,11 +9,10 @@ from ai_agent.utils.previews import _build_preview_for_vlm, resize_uploaded_imag
 from ai_agent.retriever.software_doc import SoftwareDoc
 
 from ai_agent.core.handlers import respond
-from ai_agent.core.chat_state import ChatState, format_stats_markdown
+from ai_agent.core.chat_state import format_stats_markdown
 from ai_agent.core.model_config import (
     get_available_models,
     get_default_model_display_name,
-    get_model_config,
 )
 from .visualizations import (
     create_tool_usage_chart,
