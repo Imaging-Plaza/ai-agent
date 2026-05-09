@@ -53,14 +53,15 @@ def resize_uploaded_image(
         return path
 
     try:
-        img = Image.open(path)
-        orig_w, orig_h = img.size
+        with Image.open(path) as opened_img:
+            orig_w, orig_h = opened_img.size
 
-        if orig_w <= max_width and orig_h <= max_height:
-            return path  # already within bounds – no work needed
+            if orig_w <= max_width and orig_h <= max_height:
+                return path  # already within bounds – no work needed
 
-        # thumbnail() shrinks in-place preserving aspect ratio, never upscales.
-        img = img.copy()
+            # thumbnail() shrinks in-place preserving aspect ratio, never upscales.
+            img = opened_img.copy()
+
         img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
 
         # Persist transparency for PNG/WebP; flatten to RGB for JPEG.
