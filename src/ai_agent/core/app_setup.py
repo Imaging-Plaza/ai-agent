@@ -112,7 +112,9 @@ def get_pipeline() -> RAGImagingPipeline:
 
 
 def get_doc_index() -> Dict[str, SoftwareDoc]:
-    """Return the current doc-by-name index (populated after get_pipeline)."""
+    """Return the doc-by-name index, initializing the pipeline if needed."""
+    if _pipe is None:
+        get_pipeline()
     return _DOC_BY_NAME
 
 
