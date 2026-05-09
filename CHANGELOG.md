@@ -7,8 +7,10 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Replaced all in-memory caches (image metadata, preview, repo info) with a
   shared SQLite-backed `CacheDB` (`utils/cache_db.py`).  Caches now survive
-  short process restarts and share a single on-disk file
-  (`$TMPDIR/ai_agent_cache.db`, overridable via `CACHE_DB_PATH`).
+  short process restarts and share a single on-disk file in Python's temp
+  directory (`tempfile.gettempdir()`), named `ai_agent_cache{_uid}.db`
+  (for example, `/tmp/ai_agent_cache_1000.db`), overridable via
+  `CACHE_DB_PATH`.
 
 ### Added
 - `utils/shutdown.py`: background cleanup thread that runs immediately on
