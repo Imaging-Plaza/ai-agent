@@ -27,7 +27,7 @@ from ai_agent.agent.tools.mcp import (
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.utils.file_validator import FileValidator
 from ai_agent.utils.tags import strip_tags, parse_exclusions
-from ai_agent.utils.previews import _build_preview_for_vlm
+from ai_agent.utils.previews import _build_preview_for_vlm, resize_uploaded_image
 from ai_agent.utils.utils import _coerce_files_to_paths, _is_affirmative
 
 from ai_agent.agent.agent import run_agent
@@ -298,15 +298,29 @@ def respond(
     if file_paths:
         state.last_files = file_paths
 
-        # Build VLM preview (but don't add to reply text yet)
+        # Build VLM preview (but don't add to reply text yet).
+        # Resize plain images before loading them into memory so that
+        # _build_preview_for_vlm never has to load a huge numpy array
+        # just to downscale it. Non-image files (DICOM, NIfTI, …) pass
+        # through unchanged. Metadata is extracted from the originals.
+        resized_for_preview = [resize_uploaded_image(p) for p in file_paths]
+        resize_temps = [r for r, p in zip(resized_for_preview, file_paths) if r != p]
         try:
-            preview_path, meta_text = _build_preview_for_vlm(file_paths)
+            preview_path, meta_text = _build_preview_for_vlm(
+                resized_for_preview, metadata_paths=file_paths
+            )
             state.last_preview_path = preview_path
             state.last_image_meta = meta_text
         except Exception as e:
             log.warning("Preview build failed: %r", e)
             state.last_preview_path = None
             state.last_image_meta = None
+        finally:
+            for tmp in resize_temps:
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass
 
     # ========================================================================
     # Run agent

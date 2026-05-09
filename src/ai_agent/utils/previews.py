@@ -72,33 +72,32 @@ def resize_uploaded_image(
                 return path  # already within bounds – no work needed
 
             # thumbnail() shrinks in-place preserving aspect ratio, never upscales.
-            img = opened_img.copy()
+            # Do everything inside the with-block to avoid a full-size copy.
+            opened_img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
 
-        img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+            # Persist transparency for PNG/WebP; flatten to RGB for JPEG.
+            if ext in (".jpg", ".jpeg"):
+                save_img = opened_img.convert("RGB") if opened_img.mode in ("RGBA", "P", "LA") else opened_img
+                suffix, fmt, save_kw = ".jpg", "JPEG", {"quality": 85, "optimize": True}
+            elif ext == ".webp":
+                save_img, suffix, fmt, save_kw = opened_img, ".webp", "WEBP", {"quality": 85}
+            else:
+                # Preserve original format and extension so downstream format
+                # detection (e.g. detect_ext_token) is not misled by a .png suffix.
+                save_img = opened_img
+                fmt = _PIL_FORMAT_MAP.get(ext, "PNG")
+                suffix = ext if fmt != "PNG" else ".png"
+                save_kw = {}
 
-        # Persist transparency for PNG/WebP; flatten to RGB for JPEG.
-        if ext in (".jpg", ".jpeg"):
-            if img.mode in ("RGBA", "P", "LA"):
-                img = img.convert("RGB")
-            suffix, fmt, save_kw = ".jpg", "JPEG", {"quality": 85, "optimize": True}
-        elif ext == ".webp":
-            suffix, fmt, save_kw = ".webp", "WEBP", {"quality": 85}
-        else:
-            # Preserve original format and extension so downstream format
-            # detection (e.g. detect_ext_token) is not misled by a .png suffix.
-            fmt = _PIL_FORMAT_MAP.get(ext, "PNG")
-            suffix = ext if fmt != "PNG" else ".png"
-            save_kw = {}
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+            os.close(fd)
+            save_img.save(tmp_path, format=fmt, **save_kw)
 
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-        os.close(fd)
-        img.save(tmp_path, format=fmt, **save_kw)
-
-        log.debug(
-            "Resized upload %s from %dx%d → %dx%d (saved to %s)",
-            path, orig_w, orig_h, img.width, img.height, tmp_path,
-        )
-        return tmp_path
+            log.debug(
+                "Resized upload %s from %dx%d → %dx%d (saved to %s)",
+                path, orig_w, orig_h, save_img.width, save_img.height, tmp_path,
+            )
+            return tmp_path
 
     except Exception:
         log.warning("resize_uploaded_image: could not resize %s; using original", path, exc_info=True)

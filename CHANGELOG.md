@@ -17,9 +17,9 @@ All notable changes to this project will be documented in this file.
   JavaScript required.
 
 ### Changed
-- `ui/components.py`: uploaded image files are resized to ≤500×500 px
-  **before** preview generation and before being forwarded to the VLM/backend.
-  Original full-resolution files are no longer sent to the pipeline.
+- `ui/components.py`: uploaded image files are resized to ≤500×500 px for
+  the inline chat preview. Original paths are still forwarded to the
+  backend/pipeline for format detection and metadata extraction.
 - `ui/components.py`: `msg_input` textbox and `submit_btn` button no longer
   carry custom `elem_id` attributes (only needed for the removed JS hook).
 - `ui/components.py`: `submit_btn` is now part of `handle_chat` outputs so
