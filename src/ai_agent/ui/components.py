@@ -1,39 +1,29 @@
 import logging
 import os
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 import gradio as gr
 
-from ai_agent.utils.previews import _build_preview_for_vlm
+from ai_agent.utils.previews import _build_preview_for_vlm, resize_uploaded_image
 from ai_agent.retriever.software_doc import SoftwareDoc
 
-from .handlers import respond
+from ai_agent.core.handlers import respond
+from ai_agent.core.chat_state import format_stats_markdown
+from ai_agent.core.model_config import (
+    get_available_models,
+    get_default_model_display_name,
+)
 from .visualizations import (
     create_tool_usage_chart,
     create_tool_timeline,
     create_disabled_tools_display,
 )
-from .utils import get_available_models, get_default_model_display_name
-from .state import format_stats_markdown
 
 log = logging.getLogger("chat_components")
 
 # Load model configurations from config.yaml
 MODEL_CONFIGS = get_available_models()
-
-
-def get_model_config(model_display_name: str) -> Dict[str, Optional[str]]:
-    """Get model configuration from display name."""
-    return MODEL_CONFIGS.get(
-        model_display_name,
-        {
-            "name": model_display_name,
-            "base_url": None,
-            "provider": "Unknown",
-            "api_key_env": "OPENAI_API_KEY",
-        },
-    )
 
 
 def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
@@ -203,7 +193,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                                 "e.g., 'I need to segment lungs in CT scans' or "
                                 "'Find tools for microscopy image denoising'"
                             ),
-                            lines=2,
+                            lines=1,
+                            max_lines=6,
                         )
                     with gr.Column(scale=2):
                         file_input = gr.File(
@@ -305,53 +296,80 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
             history.append(user_msg)
             yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
                 visible=False
-            ), gr.update()
+            ), gr.update(), gr.update(interactive=False)
 
-            # If files were uploaded, build and show preview immediately
+            # ------------------------------------------------------------------
+            # Resize uploaded image files for preview only (max 500×500 px).
+            # Original paths are kept for backend format detection.
+            # Non-image files (DICOM, NIfTI, CSV, …) are passed through as-is.
+            # ------------------------------------------------------------------
+            original_paths: List[str] = []
+            resized_paths: List[str] = []
+            resize_temps: List[str] = []
+
             if files:
-                file_paths = []
                 for f in files:
                     if isinstance(f, str):
-                        file_paths.append(f)
+                        raw_path = f
+                    elif isinstance(f, dict):
+                        raw_path = f.get("name") or f.get("path") or ""
                     elif hasattr(f, "name"):
-                        file_paths.append(f.name)
+                        raw_path = f.name
+                    else:
+                        raw_path = str(f)
+                    if raw_path:
+                        original_paths.append(raw_path)
+                        resized = resize_uploaded_image(raw_path)
+                        resized_paths.append(resized)
+                        if resized != raw_path:
+                            resize_temps.append(resized)
 
-                if file_paths:
-                    # Build preview
-                    try:
-                        preview_path, meta_text = _build_preview_for_vlm(file_paths)
-                        if preview_path:
-                            # Show preview message
-                            preview_text = "📋 **Preview for analysis:**"
-                            if meta_text:
-                                preview_text += f"\n\n_{meta_text}_"
-                            history.append(
-                                {"role": "assistant", "content": preview_text}
-                            )
-                            history.append(
-                                {
-                                    "role": "assistant",
-                                    "content": {"path": preview_path},
-                                }
-                            )
-                            yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
-                                visible=False
-                            ), gr.update()
-                    except Exception as e:
-                        log.warning("Preview generation failed: %r", e)
+            # If files were uploaded, build and show preview immediately
+            if original_paths:
+                try:
+                    preview_path, meta_text = _build_preview_for_vlm(
+                        resized_paths, metadata_paths=original_paths
+                    )
+                    if preview_path:
+                        # Show preview message
+                        preview_text = "📋 **Preview for analysis:**"
+                        if meta_text:
+                            preview_text += f"\n\n_{meta_text}_"
+                        history.append(
+                            {"role": "assistant", "content": preview_text}
+                        )
+                        history.append(
+                            {
+                                "role": "assistant",
+                                "content": {"path": preview_path},
+                            }
+                        )
+                        yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
+                            visible=False
+                        ), gr.update(), gr.update()
+                except Exception as e:
+                    log.warning("Preview generation failed: %r", e)
+                finally:
+                    # Resized temp files were only needed for the preview.
+                    for tmp in resize_temps:
+                        try:
+                            os.unlink(tmp)
+                        except Exception:
+                            pass
+                    resize_temps.clear()
 
             # Show "thinking" indicator for agent processing
             thinking_msg = {"role": "assistant", "content": "🤔 Finding tools..."}
             history.append(thinking_msg)
             yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
                 visible=False
-            ), gr.update()
+            ), gr.update(), gr.update()
 
             # Call respond function with settings
             try:
                 reply, new_state = respond(
                     message=message or "",
-                    files=files or [],
+                    files=original_paths or [],
                     state_dict=state_dict,
                     doc_index=doc_index,
                     model=model,
@@ -443,6 +461,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     downloaded_files,
                     gr.update(visible=box_visible),  # approval_box
                     gr.update(value=button_label),  # approve_tool_btn
+                    gr.update(interactive=True),     # submit_btn re-enabled
                 )
 
             except Exception as e:
@@ -459,7 +478,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 history.append(error_msg)
                 yield history, state_dict, gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update(
                     visible=False
-                ), gr.update()
+                ), gr.update(), gr.update(interactive=True)
 
         def clear_chat():
             """Reset everything."""
@@ -479,8 +498,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
 
         def handle_tool_approval(history: List[dict], state_dict: dict):
             """Handle tool approval button click - executes the pending tool."""
-            from .handlers import execute_tool_with_approval
-            from .state import ChatState
+            from ai_agent.core.handlers import execute_tool_with_approval
+            from ai_agent.core.chat_state import ChatState
 
             state = ChatState.from_dict(state_dict)
 
@@ -542,6 +561,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 download_files,
                 approval_box,
                 approve_tool_btn,
+                submit_btn,
             ],
         ).then(
             lambda: ("", None),  # Clear inputs
@@ -570,6 +590,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 download_files,
                 approval_box,
                 approve_tool_btn,
+                submit_btn,
             ],
         ).then(
             lambda: ("", None),  # Clear inputs

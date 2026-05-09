@@ -17,14 +17,14 @@ from ai_agent.catalog.sync import sync_once
 
 def _ui_funcs():
     # Lazy import avoids loading agent/model modules for non-UI commands.
-    from ai_agent.ui.app import (
+    from ai_agent.core.app_setup import (
         get_pipeline,
-        refresh_ui_docs_from_index,
-        launch,
+        refresh_docs_from_index,
         ensure_logging_initialized,
     )
+    from ai_agent.ui.app import launch
 
-    return get_pipeline, refresh_ui_docs_from_index, launch, ensure_logging_initialized
+    return get_pipeline, refresh_docs_from_index, launch, ensure_logging_initialized
 
 
 # --------------------------- catalog background refresher ---------------------------

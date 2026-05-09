@@ -22,6 +22,87 @@ PREVIEW_MAX_SIDE_PX = int(os.getenv("PREVIEW_MAX_SIDE_PX", "500"))
 _PREVIEW_CACHE: dict[tuple[str, ...], tuple[float, str, Optional[str]]] = {}
 _PREVIEW_CACHE_LOCK = threading.Lock()
 
+# Extensions that PIL can resize; others are passed through unchanged.
+_RESIZABLE_IMAGE_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"
+}
+
+# Mapping from extension to PIL format name (preserves original format on resize).
+_PIL_FORMAT_MAP: dict[str, str] = {
+    ".png": "PNG",
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".webp": "WEBP",
+    ".bmp": "BMP",
+    ".gif": "GIF",
+    ".tif": "TIFF",
+    ".tiff": "TIFF",
+}
+
+
+def resize_uploaded_image(
+    path: str,
+    max_width: int = PREVIEW_MAX_SIDE_PX,
+    max_height: int = PREVIEW_MAX_SIDE_PX,
+) -> str:
+    """Resize an uploaded image to fit within *max_width* × *max_height* px.
+
+    Aspect ratio is always preserved via :meth:`PIL.Image.thumbnail`.
+    Images that already fit within the bounds are returned as-is (no copy).
+    Non-image files (DICOM, NIfTI, CSV, …) are passed through unchanged.
+
+    Args:
+        path: Absolute path to the uploaded file.
+        max_width: Maximum output width in pixels (default: PREVIEW_MAX_SIDE_PX).
+        max_height: Maximum output height in pixels (default: PREVIEW_MAX_SIDE_PX).
+
+    Returns:
+        Path to the (possibly resized) image.  When resizing occurs the
+        returned path points to a new temp file; the original is untouched.
+    """
+    ext = Path(path).suffix.lower()
+    if ext not in _RESIZABLE_IMAGE_EXTENSIONS:
+        return path
+
+    try:
+        with Image.open(path) as opened_img:
+            orig_w, orig_h = opened_img.size
+
+            if orig_w <= max_width and orig_h <= max_height:
+                return path  # already within bounds – no work needed
+
+            # thumbnail() shrinks in-place preserving aspect ratio, never upscales.
+            # Do everything inside the with-block to avoid a full-size copy.
+            opened_img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+
+            # Persist transparency for PNG/WebP; flatten to RGB for JPEG.
+            if ext in (".jpg", ".jpeg"):
+                save_img = opened_img.convert("RGB") if opened_img.mode in ("RGBA", "P", "LA") else opened_img
+                suffix, fmt, save_kw = ".jpg", "JPEG", {"quality": 85, "optimize": True}
+            elif ext == ".webp":
+                save_img, suffix, fmt, save_kw = opened_img, ".webp", "WEBP", {"quality": 85}
+            else:
+                # Preserve original format and extension so downstream format
+                # detection (e.g. detect_ext_token) is not misled by a .png suffix.
+                save_img = opened_img
+                fmt = _PIL_FORMAT_MAP.get(ext, "PNG")
+                suffix = ext if fmt != "PNG" else ".png"
+                save_kw = {}
+
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+            os.close(fd)
+            save_img.save(tmp_path, format=fmt, **save_kw)
+
+            log.debug(
+                "Resized upload %s from %dx%d → %dx%d (saved to %s)",
+                path, orig_w, orig_h, save_img.width, save_img.height, tmp_path,
+            )
+            return tmp_path
+
+    except Exception:
+        log.warning("resize_uploaded_image: could not resize %s; using original", path, exc_info=True)
+        return path
+
 
 def _fingerprint_paths(paths: List[str]) -> tuple[str, ...]:
     fps: list[str] = []
@@ -256,6 +337,7 @@ def create_orthogonal_views(vol3d: np.ndarray, out_png: str | Path) -> str:
 
 def _build_preview_for_vlm(
     image_paths: Optional[List[str]],
+    metadata_paths: Optional[List[str]] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Build an enhanced preview image optimized for VLM analysis.
@@ -265,6 +347,13 @@ def _build_preview_for_vlm(
     - 3D volumes: Create orthogonal multi-view composite
     - 4D data: Extract representative 3D volume, then multi-view
     - Medical images: Ensure proper intensity windowing
+
+    Args:
+        image_paths: Paths used to load and render the preview image.
+        metadata_paths: Paths used for metadata extraction only. When
+            provided, metadata reflects these files (e.g. the originals
+            before resizing) while the rendered preview uses
+            ``image_paths``. Defaults to ``image_paths``.
 
     Returns:
         (preview_path, metadata_text)
@@ -280,7 +369,7 @@ def _build_preview_for_vlm(
 
     meta_text = None
     try:
-        meta_text = summarize_image_metadata(image_paths)
+        meta_text = summarize_image_metadata(metadata_paths or image_paths)
     except Exception:
         log.exception(
             "Image metadata summarization failed; continuing without metadata."

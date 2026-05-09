@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `utils/previews.py`: `resize_uploaded_image()` — server-side image resizing to
+  a configurable maximum (default 500×500 px) with aspect-ratio preservation.
+  PNG/WebP transparency is retained; JPEG output is always RGB.  Non-image files
+  (DICOM, NIfTI, CSV, …) are passed through unchanged.
+- 7 new unit tests for `resize_uploaded_image` covering landscape, portrait,
+  small/exact-bound pass-through, JPEG RGB conversion, non-image pass-through,
+  and custom bound parameters.
+- Chat input now sends the message when **Enter** is pressed (Shift+Enter inserts
+  a newline).  Uses Gradio's built-in `gr.Textbox.submit` event — no custom
+  JavaScript required.
+
+### Changed
+- `ui/components.py`: uploaded image files are resized to ≤500×500 px for
+  the inline chat preview. Original paths are still forwarded to the
+  backend/pipeline for format detection and metadata extraction.
+- `ui/components.py`: `msg_input` textbox and `submit_btn` button no longer
+  carry custom `elem_id` attributes (only needed for the removed JS hook).
+- `ui/components.py`: `submit_btn` is now part of `handle_chat` outputs so
+  Gradio can disable it (`interactive=False`) when processing starts and
+  re-enable it (`interactive=True`) when the response (or error) is returned.
+
+  - `core/chat_state.py` — `ChatState`, `ChatMessage`, `format_stats_markdown`
+  - `core/handlers.py` — `respond()`, `execute_tool_with_approval()`
+  - `core/formatters.py` — `format_tool_card()`
+  - `core/model_config.py` — model configuration lookup (`get_model_config`, `get_available_models`, etc.)
+  - `core/app_setup.py` — logging, pipeline init, tool registration, doc index management
+- `ui/` modules are now thin re-export wrappers for backward compatibility
+- `ui/app.py` retains only Gradio-specific launch logic
+- `cli.py` imports infrastructure from `core.app_setup` instead of `ui.app`
+
 ## [1.0.0]
 
 ### 🚀 Major Features

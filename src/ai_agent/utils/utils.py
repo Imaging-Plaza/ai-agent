@@ -97,7 +97,7 @@ def _best_runnable_link(doc: SoftwareDoc) -> Optional[str]:
 
 
 def _coerce_files_to_paths(files: List[Any]) -> List[str]:
-    """Convert Gradio file objects to paths."""
+    """Convert uploaded file objects (or plain paths) to a list of path strings."""
     if not files:
         return []
 
