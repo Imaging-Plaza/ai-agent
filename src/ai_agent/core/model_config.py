@@ -7,6 +7,8 @@ from ai_agent.utils.config import get_config, get_available_models_config
 
 log = logging.getLogger("core.model_config")
 
+_available_models_cache: Optional[Dict[str, Dict[str, Optional[str]]]] = None
+
 
 def get_agent_model() -> Dict[str, Optional[str]]:
     """
@@ -33,6 +35,10 @@ def get_available_models() -> Dict[str, Dict[str, Optional[str]]]:
         Dictionary mapping display_name -> model config
         Returns minimal default if config not available.
     """
+    global _available_models_cache
+    if _available_models_cache is not None:
+        return _available_models_cache
+
     available_models = get_available_models_config()
 
     model_configs = {}
@@ -59,6 +65,7 @@ def get_available_models() -> Dict[str, Dict[str, Optional[str]]]:
         }
 
     log.info(f"Loaded {len(model_configs)} models from config: {list(model_configs.keys())}")
+    _available_models_cache = model_configs
     return model_configs
 
 

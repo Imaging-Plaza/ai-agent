@@ -27,6 +27,18 @@ _RESIZABLE_IMAGE_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"
 }
 
+# Mapping from extension to PIL format name (preserves original format on resize).
+_PIL_FORMAT_MAP: dict[str, str] = {
+    ".png": "PNG",
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".webp": "WEBP",
+    ".bmp": "BMP",
+    ".gif": "GIF",
+    ".tif": "TIFF",
+    ".tiff": "TIFF",
+}
+
 
 def resize_uploaded_image(
     path: str,
@@ -72,7 +84,11 @@ def resize_uploaded_image(
         elif ext == ".webp":
             suffix, fmt, save_kw = ".webp", "WEBP", {"quality": 85}
         else:
-            suffix, fmt, save_kw = ".png", "PNG", {}
+            # Preserve original format and extension so downstream format
+            # detection (e.g. detect_ext_token) is not misled by a .png suffix.
+            fmt = _PIL_FORMAT_MAP.get(ext, "PNG")
+            suffix = ext if fmt != "PNG" else ".png"
+            save_kw = {}
 
         fd, tmp_path = tempfile.mkstemp(suffix=suffix)
         os.close(fd)
@@ -322,6 +338,7 @@ def create_orthogonal_views(vol3d: np.ndarray, out_png: str | Path) -> str:
 
 def _build_preview_for_vlm(
     image_paths: Optional[List[str]],
+    metadata_paths: Optional[List[str]] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Build an enhanced preview image optimized for VLM analysis.
@@ -331,6 +348,13 @@ def _build_preview_for_vlm(
     - 3D volumes: Create orthogonal multi-view composite
     - 4D data: Extract representative 3D volume, then multi-view
     - Medical images: Ensure proper intensity windowing
+
+    Args:
+        image_paths: Paths used to load and render the preview image.
+        metadata_paths: Paths used for metadata extraction only. When
+            provided, metadata reflects these files (e.g. the originals
+            before resizing) while the rendered preview uses
+            ``image_paths``. Defaults to ``image_paths``.
 
     Returns:
         (preview_path, metadata_text)
@@ -346,7 +370,7 @@ def _build_preview_for_vlm(
 
     meta_text = None
     try:
-        meta_text = summarize_image_metadata(image_paths)
+        meta_text = summarize_image_metadata(metadata_paths or image_paths)
     except Exception:
         log.exception(
             "Image metadata summarization failed; continuing without metadata."

@@ -136,8 +136,8 @@ def test_resize_uploaded_image_large_landscape(tmp_path: Path):
     result = previews.resize_uploaded_image(str(src))
 
     assert result != str(src), "Should write to a new temp file"
-    out_img = Image.open(result)
-    assert out_img.size == (500, 375)
+    with Image.open(result) as out_img:
+        assert out_img.size == (500, 375)
 
 
 def test_resize_uploaded_image_large_portrait(tmp_path: Path):
@@ -148,8 +148,8 @@ def test_resize_uploaded_image_large_portrait(tmp_path: Path):
     result = previews.resize_uploaded_image(str(src))
 
     assert result != str(src)
-    out_img = Image.open(result)
-    assert out_img.size == (375, 500)
+    with Image.open(result) as out_img:
+        assert out_img.size == (375, 500)
 
 
 def test_resize_uploaded_image_already_small_unchanged(tmp_path: Path):
@@ -192,9 +192,9 @@ def test_resize_uploaded_image_jpeg_no_transparency(tmp_path: Path):
     result = previews.resize_uploaded_image(str(src))
 
     assert result != str(src)
-    out_img = Image.open(result)
-    assert out_img.mode == "RGB"
-    assert out_img.size == (500, 375)
+    with Image.open(result) as out_img:
+        assert out_img.mode == "RGB"
+        assert out_img.size == (500, 375)
 
 
 def test_resize_uploaded_image_custom_bounds(tmp_path: Path):
@@ -204,6 +204,6 @@ def test_resize_uploaded_image_custom_bounds(tmp_path: Path):
 
     result = previews.resize_uploaded_image(str(src), max_width=200, max_height=200)
 
-    out_img = Image.open(result)
-    # 1000×500 scaled to fit 200×200: width limited → 200×100
-    assert out_img.size == (200, 100)
+    with Image.open(result) as out_img:
+        # 1000×500 scaled to fit 200×200: width limited → 200×100
+        assert out_img.size == (200, 100)
