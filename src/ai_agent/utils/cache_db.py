@@ -60,10 +60,27 @@ class CacheDB:
     * All values are stored as plain text; callers handle serialisation.
     """
 
+    @staticmethod
+    def _ensure_private_db_file(path: str) -> None:
+        """Ensure an on-disk SQLite DB file is owner-readable/writable only.
+
+        This is a best-effort hardening step for local cache data. For new
+        files, create the file first so we can set restrictive permissions
+        before SQLite opens it. For existing files, tighten permissions.
+        """
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            os.chmod(path, 0o600)
+        else:
+            os.close(fd)
+            os.chmod(path, 0o600)
+
     def __init__(self, db_path: str | Path | None = None) -> None:
         path = str(db_path or _DEFAULT_DB_PATH)
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
+            self._ensure_private_db_file(path)
 
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._lock = threading.Lock()
