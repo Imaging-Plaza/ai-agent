@@ -10,17 +10,32 @@ import pydicom
 from PIL import Image
 import tifffile as tiff
 
-from ai_agent.utils.cache_db import get_cache_db
+from ai_agent.utils.cache_db import CacheDB, get_cache_db
 
 # ---------------------------------------------------------------------------
 # SQLite-backed metadata cache (keyed by resolved-path + mtime + size)
 # Avoids re-reading large files (e.g. TIFF stacks) on every retrieval call.
+#
+# PRIVACY NOTE: DICOM-derived metadata can contain sensitive identifying
+# fields (Study/Series descriptions, institution names, patient context).
+# By default the metadata namespace uses an in-memory-only CacheDB so
+# nothing is written to disk.  Set IMAGE_META_CACHE_PERSIST=1 to opt into
+# on-disk persistence (e.g. for long-running servers with large TIFF stacks).
 # ---------------------------------------------------------------------------
 _META_CACHE_MAX = int(os.getenv("IMAGE_META_CACHE_MAX", "128"))
+_META_CACHE_PERSIST = os.getenv("IMAGE_META_CACHE_PERSIST", "0").strip() == "1"
 
 _META_NS = "meta"
 
 _meta_log = __import__("logging").getLogger("cache_db.meta")
+
+# In-memory-only DB used when persistence is disabled (the default).
+_meta_mem_db: CacheDB | None = None if _META_CACHE_PERSIST else CacheDB(":memory:")
+
+
+def _get_meta_db() -> CacheDB:
+    """Return the CacheDB instance to use for image metadata."""
+    return get_cache_db() if _META_CACHE_PERSIST else _meta_mem_db  # type: ignore[return-value]
 
 
 def _meta_cache_key(p: Path) -> str:
@@ -34,7 +49,7 @@ def _meta_cache_key(p: Path) -> str:
 
 def _meta_cache_get(key: str) -> Optional[str]:
     try:
-        return get_cache_db().get(_META_NS, key)
+        return _get_meta_db().get(_META_NS, key)
     except Exception:
         _meta_log.warning("Metadata cache get failed; skipping cache.", exc_info=True)
         return None
@@ -42,7 +57,7 @@ def _meta_cache_get(key: str) -> Optional[str]:
 
 def _meta_cache_set(key: str, value: str) -> None:
     try:
-        get_cache_db().set(_META_NS, key, value, max_entries=_META_CACHE_MAX)
+        _get_meta_db().set(_META_NS, key, value, max_entries=_META_CACHE_MAX)
     except Exception:
         _meta_log.warning("Metadata cache set failed; continuing without caching.", exc_info=True)
 

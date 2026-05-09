@@ -27,10 +27,26 @@ from typing import Optional
 
 log = logging.getLogger("cache_db")
 
-_DEFAULT_DB_PATH = os.getenv(
-    "CACHE_DB_PATH",
-    str(Path(tempfile.gettempdir()) / "ai_agent_cache.db"),
-)
+
+def _default_db_path() -> str:
+    """Return a per-user cache DB path so different OS users cannot share data.
+
+    On POSIX systems the current UID is embedded in the filename, ensuring
+    each user gets an isolated file under the system temp directory.  The
+    caller can override the path entirely via ``CACHE_DB_PATH``.
+    """
+    env = os.getenv("CACHE_DB_PATH")
+    if env:
+        return env
+    uid_suffix = ""
+    try:
+        uid_suffix = f"_{os.getuid()}"
+    except AttributeError:
+        pass  # Windows — no getuid(); fall back to a single shared filename
+    return str(Path(tempfile.gettempdir()) / f"ai_agent_cache{uid_suffix}.db")
+
+
+_DEFAULT_DB_PATH = _default_db_path()
 
 
 class CacheDB:
@@ -52,6 +68,13 @@ class CacheDB:
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._lock = threading.Lock()
 
+        # Restrict the DB file to the owner only so other OS users cannot
+        # read cached data.  The chmod is best-effort (no-op on Windows).
+        if path != ":memory:":
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                log.warning("Could not set owner-only permissions on cache DB: %s", path)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.executescript(
