@@ -248,15 +248,17 @@ class CacheDB:
         VACUUM must run outside any open transaction; this method handles the
         ``isolation_level`` toggling safely with a ``finally`` guard.
         """
-        self.sweep_expired()
-        with self._lock:
-            previous_isolation_level = self._conn.isolation_level
-            try:
-                self._conn.isolation_level = None
-                self._conn.execute("VACUUM")
-            finally:
-                self._conn.isolation_level = previous_isolation_level
-        self.close()
+        try:
+            self.sweep_expired()
+            with self._lock:
+                previous_isolation_level = self._conn.isolation_level
+                try:
+                    self._conn.isolation_level = None
+                    self._conn.execute("VACUUM")
+                finally:
+                    self._conn.isolation_level = previous_isolation_level
+        finally:
+            self.close()
 
     def close(self) -> None:
         """Close the underlying database connection."""
