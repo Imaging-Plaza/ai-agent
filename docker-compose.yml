@@ -11,6 +11,7 @@ services:
     expose:
       - "7860"
     volumes:
+      - ./data:/home/user/app/data
       - ./dataset:/home/user/app/dataset
       - ./artifacts:/home/user/app/artifacts
       - ./logs:/home/user/app/logs
