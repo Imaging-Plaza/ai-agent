@@ -15,14 +15,36 @@ class FileValidator:
         ".png": "PNG image",
         ".tif": "TIFF image",
         ".tiff": "TIFF image",
+        ".webp": "WebP image",
+        ".bmp": "Bitmap image",
+        ".gif": "GIF image",
         # Medical formats
         ".nii": "NIfTI image",
         ".nii.gz": "Compressed NIfTI image",
         ".dcm": "DICOM image",
+        # Video
+        ".mp4": "MP4 video",
+        ".mov": "QuickTime video",
+        ".webm": "WebM video",
+        ".mkv": "Matroska video",
+        # Audio
+        ".mp3": "MP3 audio",
+        ".wav": "WAV audio",
+        ".ogg": "Ogg audio",
+        ".flac": "FLAC audio",
+        ".m4a": "M4A audio",
+        # Documents
+        ".pdf": "PDF document",
         # Directories
         "dir": "Directory (for DICOM series)",
         # Archives
         ".zip": "ZIP archive (for DICOM series)",
+    }
+
+    NON_IMAGE_EXTENSIONS = {
+        ".mp4", ".mov", ".webm", ".mkv",
+        ".mp3", ".wav", ".ogg", ".flac", ".m4a",
+        ".pdf",
     }
 
     @classmethod
@@ -119,6 +141,8 @@ class FileValidator:
                         errors.append(f"Invalid or corrupted image file: {path}")
                         continue
 
+                # Non-image media (video/audio/pdf) skips imghdr — just accept
+                # the file if its extension is on the known list.
                 valid_paths.append(path)
 
             except Exception as e:

@@ -184,13 +184,8 @@ def process_turn(
         effective_paths = session.last_asset_paths()
         attached_assets = [session.assets[a] for a in session.last_asset_ids if a in session.assets]
 
-    if not effective_paths:
-        text = (
-            "⚠️ Please upload an image first (or re-upload). "
-            "I need at least one image to recommend tools for your data."
-        )
-        session.conversation_history.append(f"Assistant: {text}")
-        return ChatTurnResult(status="error", text=text, error="no_attachments")
+    # Images are optional. When the user hasn't uploaded anything we run the
+    # agent in text-only mode — retrieval still works on the prompt.
 
     # 6) Find the latest preview asset (used as the VLM image)
     preview_asset = session.last_preview()
