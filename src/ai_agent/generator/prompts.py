@@ -79,6 +79,132 @@ def get_selector_system_prompt(num_choices: int = 3) -> str:
     return SELECTOR_SYSTEM.format(num_choices=num_choices)
 
 
+SPARQL_ONTOLOGY = """
+
+==============================================================================
+SPARQL ONTOLOGY CHEATSHEET (use only when calling sparql_query)
+==============================================================================
+
+PREFIXES — always declare what you use:
+  PREFIX schema:  <http://schema.org/>
+  PREFIX imaging: <https://imaging-plaza.epfl.ch/ontology#>
+  PREFIX sd:      <https://w3id.org/okn/o/sd#>
+  PREFIX rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX rdfs:    <http://www.w3.org/2000/01/rdf-schema#>
+
+NAMED GRAPHS:
+  <https://imaging-plaza.epfl.ch/finalGraph>     — production data (USE THIS)
+  <https://imaging-plaza.epfl.ch/ontology#>      — class / property definitions
+  <https://imaging-plaza.epfl.ch/temporaryGraph> — staging (do NOT query)
+
+ENTRY POINT — each tool is one node:
+  ?tool a schema:SoftwareSourceCode .
+  (63 tools in catalog at the time of this writing)
+
+CORE TOOL PREDICATES (frequency-ordered):
+  schema:name                 (string)            tool display name
+  schema:keywords             (string, multi)     free-text tags
+  schema:author               -> schema:Person
+  schema:identifier           (string)
+  schema:affiliation          -> schema:Organization
+  schema:featureList          -> imaging:FeatureEnum   (segmentation, registration, ...)
+  schema:description          (string)
+  schema:url                  (URL)
+  schema:contentUrl           (URL)
+  schema:image                -> schema:ImageObject
+  schema:programmingLanguage  -> schema:ComputerLanguage  (python, c++, ...)
+  schema:citation             (string)
+  schema:codeRepository       (GitHub URL)
+  schema:license              (SPDX URL)
+  schema:dateCreated, schema:datePublished     (date)
+  schema:supportingData       -> schema:DataFeed     (format/modality combos)
+  schema:operatingSystem      (string)
+  schema:isAccessibleForFree  (boolean)
+  schema:softwareRequirements (string)
+  schema:memoryRequirements   (string)
+  schema:applicationCategory  -> imaging:ApplicationCategoryEnum
+  schema:processorRequirements -> imaging:ProcessorRequirementsEnum
+
+IMAGING-PLAZA-SPECIFIC PREDICATES (under imaging: prefix):
+  imaging:imagingModality       -> imaging:ImagingModalityEnum  (CT, MRI, US, ...)
+  imaging:requiresGPU           (boolean)
+  imaging:fairLevel             (integer)        FAIR-compliance score
+  imaging:graph                 (literal)
+  imaging:hasExecutableNotebook -> imaging:ExecutableNotebook
+  imaging:isPluginModuleOf      -> schema:SoftwareSourceCode  (plugin relationships)
+  imaging:relatedToOrganization -> schema:Organization
+
+OTHER CLASSES IN THE GRAPH (counts):
+  schema:Person                (165)  authors
+  schema:ImageObject            (86)  screenshots / previews
+  schema:SoftwareSourceCode     (63)  the tools themselves
+  schema:DataFeed               (63)  supportingData blobs
+  schema:Organization           (36)  authoring institutions
+  imaging:ExecutableNotebook    (26)
+  sd:FundingInformation         (98)
+  sd:SoftwareImage               (4)
+  bio:FormalParameter            (6)
+
+SPARQL PATTERNS:
+
+  # Count tools that need a GPU
+  SELECT (COUNT(?t) AS ?n) WHERE {
+    GRAPH <https://imaging-plaza.epfl.ch/finalGraph> {
+      ?t a schema:SoftwareSourceCode ;
+         imaging:requiresGPU true .
+    }
+  }
+
+  # Distinct imaging modalities present
+  SELECT DISTINCT ?mod WHERE {
+    GRAPH <https://imaging-plaza.epfl.ch/finalGraph> {
+      ?t imaging:imagingModality ?mod .
+    }
+  }
+
+  # Tools by license
+  SELECT ?license (COUNT(?t) AS ?n) WHERE {
+    GRAPH <https://imaging-plaza.epfl.ch/finalGraph> {
+      ?t a schema:SoftwareSourceCode ;
+         schema:license ?license .
+    }
+  } GROUP BY ?license ORDER BY DESC(?n)
+
+  # Free tools that don't need a GPU, with feature
+  SELECT ?name ?feature WHERE {
+    GRAPH <https://imaging-plaza.epfl.ch/finalGraph> {
+      ?t a schema:SoftwareSourceCode ;
+         schema:name ?name ;
+         schema:featureList ?feature ;
+         schema:isAccessibleForFree true .
+      FILTER NOT EXISTS { ?t imaging:requiresGPU true }
+    }
+  }
+
+  # Authors of a specific tool (by name)
+  SELECT ?personName WHERE {
+    GRAPH <https://imaging-plaza.epfl.ch/finalGraph> {
+      ?t schema:name "cellpose" ;
+         schema:author ?p .
+      ?p schema:name ?personName .
+    }
+  }
+
+  # Inspect the schema yourself if uncertain
+  SELECT DISTINCT ?p (COUNT(*) AS ?n) WHERE {
+    GRAPH <https://imaging-plaza.epfl.ch/finalGraph> { ?s ?p ?o }
+  } GROUP BY ?p ORDER BY DESC(?n)
+
+USAGE NOTES:
+  - The tool wraps every SELECT with an automatic LIMIT (default 50, hard
+    max 200). Don't write LIMIT 1000 — it'll be capped.
+  - Booleans in this graph are XSD: use `true` / `false`, not "true"/"false".
+  - When asking for tool names from search_tools output instead of writing
+    SPARQL, prefer search_tools — SPARQL is for structural / aggregate /
+    "find every X with property Y" questions.
+"""
+
+
 def get_agent_system_prompt(
   num_choices: int = 3,
 ) -> str:
@@ -98,11 +224,16 @@ def get_agent_system_prompt(
     "\n\nAVAILABLE TOOLS:\n"
     "- search_tools(query, excluded=[], top_k=...): Initial semantic search (call once per run) with automatic reranking and metadata-aware retrieval hints\n"
     f"- search_alternative(alternative_query, excluded=[], top_k=...): Try different query formulation (up to {max_alternatives} times)\n"
-    "- repo_info_batch(urls): Fetch GitHub repository info for multiple repositories in parallel\n\n"
+    "- repo_info_batch(urls): Fetch GitHub repository info for multiple repositories in parallel\n"
+    "- sparql_query(query, limit=50): Run a read-only SPARQL SELECT/ASK against the imaging-plaza GraphDB. Use ONLY when search_tools cannot answer: aggregates (how many?), distinct property values (which licenses?), structural filters (gpu=true AND free=true), or property existence checks. See the ONTOLOGY CHEATSHEET below for predicates and example queries.\n\n"
     "USAGE PATTERN:\n"
-    "1. search_tools(query) → Get initial candidates\n"
+    "1. search_tools(query) → Get initial candidates for tool recommendations\n"
     "2. [Optional] search_alternative(alternative_query) → Try different terms if needed (do not call search_tools again)\n"
-    "3. repo_info_batch(urls) → Verify finalists before recommending (use one-item list for a single repo)"
+    "3. [Optional] sparql_query(query) → For exact structural/aggregate questions the semantic search can't answer\n"
+    "4. repo_info_batch(urls) → Verify finalists before recommending (use one-item list for a single repo)"
   )
 
-  return (SELECTOR_SYSTEM + tooling).format(num_choices=num_choices)
+  # Append the SPARQL ontology cheatsheet AFTER .format() so we don't have
+  # to escape every curly brace in the SPARQL examples.
+  base = (SELECTOR_SYSTEM + tooling).format(num_choices=num_choices)
+  return base + SPARQL_ONTOLOGY
