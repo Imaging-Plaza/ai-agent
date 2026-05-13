@@ -26,6 +26,7 @@ from .tools.search_alternative_tool import (
     tool_search_alternative,
     SearchAlternativeInput,
 )
+from .tools.sparql_tool import tool_sparql_query, SparqlQueryInput
 from .tools.query_utils import sanitize_retrieval_query
 from .utils import AgentState, limit_tool_calls, cap_prepare
 from ai_agent.utils.image_meta import summarize_image_metadata, detect_ext_token
@@ -192,6 +193,41 @@ async def search_alternative(
     return [c.model_dump(mode="python") for c in out.candidates]
 
 
+@agent.tool(retries=1, prepare=cap_prepare)
+@limit_tool_calls("sparql_query", cap=3)
+async def sparql_query(
+    ctx: RunContext[AgentState],
+    query: str,
+    limit: int = 50,
+) -> dict:
+    """Run a read-only SPARQL SELECT / ASK against the GraphDB catalog.
+
+    Use this for questions the semantic search can't answer cleanly —
+    aggregates ("how many tools support DICOM?"), structural filters
+    ("tools that require a GPU AND are free"), distinct property values
+    ("which licences appear in the catalog?"), etc.
+
+    UPDATE-style operations are rejected. Results capped at `limit` rows
+    (max 200). Returns columns + rows, plus a boolean for ASK queries.
+    """
+    started = time.perf_counter()
+    inp = SparqlQueryInput(query=query, limit=max(1, min(200, int(limit))))
+    out = tool_sparql_query(inp)
+    ctx.deps.tool_calls.append(
+        {
+            "tool": "sparql_query",
+            "query": query[:300],
+            "row_count": out.row_count,
+            "truncated": out.truncated,
+            "boolean": out.boolean,
+            "error": out.error,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
+    return out.model_dump(mode="python")
+
+
 @agent.tool(retries=2, prepare=cap_prepare)
 @limit_tool_calls("repo_info_batch", cap=4)
 async def repo_info_batch(
@@ -289,8 +325,9 @@ def run_agent(
       `image_paths` are used for metadata + tool context only.
     """
     run_started = time.perf_counter()
-    if not image_paths:
-        raise ValueError("run_agent requires at least one image path")
+    # image_paths may now be empty — the agent runs in text-only mode and
+    # skips the VLM. Retrieval still works on the text query alone.
+    image_paths = list(image_paths or [])
 
     tool_logs: List[ToolRunLog] = []
 
@@ -419,6 +456,7 @@ def run_agent(
             agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
             agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
             agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
+            agent_instance.tool(sparql_query, retries=1, prepare=cap_prepare)
 
             with _AGENT_CACHE_LOCK:
                 _AGENT_CACHE[cache_key] = agent_instance
@@ -453,6 +491,7 @@ def run_agent(
             agent_instance.tool(search_tools, retries=2, prepare=cap_prepare)
             agent_instance.tool(search_alternative, retries=2, prepare=cap_prepare)
             agent_instance.tool(repo_info_batch, retries=2, prepare=cap_prepare)
+            agent_instance.tool(sparql_query, retries=1, prepare=cap_prepare)
 
             with _AGENT_CACHE_LOCK:
                 _AGENT_CACHE[cache_key] = agent_instance

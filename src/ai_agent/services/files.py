@@ -22,6 +22,8 @@ from ai_agent.utils.previews import _build_preview_for_vlm
 
 from .sessions import Asset, Session
 
+_NON_IMAGE_EXTS = FileValidator.NON_IMAGE_EXTENSIONS
+
 log = logging.getLogger("services.files")
 
 
@@ -68,23 +70,42 @@ def ingest_files(session: Session, paths: List[str]) -> FileIngestResult:
     if errors:
         return FileIngestResult(assets=[], validation_errors=errors)
 
-    # Build a single multimodal preview that bundles all paths into one PNG
-    # (the existing helper already handles 3D/4D, DICOM, NIfTI, etc.).
+    # Build a single multimodal preview that bundles all image paths into one
+    # PNG. Skip when every file is non-image (video/audio/pdf) — the preview
+    # builder would crash trying to decode them as imagery.
+    image_paths = [
+        p for p in valid_paths if _detect_format(p) not in _NON_IMAGE_EXTS
+    ]
     preview_path = None
     meta_text = None
-    try:
-        preview_path, meta_text = _build_preview_for_vlm(valid_paths)
-    except Exception as e:
-        log.warning("Preview build failed: %r", e)
+    if image_paths:
+        try:
+            preview_path, meta_text = _build_preview_for_vlm(image_paths)
+        except Exception as e:
+            log.warning("Preview build failed: %r", e)
 
     assets: List[Asset] = []
     for path in valid_paths:
+        fmt = _detect_format(path)
+        is_image = fmt not in _NON_IMAGE_EXTS
+        # For non-image assets we still need *some* compact summary the agent
+        # can read — the file size is the safest universal fact.
+        local_meta = meta_text if is_image else None
+        if not is_image:
+            try:
+                size = os.path.getsize(path)
+                local_meta = (
+                    f"{fmt.upper()} file size={size/1024:.1f}KB "
+                    f"name={os.path.basename(path)}"
+                )
+            except Exception:
+                pass
         asset = Asset(
             asset_id=str(uuid.uuid4()),
             path=path,
-            preview_path=preview_path,  # shared composite preview
-            metadata_text=meta_text,
-            original_format=_detect_format(path),
+            preview_path=preview_path if is_image else None,
+            metadata_text=local_meta,
+            original_format=fmt,
             display_name=os.path.basename(path),
         )
         session.assets[asset.asset_id] = asset

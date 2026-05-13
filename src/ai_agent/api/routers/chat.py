@@ -27,7 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sse_starlette.sse import EventSourceResponse
@@ -51,6 +51,21 @@ router = APIRouter(prefix="/api/chat", tags=["chat"], dependencies=[Depends(requ
 
 def _event(name: str, data: Any) -> Dict[str, Any]:
     return {"event": name, "data": json.dumps(data, default=str)}
+
+
+# Status messages emitted on a heartbeat while the (synchronous) agent runs.
+# The list is intentionally aligned with the typical agent timeline:
+# pre-flight -> retrieval -> rerank -> VLM call -> shaping the response.
+_STATUS_BEATS: List[str] = [
+    "analyzing your request…",
+    "searching software catalog…",
+    "ranking candidates against your image…",
+    "consulting the agent — this can take a few seconds…",
+    "fetching repo metadata…",
+    "preparing recommendations…",
+    "still working — large models are slower on first call…",
+]
+_STATUS_HEARTBEAT_SECONDS = 1.6
 
 
 def _stream_result(
@@ -134,6 +149,51 @@ def _resolve_or_error(session_id: str) -> Session:
     return session
 
 
+def _with_heartbeat(
+    session: Session,
+    coro_factory,
+) -> AsyncIterator[Dict[str, Any]]:
+    """Run a blocking callable in a thread; emit ``status`` heartbeats while
+    it executes; then stream the real result.
+
+    ``coro_factory`` is a zero-arg lambda that returns the ``ChatTurnResult``
+    when called from a worker thread.
+    """
+
+    async def gen() -> AsyncIterator[Dict[str, Any]]:
+        yield _event("session", {"session_id": session.session_id})
+        yield _event("status", {"phase": "started", "message": _STATUS_BEATS[0]})
+
+        task = asyncio.create_task(asyncio.to_thread(coro_factory))
+        i = 1
+        while True:
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.shield(task), timeout=_STATUS_HEARTBEAT_SECONDS
+                )
+                break
+            except asyncio.TimeoutError:
+                msg = _STATUS_BEATS[min(i, len(_STATUS_BEATS) - 1)]
+                yield _event(
+                    "status",
+                    {"phase": f"beat_{i}", "message": msg},
+                )
+                i += 1
+
+        # Drain the (now-finished) result through the existing translator,
+        # but skip its leading ``session`` event since we already emitted one.
+        translator = _stream_result(session, result)
+        first = True
+        async for ev in translator:
+            if first and ev.get("event") == "session":
+                first = False
+                continue
+            first = False
+            yield ev
+
+    return gen()
+
+
 @router.post("")
 async def start_chat(
     body: ChatStartBody,
@@ -141,6 +201,11 @@ async def start_chat(
 ):
     store = get_session_store()
     session = store.get_or_create(body.session_id)
+
+    # Restore prior conversation transcript into a fresh server-side session.
+    if body.seed_history and not session.conversation_history:
+        session.conversation_history.extend(body.seed_history)
+
     request = ChatRequest(
         message=body.message,
         asset_ids=list(body.asset_ids),
@@ -148,10 +213,9 @@ async def start_chat(
         top_k=body.top_k,
         num_choices=body.num_choices,
     )
-    # Run the (currently synchronous) agent in a thread so the event loop is
-    # free while it executes. When run_stream lands we can ditch this.
-    result = await asyncio.to_thread(process_turn, session, request, doc_index)
-    return EventSourceResponse(_stream_result(session, result))
+    return EventSourceResponse(
+        _with_heartbeat(session, lambda: process_turn(session, request, doc_index))
+    )
 
 
 @router.post("/{session_id}/approve")
@@ -160,8 +224,9 @@ async def approve(
     doc_index: Dict[str, SoftwareDoc] = Depends(get_doc_index),
 ):
     session = _resolve_or_error(session_id)
-    result = await asyncio.to_thread(approve_pending, session)
-    return EventSourceResponse(_stream_result(session, result))
+    return EventSourceResponse(
+        _with_heartbeat(session, lambda: approve_pending(session))
+    )
 
 
 @router.post("/{session_id}/decline")
@@ -176,12 +241,9 @@ async def confirm_demo(
     session_id: str,
     doc_index: Dict[str, SoftwareDoc] = Depends(get_doc_index),
 ):
-    """Resume a turn that asked the user to confirm running a demo URL.
-
-    Sends an affirmative reply through the normal chat pipeline so the
-    existing pending-demo logic fires.
-    """
+    """Resume a turn that asked the user to confirm running a demo URL."""
     session = _resolve_or_error(session_id)
     request = ChatRequest(message="yes")
-    result = await asyncio.to_thread(process_turn, session, request, doc_index)
-    return EventSourceResponse(_stream_result(session, result))
+    return EventSourceResponse(
+        _with_heartbeat(session, lambda: process_turn(session, request, doc_index))
+    )

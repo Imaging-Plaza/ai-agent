@@ -43,6 +43,9 @@ class AssetResponse(BaseModel):
     original_format: Optional[str] = None
     preview_url: Optional[str] = None
     metadata_text: Optional[str] = None
+    # Unix epoch seconds; populated when the asset was registered. Used by
+    # the gallery to label items with "2h ago", "May 8", etc.
+    created_at: Optional[float] = None
 
 
 class FilesUploadResponse(BaseModel):
@@ -60,6 +63,10 @@ class ChatStartBody(BaseModel):
     model: Optional[str] = None
     top_k: Optional[int] = None
     num_choices: Optional[int] = None
+    # Used by the frontend's "resume" flow: when a stored conversation is
+    # re-opened we send the prior transcript so the agent has context. Only
+    # applied when the server-side session is fresh (no history yet).
+    seed_history: Optional[List[str]] = None
 
 
 class RecommendationOut(BaseModel):
