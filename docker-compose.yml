@@ -20,8 +20,6 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: ai-agent-cloudflared
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TOKEN}
+    command: tunnel --no-autoupdate --url http://ai-agent:7860
     depends_on:
       - ai-agent
