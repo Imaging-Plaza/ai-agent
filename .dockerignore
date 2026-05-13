@@ -4,3 +4,9 @@ __pycache__
 .env
 .env.*
 tests
+
+# Frontend artifacts: copied via the node stage in the multi-stage build,
+# so the python stage never needs the host's node_modules / dist tree.
+src/frontend/node_modules
+src/frontend/dist
+src/frontend/.vite
