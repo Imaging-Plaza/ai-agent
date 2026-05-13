@@ -10,7 +10,7 @@ export default function App() {
     return (
       <div className="splash">
         <div className="splash-logo">IP</div>
-        <p>Loading…</p>
+        <div className="mono">initializing…</div>
       </div>
     );
   }

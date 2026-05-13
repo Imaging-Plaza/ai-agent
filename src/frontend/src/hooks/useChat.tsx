@@ -33,6 +33,7 @@ export type AssistantTurn = {
   id: string;
   role: "assistant";
   text: string;
+  statusMessage: string | null;
   recommendations: Recommendation[];
   pending: PendingAction | null;
   clarification: { question: string; options: string[] } | null;
@@ -51,7 +52,16 @@ export type UserTurn = {
   attachments: { asset_id: string; display_name?: string; preview_url?: string | null }[];
 };
 
-export type Turn = UserTurn | AssistantTurn;
+export type EmbedTurn = {
+  id: string;
+  role: "embed";
+  kind: "image" | "audio" | "video" | "iframe" | "youtube" | "info";
+  src?: string;
+  label?: string;
+  command: string;
+};
+
+export type Turn = UserTurn | AssistantTurn | EmbedTurn;
 
 type StartArgs = {
   message: string;
@@ -59,6 +69,8 @@ type StartArgs = {
   model?: string | null;
   topK?: number | null;
   numChoices?: number | null;
+  /** Only used by the first turn after resuming a stored conversation. */
+  seedHistory?: string[] | null;
 };
 
 export function useChat() {
@@ -91,8 +103,16 @@ export function useChat() {
             case "session":
               setSessionId(ev.data.session_id);
               break;
+            case "status":
+              updateLast((t) => ({ ...t, statusMessage: ev.data.message }));
+              break;
             case "text":
-              updateLast((t) => ({ ...t, text: t.text + ev.data.content }));
+              // Real text arriving — drop the placeholder status line.
+              updateLast((t) => ({
+                ...t,
+                text: t.text + ev.data.content,
+                statusMessage: null,
+              }));
               break;
             case "recommendation":
               updateLast((t) => ({
@@ -153,7 +173,14 @@ export function useChat() {
   );
 
   const send = useCallback(
-    async ({ message, attachments = [], model, topK, numChoices }: StartArgs) => {
+    async ({
+      message,
+      attachments = [],
+      model,
+      topK,
+      numChoices,
+      seedHistory,
+    }: StartArgs) => {
       const userTurn: UserTurn = {
         id: `u-${Date.now()}`,
         role: "user",
@@ -164,6 +191,7 @@ export function useChat() {
         id: `a-${Date.now()}`,
         role: "assistant",
         text: "",
+        statusMessage: "preparing request…",
         recommendations: [],
         pending: null,
         clarification: null,
@@ -185,6 +213,7 @@ export function useChat() {
         model,
         top_k: topK,
         num_choices: numChoices,
+        seed_history: seedHistory ?? undefined,
       };
       try {
         await consumeStream(streamChat("/api/chat", body, ac.signal));
@@ -203,6 +232,7 @@ export function useChat() {
       id: `a-${Date.now()}`,
       role: "assistant",
       text: "",
+      statusMessage: null,
       recommendations: [],
       pending: null,
       clarification: null,
@@ -232,6 +262,7 @@ export function useChat() {
       id: `a-${Date.now()}`,
       role: "assistant",
       text: "",
+      statusMessage: null,
       recommendations: [],
       pending: null,
       clarification: null,
@@ -261,6 +292,7 @@ export function useChat() {
       id: `a-${Date.now()}`,
       role: "assistant",
       text: "",
+      statusMessage: null,
       recommendations: [],
       pending: null,
       clarification: null,
@@ -289,6 +321,18 @@ export function useChat() {
     setBusy(false);
   }, []);
 
+  const reset = useCallback((seedTurns: Turn[] = []) => {
+    setTurns(seedTurns);
+    setSessionId(null);
+    setBusy(false);
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
+
+  const pushTurn = useCallback((turn: Turn) => {
+    setTurns((prev) => [...prev, turn]);
+  }, []);
+
   return {
     turns,
     sessionId,
@@ -299,5 +343,7 @@ export function useChat() {
     decline,
     confirmDemo,
     stop,
+    reset,
+    pushTurn,
   };
 }

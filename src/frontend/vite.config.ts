@@ -26,4 +26,13 @@ export default defineConfig({
     sourcemap: true,
     emptyOutDir: true,
   },
+  worker: {
+    // parakeet.js / onnxruntime-web rely on dynamic imports which the default
+    // IIFE worker format can't emit. ES modules in workers are supported by
+    // every browser we care about (Chrome 80+/Safari 15+/FF 114+).
+    format: "es",
+  },
+  optimizeDeps: {
+    exclude: ["onnxruntime-web", "parakeet.js"],
+  },
 });

@@ -19,24 +19,22 @@ export default function PendingActionPanel({
     return (
       <div className="pending-panel">
         <div className="prompt">
-          {pending.icon || "🚀"} {pending.prompt}
+          ⌁ {pending.prompt}
         </div>
         {pending.image_name && (
-          <div style={{ fontSize: 13, color: "#6b727a" }}>
-            📁 {pending.image_name}
-          </div>
+          <div className="detail">image: {pending.image_name}</div>
         )}
         {pending.demo_url && (
-          <div style={{ fontSize: 13, color: "#6b727a" }}>
-            🔗 <a href={pending.demo_url}>{pending.demo_url}</a>
+          <div className="detail">
+            endpoint: <a href={pending.demo_url}>{pending.demo_url}</a>
           </div>
         )}
         <div className="actions">
           <button className="btn-approve" onClick={onApprove} disabled={busy}>
-            {pending.icon || "🚀"} Run {pending.display_name || pending.tool_name}
+            ↳ run {pending.display_name || pending.tool_name}
           </button>
           <button className="btn-decline" onClick={onDecline} disabled={busy}>
-            Not now
+            cancel
           </button>
         </div>
       </div>
@@ -45,18 +43,18 @@ export default function PendingActionPanel({
 
   return (
     <div className="pending-panel">
-      <div className="prompt">💡 {pending.prompt}</div>
+      <div className="prompt">⌁ {pending.prompt}</div>
       {pending.demo_url && (
-        <div style={{ fontSize: 13, color: "#6b727a" }}>
-          🔗 <a href={pending.demo_url}>{pending.demo_url}</a>
+        <div className="detail">
+          demo: <a href={pending.demo_url}>{pending.demo_url}</a>
         </div>
       )}
       <div className="actions">
         <button className="btn-approve" onClick={onConfirmDemo} disabled={busy}>
-          🚀 Run demo
+          ↳ run demo
         </button>
         <button className="btn-decline" onClick={onDecline} disabled={busy}>
-          Not now
+          cancel
         </button>
       </div>
     </div>

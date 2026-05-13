@@ -1,5 +1,11 @@
+/** Three header chips: model selector, retrieval top_k, and the number of
+ * recommendations the agent should produce. All three use the same
+ * <MenuButton> dropdown for a consistent look.
+ */
+
 import { useEffect, useState } from "react";
 import { api, type ModelOption } from "../lib/api";
+import MenuButton, { type MenuOption } from "./MenuButton";
 
 type Props = {
   value: string | null;
@@ -8,7 +14,18 @@ type Props = {
   onTopK: (k: number) => void;
   numChoices: number;
   onNumChoices: (n: number) => void;
+  sessionId: string | null;
 };
+
+const TOP_K_OPTIONS: MenuOption<number>[] = [4, 6, 8, 12, 16, 24].map((n) => ({
+  value: n,
+  label: String(n),
+}));
+
+const NUM_CHOICES_OPTIONS: MenuOption<number>[] = [1, 2, 3, 5].map((n) => ({
+  value: n,
+  label: String(n),
+}));
 
 export default function ModelPicker({
   value,
@@ -17,6 +34,7 @@ export default function ModelPicker({
   onTopK,
   numChoices,
   onNumChoices,
+  sessionId,
 }: Props) {
   const [models, setModels] = useState<ModelOption[]>([]);
 
@@ -24,43 +42,45 @@ export default function ModelPicker({
     api.models().then(setModels).catch(() => setModels([]));
   }, []);
 
+  const modelOptions: MenuOption<string>[] = [
+    { value: "", label: "default", hint: "config.yaml" },
+    ...models.map((m) => ({
+      value: m.display_name,
+      label: m.display_name,
+      hint: m.provider ?? undefined,
+    })),
+  ];
+
   return (
-    <div className="toolbar">
-      <label>Model:</label>
-      <select
+    <div className="header-controls">
+      <MenuButton<string>
+        label="model"
         value={value ?? ""}
-        onChange={(e) => onChange(e.target.value || null)}
-      >
-        <option value="">(default)</option>
-        {models.map((m) => (
-          <option key={m.display_name} value={m.display_name}>
-            {m.display_name}
-          </option>
-        ))}
-      </select>
-
-      <label>top_k:</label>
-      <select value={topK} onChange={(e) => onTopK(parseInt(e.target.value, 10))}>
-        {[4, 6, 8, 12, 16, 24].map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
-
-      <label>choices:</label>
-      <select
+        options={modelOptions}
+        onChange={(v) => onChange(v || null)}
+        formatValue={(v) => {
+          if (!v) return <em className="muted">default</em>;
+          const trimmed = v.length > 22 ? v.slice(0, 21) + "…" : v;
+          return trimmed;
+        }}
+      />
+      <MenuButton<number>
+        label="top_k"
+        value={topK}
+        options={TOP_K_OPTIONS}
+        onChange={onTopK}
+      />
+      <MenuButton<number>
+        label="choices"
         value={numChoices}
-        onChange={(e) => onNumChoices(parseInt(e.target.value, 10))}
-      >
-        {[1, 2, 3, 5].map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
-
-      <div className="spacer" />
+        options={NUM_CHOICES_OPTIONS}
+        onChange={onNumChoices}
+      />
+      {sessionId && (
+        <span className="session-pill" title="session id">
+          sid:{sessionId.slice(0, 8)}
+        </span>
+      )}
     </div>
   );
 }

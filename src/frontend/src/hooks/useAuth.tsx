@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { api, ApiError } from "../lib/api";
 
 type AuthState =
@@ -6,7 +14,16 @@ type AuthState =
   | { kind: "anonymous"; required: boolean }
   | { kind: "authenticated" };
 
-export function useAuth() {
+type AuthContextValue = {
+  state: AuthState;
+  refresh: () => Promise<void>;
+  login: (password: string) => Promise<void>;
+  logout: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ kind: "loading" });
 
   const refresh = useCallback(async () => {
@@ -16,8 +33,6 @@ export function useAuth() {
         setState({ kind: "authenticated" });
         return;
       }
-      // Required: probe a protected endpoint to learn whether the cookie is
-      // currently valid. Cheap because /api/models is small and cached.
       try {
         await api.models();
         setState({ kind: "authenticated" });
@@ -25,7 +40,6 @@ export function useAuth() {
         if (e instanceof ApiError && e.status === 401) {
           setState({ kind: "anonymous", required: true });
         } else {
-          // Network/etc — treat as anonymous so the login screen shows up.
           setState({ kind: "anonymous", required: true });
         }
       }
@@ -38,22 +52,32 @@ export function useAuth() {
     void refresh();
   }, [refresh]);
 
-  const login = useCallback(
-    async (password: string) => {
-      await api.login(password);
-      setState({ kind: "authenticated" });
-    },
-    [setState]
-  );
+  const login = useCallback(async (password: string) => {
+    await api.login(password);
+    setState({ kind: "authenticated" });
+  }, []);
 
   const logout = useCallback(async () => {
     try {
       await api.logout();
     } catch {
-      // ignore
+      // ignore network errors on logout
     }
     setState({ kind: "anonymous", required: true });
-  }, [setState]);
+  }, []);
 
-  return { state, refresh, login, logout };
+  const value = useMemo<AuthContextValue>(
+    () => ({ state, refresh, login, logout }),
+    [state, refresh, login, logout]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used inside <AuthProvider>");
+  }
+  return ctx;
 }
