@@ -13,6 +13,7 @@ load_dotenv()
 log = logging.getLogger("ai_agent.cli")
 
 from ai_agent.catalog.sync import sync_once
+from ai_agent.utils.shutdown import register as _register_shutdown_hooks
 
 
 def _ui_funcs():
@@ -82,6 +83,7 @@ def run_chat():
     try:
         _, _, _, ensure_logging_initialized = _ui_funcs()
         ensure_logging_initialized()
+        _register_shutdown_hooks()
 
         res = sync_once()
         log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
@@ -117,6 +119,7 @@ def run_chat():
 
 def run_sync():
     try:
+        _register_shutdown_hooks()
         r = sync_once()
         log.info("[sync] %s → %s", r.get("count", "?"), r.get("jsonl_path"))
     except Exception:
