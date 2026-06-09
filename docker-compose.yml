@@ -1,0 +1,25 @@
+services:
+  ai-agent:
+    build: .
+    image: ai-agent:dev
+    container_name: ai-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "7860"
+    expose:
+      - "7860"
+    volumes:
+      - ./data:/home/user/app/data
+      - ./dataset:/home/user/app/dataset
+      - ./artifacts:/home/user/app/artifacts
+      - ./logs:/home/user/app/logs
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ai-agent-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://ai-agent:7860
+    depends_on:
+      - ai-agent
