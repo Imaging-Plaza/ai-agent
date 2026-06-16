@@ -14,7 +14,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import (
     APIRouter,

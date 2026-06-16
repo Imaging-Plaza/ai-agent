@@ -79,3 +79,8 @@ This project is actively developed and maintained by the Imaging Plaza team. Che
 ## License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](https://github.com/imaging-plaza/ai-agent/blob/main/LICENSE) file for details.
+
+
+## Configured Gradio Tools
+
+Runnable Gradio tools are configured in `src/ai_agent/config/gradio_tools.json`, or a path set with `AI_AGENT_GRADIO_TOOLS_CONFIG`. A tool represents a Gradio application and contains one or more endpoints; catalog aliases resolve to a specific endpoint before any pending Run Demo action is created. The React Custom Tools page at `/tools` can validate, save, and reload the active JSON configuration.

@@ -27,20 +27,20 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from ai_agent.agent.agent import run_agent
-from ai_agent.agent.tools.gradio_space_tool import RunExampleInput, tool_run_example
 from ai_agent.agent.tools.mcp import (
     extract_downloads,
     extract_metadata,
     extract_output_field,
     extract_preview,
     get_tool,
+    resolve_catalog_alias,
 )
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.utils.tags import parse_exclusions, strip_tags
 from ai_agent.utils.utils import _is_affirmative
 
 from .files import asset_paths, ingest_files
-from .sessions import Session
+from .sessions import Asset, Session
 
 log = logging.getLogger("services.chat")
 
@@ -79,6 +79,13 @@ class PendingAction:
     image_name: Optional[str] = None
     demo_url: Optional[str] = None
     prompt: str = ""
+    endpoint_id: Optional[str] = None
+    endpoint_display_name: Optional[str] = None
+    recommendation_name: Optional[str] = None
+    recommendation_rank: Optional[int] = None
+    matched_alias: Optional[str] = None
+    api_name: Optional[str] = None
+    required_inputs: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -171,9 +178,11 @@ def process_turn(
         return _execute_pending_demo(session, request.asset_ids)
 
     if session.pending_demo_tool:
-        # Anything that isn't affirmative cancels the pending demo
-        session.pending_demo_tool = None
-        session.pending_demo_url = None
+        # Anything that isn't affirmative cancels the pending demo.
+        _clear_pending(session)
+    elif session.pending_tool_approval:
+        # A fresh user turn replaces stale approval state.
+        _clear_pending(session)
 
     # 5) Resolve attachment paths (default to last upload if none provided)
     if request.asset_ids:
@@ -255,8 +264,7 @@ def decline_pending(session: Session) -> ChatTurnResult:
     """Decline both pending demo and pending tool approval."""
     session.pending_demo_tool = None
     session.pending_demo_url = None
-    session.pending_tool_approval = None
-    session.pending_tool_params = {}
+    _clear_pending(session)
     text = "👍 Got it — I won't run that. Tell me what to try instead."
     session.conversation_history.append(f"Assistant: {text}")
     return ChatTurnResult(status="ok", text=text)
@@ -373,7 +381,8 @@ def _shape_agent_result(
             usage=usage_payload,
         )
 
-    # Recommendations path
+    # Recommendations path. New recommendation results replace stale pending actions.
+    _clear_pending(session)
     session.last_choices = {c["name"]: c for c in choices}
     for c in choices:
         if c.get("name"):
@@ -400,36 +409,11 @@ def _shape_agent_result(
     ]
     text = "\n".join(text_parts)
 
-    # Decide whether the top tool implies a pending action (registry-driven)
-    pending_action: Optional[PendingAction] = None
-    top_name = top["name"]
-    demo_url = top.get("demo_link") or ""
-    tool_config = get_tool(top_name)
-
-    if tool_config and tool_config.requires_approval:
-        image_path = effective_paths[0] if effective_paths else None
-        session.pending_tool_approval = tool_config.name
-        session.pending_tool_params = {
-            "image_path": image_path,
-            "description": f"Recommended by agent: {top.get('why', '')}",
-        }
-        pending_action = PendingAction(
-            type="tool_approval",
-            tool_name=tool_config.name,
-            display_name=tool_config.display_name,
-            icon=tool_config.icon,
-            image_name=os.path.basename(image_path) if image_path else None,
-            demo_url=demo_url or None,
-            prompt=f"Run {tool_config.display_name} on your image?",
-        )
-    elif demo_url:
-        session.pending_demo_tool = top_name
-        session.pending_demo_url = demo_url
-        pending_action = PendingAction(
-            type="demo_confirm",
-            tool_name=top_name,
-            demo_url=demo_url,
-            prompt=f"Would you like me to run the demo for {top_name}?",
+    pending_action = _select_pending_action(session, choices, effective_paths)
+    if pending_action and pending_action.recommendation_rank and pending_action.recommendation_rank > 1:
+        text += (
+            f"\n\nA runnable demo is available for rank {pending_action.recommendation_rank}, "
+            f"{pending_action.recommendation_name}, because higher-ranked recommendations do not have an available configured Gradio endpoint."
         )
 
     session.conversation_history.append(f"Assistant: {text}")
@@ -443,85 +427,82 @@ def _shape_agent_result(
     )
 
 
-def _execute_pending_demo(session: Session, attached_ids: List[str]) -> ChatTurnResult:
-    """Generic-demo flow (no registry entry, just a runnable demo URL)."""
-    tool_name = session.pending_demo_tool
-    demo_url = session.pending_demo_url
-    log.info("User confirmed demo run for %s", tool_name)
-
-    candidate_paths: List[str]
-    if attached_ids:
-        candidate_paths, _ = asset_paths(session, attached_ids)
-    else:
-        candidate_paths = session.last_asset_paths()
-
+def _clear_pending(session: Session) -> None:
     session.pending_demo_tool = None
     session.pending_demo_url = None
+    session.pending_tool_approval = None
+    session.pending_tool_endpoint = None
+    session.pending_recommendation_name = None
+    session.pending_recommendation_rank = None
+    session.pending_catalog_alias = None
+    session.pending_tool_params = {}
 
-    if not candidate_paths:
-        text = "⚠️ No files available. Please upload an image first."
-        session.conversation_history.append(f"Assistant: {text}")
-        return ChatTurnResult(status="error", text=text, error="no_attachments")
 
-    # Prefer TIFF if any
-    pick = next(
-        (
-            p
-            for p in candidate_paths
-            if os.path.splitext(p)[1].lower() in (".tif", ".tiff")
-        ),
-        candidate_paths[0],
-    )
-
-    text = f"🚀 Running demo for **{tool_name}**...\n\n"
-    images: List[str] = []
-    files: List[tuple] = []
-    try:
-        demo_result = tool_run_example(
-            RunExampleInput(
-                tool_name=tool_name,
-                image_path=pick,
-                endpoint_url=demo_url or None,
-            )
+def _select_pending_action(session: Session, choices: List[Dict[str, Any]], effective_paths: List[str]) -> Optional[PendingAction]:
+    image_path = effective_paths[0] if effective_paths else None
+    for rank, choice in enumerate(choices, 1):
+        alias = choice.get("name") or ""
+        tool_config = resolve_catalog_alias(alias)
+        if not tool_config or not tool_config.endpoint:
+            continue
+        if not tool_config.is_runnable():
+            continue
+        required_inputs = [
+            p.name
+            for p in tool_config.endpoint.input_mapping.parameters
+            if p.required and p.source in ("session_file", "image_path")
+        ]
+        if required_inputs and not image_path:
+            continue
+        endpoint_id = tool_config.endpoint.id
+        session.pending_tool_approval = tool_config.name
+        session.pending_tool_endpoint = endpoint_id
+        session.pending_recommendation_name = alias
+        session.pending_recommendation_rank = rank
+        session.pending_catalog_alias = alias
+        session.pending_tool_params = {
+            "endpoint_id": endpoint_id,
+            "image_path": image_path,
+            "description": f"Recommended by agent: {choice.get('why', '')}",
+        }
+        approval = tool_config.endpoint.approval
+        prompt = approval.message or f"Run {tool_config.endpoint.display_name} on your image?"
+        return PendingAction(
+            type="tool_approval",
+            tool_name=tool_config.name,
+            display_name=tool_config.display_name,
+            icon=tool_config.icon,
+            image_name=os.path.basename(image_path) if image_path else None,
+            demo_url=tool_config.gradio_url,
+            prompt=prompt,
+            endpoint_id=endpoint_id,
+            endpoint_display_name=tool_config.endpoint.display_name,
+            recommendation_name=alias,
+            recommendation_rank=rank,
+            matched_alias=alias,
+            api_name=tool_config.api_name,
+            required_inputs=required_inputs,
         )
-        if demo_result.ran and (demo_result.result_preview or demo_result.result_image):
-            preview_path = demo_result.result_preview or demo_result.result_image
-            text += "✅ Demo completed!\n\n"
-            images.append(preview_path)
-            if demo_result.result_origin:
-                files.append((demo_result.result_origin, "Download result"))
-        else:
-            note = demo_result.notes or "No output image returned"
-            text += f"ℹ️ Demo ran but {note}"
+    return None
 
-        session.tool_calls.append(
-            {
-                "tool": "run_example",
-                "tool_name": tool_name,
-                "ran": demo_result.ran,
-                "endpoint_url": demo_result.endpoint_url,
-                "timestamp": datetime.now().isoformat(),
-            }
-        )
-    except Exception as e:
-        log.exception("Demo execution failed")
-        text += f"❌ Error: {e}"
 
+def _execute_pending_demo(session: Session, attached_ids: List[str]) -> ChatTurnResult:
+    """Legacy generic-demo state is no longer executable outside configured Gradio endpoints."""
+    _clear_pending(session)
+    text = "No configured runnable Gradio endpoint is pending."
     session.conversation_history.append(f"Assistant: {text}")
-    return ChatTurnResult(
-        status="tool_executed", text=text, images=images, files=files
-    )
+    return ChatTurnResult(status="ok", text=text)
 
 
 def _execute_registered_tool(
     session: Session, tool_name: str, params: Dict[str, Any]
 ) -> ChatTurnResult:
     """Execute a registered tool that gated on user approval."""
-    tool_config = get_tool(tool_name)
+    endpoint_for_execution = params.get("endpoint_id") or session.pending_tool_endpoint
+    tool_config = get_tool(tool_name, endpoint_for_execution) if endpoint_for_execution else get_tool(tool_name)
     if not tool_config:
         text = f"❌ Error: Unknown tool '{tool_name}'"
-        session.pending_tool_approval = None
-        session.pending_tool_params = {}
+        _clear_pending(session)
         session.conversation_history.append(f"Assistant: {text}")
         return ChatTurnResult(status="error", text=text, error="unknown_tool")
 
@@ -529,6 +510,7 @@ def _execute_registered_tool(
     text = f"{tool_config.icon} Running {tool_config.display_name}...\n\n"
     images: List[str] = []
     files: List[tuple] = []
+    artifact_assets: Dict[str, Asset] = {}
     try:
         # Backfill missing image path from last upload
         if "image_path" in params and not params["image_path"]:
@@ -536,7 +518,14 @@ def _execute_registered_tool(
             if paths:
                 params["image_path"] = paths[0]
 
-        input_obj = tool_config.input_model(**params)
+        endpoint_id = endpoint_for_execution or tool_config.endpoint_id
+        input_obj = tool_config.input_model(
+            tool_id=tool_config.name,
+            endpoint_id=endpoint_id,
+            image_path=params.get("image_path"),
+            description=params.get("description"),
+            params=params.get("params", {}),
+        )
         result = tool_config.executor(input_obj)
 
         success = extract_output_field(result, tool_config.success_field)
@@ -549,6 +538,10 @@ def _execute_registered_tool(
         session.tool_calls.append(
             {
                 "tool": tool_name,
+                "endpoint": params.get("endpoint_id") or session.pending_tool_endpoint,
+                "recommendation": session.pending_recommendation_name,
+                "recommendation_rank": session.pending_recommendation_rank,
+                "matched_alias": session.pending_catalog_alias,
                 "success": success,
                 "compute_time_seconds": compute_time_seconds,
                 "error": error,
@@ -561,10 +554,21 @@ def _execute_registered_tool(
             text += f"✅ {tool_config.display_name} completed!\n\n"
             preview_path = extract_preview(result, tool_name)
             if preview_path and os.path.exists(preview_path):
-                images.append(preview_path)
+                asset = _register_tool_artifact(session, preview_path)
+                if asset and asset.preview_path:
+                    artifact_assets[preview_path] = asset
+                    images.append(_asset_preview_url(asset))
             for dp in extract_downloads(result, tool_name):
                 if os.path.exists(dp):
-                    files.append((dp, f"Download {tool_config.display_name} result"))
+                    asset = artifact_assets.get(dp) or _register_tool_artifact(session, dp)
+                    if asset:
+                        artifact_assets[dp] = asset
+                        files.append(
+                            (
+                                _asset_raw_url(asset),
+                                f"Download {tool_config.display_name} result",
+                            )
+                        )
             metadata = extract_metadata(result, tool_name)
             if metadata:
                 text += f"_{metadata}_\n\n"
@@ -578,14 +582,42 @@ def _execute_registered_tool(
         log.exception("Tool %s execution failed", tool_name)
         text += f"❌ Error: {e}\n\n"
 
-    session.pending_tool_approval = None
-    session.pending_tool_params = {}
+    _clear_pending(session)
     elapsed = time.time() - started
     log.info("Tool %s finished in %.2fs", tool_name, elapsed)
     session.conversation_history.append(f"Assistant: {text}")
     return ChatTurnResult(
         status="tool_executed", text=text, images=images, files=files
     )
+
+
+def _register_tool_artifact(session: Session, path: str) -> Optional[Asset]:
+    """Register a tool output for API serving without changing active inputs."""
+    previous_last_asset_ids = list(session.last_asset_ids)
+    result = None
+    try:
+        result = ingest_files(session, [path])
+    except Exception:
+        log.exception("Tool artifact registration failed for %s", path)
+        return None
+    finally:
+        session.last_asset_ids = previous_last_asset_ids
+        session.touch()
+    if result.validation_errors:
+        log.warning(
+            "Tool artifact validation failed for %s: %s",
+            path,
+            result.validation_errors,
+        )
+    return result.assets[0] if result.assets else None
+
+
+def _asset_preview_url(asset: Asset) -> str:
+    return f"/api/files/preview/{asset.asset_id}"
+
+
+def _asset_raw_url(asset: Asset) -> str:
+    return f"/api/files/asset/{asset.asset_id}/raw"
 
 
 __all__ = [

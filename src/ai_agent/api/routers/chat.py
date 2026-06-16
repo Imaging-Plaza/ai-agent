@@ -118,6 +118,13 @@ def _stream_result(
                     "image_name": pa.image_name,
                     "demo_url": pa.demo_url,
                     "prompt": pa.prompt,
+                    "endpoint_id": pa.endpoint_id,
+                    "endpoint_display_name": pa.endpoint_display_name,
+                    "recommendation_name": pa.recommendation_name,
+                    "recommendation_rank": pa.recommendation_rank,
+                    "matched_alias": pa.matched_alias,
+                    "api_name": pa.api_name,
+                    "required_inputs": pa.required_inputs,
                 },
             )
 

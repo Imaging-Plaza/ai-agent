@@ -11,6 +11,15 @@ from .registry import (
     get_tool,
     register_tool,
     list_tools,
+    initialize_registry,
+    reload_registry,
+    resolve_catalog_alias,
+    active_config_json,
+    active_config_path,
+    validate_config_payload,
+    save_config_payload,
+    GRADIO_TOOLS_CONFIG_ENV,
+    RegistryValidationError,
     get_tool_display_name,
     get_tool_icon,
     extract_preview,
@@ -29,6 +38,15 @@ __all__ = [
     "get_tool",
     "register_tool",
     "list_tools",
+    "initialize_registry",
+    "reload_registry",
+    "resolve_catalog_alias",
+    "active_config_json",
+    "active_config_path",
+    "validate_config_payload",
+    "save_config_payload",
+    "GRADIO_TOOLS_CONFIG_ENV",
+    "RegistryValidationError",
     "get_tool_display_name",
     "get_tool_icon",
     "extract_preview",
@@ -44,10 +62,5 @@ __all__ = [
 
 
 def ensure_mcp_tools_registered():
-    """
-    Import all MCP tools to trigger their registration.
-    Call this once at app startup.
-    """
-    from importlib import import_module
-
-    import_module("ai_agent.agent.tools.mcp.lungs_segmentation_tool")
+    """Load configured Gradio tools into the shared registry."""
+    initialize_registry()

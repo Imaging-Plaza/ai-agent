@@ -52,6 +52,10 @@ class ChatState:
 
     # Tool approval system
     pending_tool_approval: Optional[str] = None  # Tool name waiting for approval
+    pending_tool_endpoint: Optional[str] = None
+    pending_recommendation_name: Optional[str] = None
+    pending_recommendation_rank: Optional[int] = None
+    pending_catalog_alias: Optional[str] = None
     pending_tool_params: Dict[str, Any] = field(default_factory=dict)  # Tool parameters
     agent_result: Optional[Dict[str, Any]] = (
         None  # Cached agent result before tool execution
@@ -70,6 +74,10 @@ class ChatState:
             "last_files": self.last_files,
             "last_image_meta": self.last_image_meta,
             "pending_tool_approval": self.pending_tool_approval,
+            "pending_tool_endpoint": self.pending_tool_endpoint,
+            "pending_recommendation_name": self.pending_recommendation_name,
+            "pending_recommendation_rank": self.pending_recommendation_rank,
+            "pending_catalog_alias": self.pending_catalog_alias,
             "pending_tool_params": self.pending_tool_params,
             "agent_result": self.agent_result,
         }
@@ -90,6 +98,10 @@ class ChatState:
             last_files=d.get("last_files", []),
             last_image_meta=d.get("last_image_meta"),
             pending_tool_approval=d.get("pending_tool_approval"),
+            pending_tool_endpoint=d.get("pending_tool_endpoint"),
+            pending_recommendation_name=d.get("pending_recommendation_name"),
+            pending_recommendation_rank=d.get("pending_recommendation_rank"),
+            pending_catalog_alias=d.get("pending_catalog_alias"),
             pending_tool_params=d.get("pending_tool_params", {}),
             agent_result=d.get("agent_result"),
         )

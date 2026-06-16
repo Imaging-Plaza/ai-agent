@@ -88,6 +88,14 @@ LOG_PROMPTS=0         # Set to 1 to save prompt snapshots for debugging
 CONFIG_PATH=config.yaml
 ```
 
+
+
+### Configured Gradio Tools
+
+Runnable Gradio integrations are loaded from `src/ai_agent/config/gradio_tools.json`. Set `AI_AGENT_GRADIO_TOOLS_CONFIG=/path/to/gradio_tools.json` to use a writable deployment-specific file. The configuration models Gradio applications separately from their callable endpoints, so one Gradio app can expose multiple catalog-matched operations without adding Python modules.
+
+In the React app, open `/tools` to view, validate, import/export, save, and reload the active Gradio tools JSON. Secrets are not stored in the JSON; use environment-variable names such as `HF_TOKEN` or `HUGGINGFACE_TOKEN` under `auth.token_envs`.
+
 ### Model Configuration
 
 The agent model can be configured via `config.yaml`:

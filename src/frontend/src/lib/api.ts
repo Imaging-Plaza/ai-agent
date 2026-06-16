@@ -31,6 +31,25 @@ export type Health = {
   sessions: number;
 };
 
+export type GradioToolsRead = {
+  config: Record<string, any>;
+  path: string;
+  override_env: string;
+};
+
+export type GradioToolsValidation = {
+  ok: boolean;
+  errors: string[];
+};
+
+export type GradioToolsSave = {
+  ok: boolean;
+  path: string;
+  reloaded: boolean;
+  restart_required: boolean;
+  errors: string[];
+};
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -74,6 +93,14 @@ export const api = {
   // Catalog / models / health
   models: () => jsonGet<ModelOption[]>("/api/models"),
   healthz: () => jsonGet<Health>("/api/healthz"),
+
+  // Gradio tools
+  gradioTools: () => jsonGet<GradioToolsRead>("/api/gradio-tools"),
+  validateGradioTools: (config: Record<string, any>) =>
+    jsonPost<GradioToolsValidation>("/api/gradio-tools/validate", { config }),
+  saveGradioTools: (config: Record<string, any>) =>
+    jsonPost<GradioToolsSave>("/api/gradio-tools/save", { config }),
+  reloadGradioTools: () => jsonPost<GradioToolsSave>("/api/gradio-tools/reload", {}),
 
   // Files
   uploadFiles: async (files: File[], sessionId?: string): Promise<UploadResponse> => {

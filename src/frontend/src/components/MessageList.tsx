@@ -186,6 +186,21 @@ export default function MessageList({
                   </div>
                 )}
 
+                {t.files.length > 0 && (
+                  <div className="result-files">
+                    {t.files.map((file) => (
+                      <a
+                        key={file.path}
+                        className="result-file"
+                        href={file.path}
+                        download
+                      >
+                        {file.label || "Download result"}
+                      </a>
+                    ))}
+                  </div>
+                )}
+
                 {t.recommendations.length > 0 && (
                   <>
                     <div className="rec-divider">recommendations</div>

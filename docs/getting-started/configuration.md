@@ -148,6 +148,55 @@ SOFTWARE_CATALOG=dataset/catalog.jsonl
 
 The catalog should be in JSONL format following the schema.org SoftwareSourceCode structure.
 
+
+
+## Configured Gradio Tools
+
+Supported runnable Gradio tools are defined in one JSON file. The packaged default is:
+
+```text
+src/ai_agent/config/gradio_tools.json
+```
+
+At runtime, override it with:
+
+```dotenv
+AI_AGENT_GRADIO_TOOLS_CONFIG=/absolute/path/to/gradio_tools.json
+```
+
+Use the override for editable deployments where the Custom Tools UI should save changes. The JSON file stores metadata and environment-variable names only; do not put API keys, tokens, passwords, or secret values in it.
+
+A Gradio tool represents one logical Gradio application. Each tool has one or more endpoints. A single-endpoint tool still uses an `endpoints` list with one entry. Tool-level aliases resolve through `default_endpoint`; endpoint-level aliases resolve directly to that endpoint and are preferred for multi-operation Gradio apps.
+
+Common tool fields:
+
+- `id`, `display_name`, `description`, `icon`, `enabled`
+- `gradio_url`
+- `auth.token_env` or `auth.token_envs`
+- `catalog_aliases`
+- `default_endpoint`
+- `timeout_seconds`, `max_download_bytes`
+- `notes`, `metadata`
+- `endpoints`
+
+Common endpoint fields:
+
+- `id`, `display_name`, `description`, `enabled`
+- `api_name`
+- `catalog_aliases`
+- `supported_input_types`
+- `input_mapping.parameters`
+- `output_mapping.original`, `output_mapping.preview`
+- `approval.required`, `approval.title`, `approval.message`
+- `demo.available`
+- endpoint-specific `timeout_seconds` and `max_download_bytes`
+
+Supported input parameter sources are `session_file`, `image_path`, `description`, `literal`, and `param`. File inputs can be wrapped with `gradio_client.handle_file` by setting `as_gradio_file` to `true`.
+
+Output selectors support `first`, `root`, dotted dictionary paths such as `result.file`, and numeric list indexes such as `0.path`. Materialized outputs are downloaded safely with the configured size limit. Preview generation failures do not fail the whole tool execution.
+
+The React app exposes a Custom Tools page at `/tools`. It lets authenticated users view the tool/endpoint hierarchy, edit or import/export the JSON, validate it server-side, save it atomically, and reload the active registry. Failed validation does not replace the active file; failed reload preserves the previous active registry.
+
 ## Verification
 
 After configuring, verify your setup:

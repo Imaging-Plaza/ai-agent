@@ -69,6 +69,10 @@ class Session:
     pending_demo_tool: Optional[str] = None
     pending_demo_url: Optional[str] = None
     pending_tool_approval: Optional[str] = None
+    pending_tool_endpoint: Optional[str] = None
+    pending_recommendation_name: Optional[str] = None
+    pending_recommendation_rank: Optional[int] = None
+    pending_catalog_alias: Optional[str] = None
     pending_tool_params: Dict[str, Any] = field(default_factory=dict)
 
     def touch(self) -> None:

@@ -27,6 +27,13 @@ export type PendingAction = {
   image_name?: string | null;
   demo_url?: string | null;
   prompt: string;
+  endpoint_id?: string | null;
+  endpoint_display_name?: string | null;
+  recommendation_name?: string | null;
+  recommendation_rank?: number | null;
+  matched_alias?: string | null;
+  api_name?: string | null;
+  required_inputs?: string[];
 };
 
 export type AssistantTurn = {

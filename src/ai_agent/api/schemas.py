@@ -86,6 +86,13 @@ class PendingActionOut(BaseModel):
     image_name: Optional[str] = None
     demo_url: Optional[str] = None
     prompt: str = ""
+    endpoint_id: Optional[str] = None
+    endpoint_display_name: Optional[str] = None
+    recommendation_name: Optional[str] = None
+    recommendation_rank: Optional[int] = None
+    matched_alias: Optional[str] = None
+    api_name: Optional[str] = None
+    required_inputs: List[str] = Field(default_factory=list)
 
 
 class ClarificationOut(BaseModel):

@@ -24,6 +24,12 @@ export default function PendingActionPanel({
         {pending.image_name && (
           <div className="detail">image: {pending.image_name}</div>
         )}
+        {pending.endpoint_display_name && (
+          <div className="detail">endpoint: {pending.endpoint_display_name}</div>
+        )}
+        {pending.recommendation_rank && (
+          <div className="detail">recommendation: #{pending.recommendation_rank} {pending.recommendation_name}</div>
+        )}
         {pending.demo_url && (
           <div className="detail">
             endpoint: <a href={pending.demo_url}>{pending.demo_url}</a>
@@ -31,7 +37,7 @@ export default function PendingActionPanel({
         )}
         <div className="actions">
           <button className="btn-approve" onClick={onApprove} disabled={busy}>
-            ↳ run {pending.display_name || pending.tool_name}
+            ↳ run {pending.endpoint_display_name || pending.display_name || pending.tool_name}
           </button>
           <button className="btn-decline" onClick={onDecline} disabled={busy}>
             cancel

@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "id": "lungs_segmentation",
+      "display_name": "3D Lungs Segmentation",
+      "description": "Run 3D lungs segmentation on CT images through a Gradio Space.",
+      "icon": "L",
+      "enabled": true,
+      "gradio_url": "https://qchapp-3d-lungs-segmentation.hf.space/",
+      "auth": {
+        "token_envs": [
+          "HF_TOKEN",
+          "HUGGINGFACE_TOKEN"
+        ],
+        "required": false
+      },
+      "catalog_aliases": [
+        "lungs-segmentation"
+      ],
+      "default_endpoint": "segment",
+      "timeout_seconds": 300.0,
+      "max_download_bytes": 1073741824,
+      "notes": "The Space should return a downloadable file or a Gradio FileData URL.",
+      "metadata": {},
+      "endpoints": [
+        {
+          "id": "segment",
+          "display_name": "Segment Lungs",
+          "description": "Segment lungs from an uploaded CT image or volume.",
+          "api_name": "/segment",
+          "enabled": true,
+          "catalog_aliases": [
+            "lungs-segmentation",
+            "3d-lungs-segmentation"
+          ],
+          "supported_input_types": [
+            "image",
+            "file",
+            "volume"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_obj",
+                "source": "session_file",
+                "required": true,
+                "as_gradio_file": true
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "approval": {
+            "required": true,
+            "title": "Run 3D Lungs Segmentation",
+            "message": "Run the Segment Lungs endpoint on your uploaded image?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {}
+        }
+      ]
+    }
+  ]
+}
