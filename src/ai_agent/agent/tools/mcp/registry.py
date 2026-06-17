@@ -69,6 +69,7 @@ class InputParameter(BaseModel):
     required: bool = True
     value: Any = None
     param: Optional[str] = None
+    file_index: int = 0
     as_gradio_file: bool = True
 
     @field_validator("name")
@@ -77,6 +78,13 @@ class InputParameter(BaseModel):
         if not value.strip():
             raise ValueError("input parameter name cannot be empty")
         return value.strip()
+
+    @field_validator("file_index")
+    @classmethod
+    def _valid_file_index(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("file_index must be zero or greater")
+        return value
 
 
 class InputMapping(BaseModel):
@@ -291,6 +299,7 @@ class GenericGradioInput(BaseModel):
     tool_id: str
     endpoint_id: str
     image_path: Optional[str] = None
+    image_paths: List[str] = Field(default_factory=list)
     description: Optional[str] = None
     params: Dict[str, Any] = Field(default_factory=dict)
 
@@ -445,6 +454,29 @@ def get_tool(name: str, endpoint_id: Optional[str] = None) -> Optional[ToolConfi
 
 def resolve_catalog_alias(alias: str) -> Optional[ToolConfig]:
     return get_tool(alias)
+
+
+def alias_is_tool_level(alias: str, tool: ToolConfig) -> bool:
+    if not tool.gradio:
+        return False
+    normalized = _normalize_alias(alias)
+    return normalized == _normalize_alias(tool.name) or normalized in {
+        _normalize_alias(a) for a in tool.gradio.catalog_aliases
+    }
+
+
+def list_tool_endpoints(tool_name: str) -> List[ToolConfig]:
+    initialize_registry()
+    with _LOCK:
+        tool = TOOL_REGISTRY.get(tool_name)
+        if not tool or not tool.gradio:
+            return []
+        endpoints: List[ToolConfig] = []
+        for endpoint in tool.gradio.endpoints:
+            config = TOOL_REGISTRY.get(_registry_key(tool.name, endpoint.id))
+            if config:
+                endpoints.append(config)
+        return endpoints
 
 
 def list_tools() -> List[str]:

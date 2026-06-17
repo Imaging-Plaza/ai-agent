@@ -73,6 +73,253 @@
           "metadata": {}
         }
       ]
+    },
+    {
+      "id": "pystackreg",
+      "display_name": "PyStackReg",
+      "description": "Register microscopy or image stacks with PyStackReg through a Gradio Space.",
+      "icon": "P",
+      "enabled": true,
+      "gradio_url": "https://qchapp-pystackreg-app.hf.space/",
+      "auth": {
+        "token_envs": [
+          "HF_TOKEN",
+          "HUGGINGFACE_TOKEN"
+        ],
+        "required": false
+      },
+      "catalog_aliases": [
+        "pystackreg",
+        "py-stack-reg",
+        "stackreg"
+      ],
+      "default_endpoint": "intra_stack_align",
+      "timeout_seconds": 300.0,
+      "max_download_bytes": 1073741824,
+      "notes": "PyStackReg endpoints return registered stacks as downloadable files.",
+      "metadata": {},
+      "endpoints": [
+        {
+          "id": "intra_stack_align",
+          "display_name": "Intra-stack Align",
+          "description": "Align frames within one uploaded stack, optionally using an external reference stack.",
+          "api_name": "/intra_stack_align",
+          "enabled": true,
+          "catalog_aliases": [
+            "pystackreg-intra-stack",
+            "intra-stack-registration",
+            "same-stack-registration",
+            "stack-drift-correction",
+            "stabilize-stack"
+          ],
+          "supported_input_types": [
+            "image",
+            "file",
+            "stack",
+            "tiff"
+          ],
+          "input_mapping": {
+            "call_style": "positional",
+            "parameters": [
+              {
+                "name": "stack_file",
+                "source": "session_file",
+                "file_index": 0,
+                "required": true,
+                "as_gradio_file": true
+              },
+              {
+                "name": "reference_frame",
+                "source": "literal",
+                "value": 0,
+                "required": true,
+                "as_gradio_file": false
+              },
+              {
+                "name": "external_reference_stack",
+                "source": "session_file",
+                "file_index": 1,
+                "required": false,
+                "as_gradio_file": true
+              },
+              {
+                "name": "external_reference_frame",
+                "source": "literal",
+                "value": 0,
+                "required": true,
+                "as_gradio_file": false
+              },
+              {
+                "name": "transformation_mode",
+                "source": "literal",
+                "value": "RIGID_BODY",
+                "required": true,
+                "as_gradio_file": false
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "4",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "2",
+              "materialize": true,
+              "build_preview": false
+            }
+          },
+          "approval": {
+            "required": true,
+            "title": "Run PyStackReg Intra-stack Align",
+            "message": "Run PyStackReg intra-stack alignment on your uploaded stack?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {}
+        },
+        {
+          "id": "reference_align",
+          "display_name": "Reference Align",
+          "description": "Register a moving stack to a separate reference stack.",
+          "api_name": "/reference_align",
+          "enabled": true,
+          "catalog_aliases": [
+            "pystackreg-reference-align",
+            "reference-based-registration",
+            "register-moving-stack-to-reference",
+            "align-to-reference-stack"
+          ],
+          "supported_input_types": [
+            "image",
+            "file",
+            "stack",
+            "tiff"
+          ],
+          "input_mapping": {
+            "call_style": "positional",
+            "parameters": [
+              {
+                "name": "reference_stack",
+                "source": "session_file",
+                "file_index": 0,
+                "required": true,
+                "as_gradio_file": true
+              },
+              {
+                "name": "moving_stack",
+                "source": "session_file",
+                "file_index": 1,
+                "required": true,
+                "as_gradio_file": true
+              },
+              {
+                "name": "transformation_mode",
+                "source": "literal",
+                "value": "RIGID_BODY",
+                "required": true,
+                "as_gradio_file": false
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "4",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "2",
+              "materialize": true,
+              "build_preview": false
+            }
+          },
+          "approval": {
+            "required": true,
+            "title": "Run PyStackReg Reference Align",
+            "message": "Run PyStackReg reference-based alignment with your uploaded stacks?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {}
+        },
+        {
+          "id": "frame_to_frame_align",
+          "display_name": "Frame-to-frame Align",
+          "description": "Register one frame in a stack to another frame from the same uploaded stack.",
+          "api_name": "/frame_to_frame_align",
+          "enabled": true,
+          "catalog_aliases": [
+            "pystackreg-frame-to-frame",
+            "frame-to-frame-registration",
+            "register-frame-to-frame",
+            "align-two-frames"
+          ],
+          "supported_input_types": [
+            "image",
+            "file",
+            "stack",
+            "tiff"
+          ],
+          "input_mapping": {
+            "call_style": "positional",
+            "parameters": [
+              {
+                "name": "stack_file",
+                "source": "session_file",
+                "file_index": 0,
+                "required": true,
+                "as_gradio_file": true
+              },
+              {
+                "name": "reference_frame",
+                "source": "literal",
+                "value": 0,
+                "required": true,
+                "as_gradio_file": false
+              },
+              {
+                "name": "moving_frame",
+                "source": "literal",
+                "value": 1,
+                "required": true,
+                "as_gradio_file": false
+              },
+              {
+                "name": "transformation_mode",
+                "source": "literal",
+                "value": "RIGID_BODY",
+                "required": true,
+                "as_gradio_file": false
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "1",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "0",
+              "materialize": true,
+              "build_preview": false
+            }
+          },
+          "approval": {
+            "required": true,
+            "title": "Run PyStackReg Frame-to-frame Align",
+            "message": "Run PyStackReg frame-to-frame alignment on your uploaded stack?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {}
+        }
+      ]
     }
   ]
 }

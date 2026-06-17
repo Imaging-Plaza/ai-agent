@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Endpoint-aware Gradio execution with JSON-defined input/output mappings, approval metadata, safe downloads, previews, and alias validation.
 - Authenticated `/api/gradio-tools` endpoints and a React `/tools` Custom Tools JSON editor for viewing, validating, saving, importing, exporting, and reloading Gradio tool configuration.
 - Form-based Custom Tools UI for adding Gradio tools and endpoints while preserving JSON import/export workflows.
+- Request-aware endpoint selection for multi-endpoint Gradio tools, plus a configured PyStackReg tool with intra-stack, stack-to-stack reference, and frame-to-frame alignment endpoints.
 
 ### Fixed
 - Recommendation demo offers now scan ranked recommendations for the first runnable configured endpoint and avoid creating stale pending actions when no endpoint is runnable.

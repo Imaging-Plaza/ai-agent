@@ -109,7 +109,8 @@ def _build_inputs(tool, inp: GenericGradioInput) -> tuple[list[Any], Dict[str, A
     for param in tool.endpoint.input_mapping.parameters:
         value: Any
         if param.source in ("session_file", "image_path"):
-            value = inp.image_path
+            image_paths = inp.image_paths or ([inp.image_path] if inp.image_path else [])
+            value = image_paths[param.file_index] if param.file_index < len(image_paths) else None
             if param.required and not value:
                 raise ValueError(f"Missing required input {param.name!r}: no uploaded file is available")
             if value and param.as_gradio_file:

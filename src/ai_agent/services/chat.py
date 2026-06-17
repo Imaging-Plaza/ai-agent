@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -28,11 +29,13 @@ from typing import Any, Dict, List, Literal, Optional
 
 from ai_agent.agent.agent import run_agent
 from ai_agent.agent.tools.mcp import (
+    alias_is_tool_level,
     extract_downloads,
     extract_metadata,
     extract_output_field,
     extract_preview,
     get_tool,
+    list_tool_endpoints,
     resolve_catalog_alias,
 )
 from ai_agent.retriever.software_doc import SoftwareDoc
@@ -93,6 +96,13 @@ class Clarification:
     question: str
     context: Optional[str] = None
     options: List[str] = field(default_factory=list)
+
+
+@dataclass
+class EndpointSelection:
+    tool: Any
+    score: float
+    reason: str = ""
 
 
 @dataclass
@@ -240,7 +250,9 @@ def process_turn(
     except Exception as e:
         return _format_runtime_error(e, session)
 
-    return _shape_agent_result(session, agent_result, doc_index, effective_paths)
+    return _shape_agent_result(
+        session, agent_result, doc_index, effective_paths, clean_message
+    )
 
 
 def approve_pending(session: Session) -> ChatTurnResult:
@@ -324,6 +336,7 @@ def _shape_agent_result(
     agent_result,
     doc_index: Dict[str, SoftwareDoc],
     effective_paths: List[str],
+    request_text: str = "",
 ) -> ChatTurnResult:
     """Translate an ``AgentToolSelection`` into a ``ChatTurnResult``."""
     legacy = agent_result.to_legacy_dict()
@@ -409,7 +422,9 @@ def _shape_agent_result(
     ]
     text = "\n".join(text_parts)
 
-    pending_action = _select_pending_action(session, choices, effective_paths)
+    pending_action = _select_pending_action(
+        session, choices, effective_paths, request_text
+    )
     if pending_action and pending_action.recommendation_rank and pending_action.recommendation_rank > 1:
         text += (
             f"\n\nA runnable demo is available for rank {pending_action.recommendation_rank}, "
@@ -438,13 +453,26 @@ def _clear_pending(session: Session) -> None:
     session.pending_tool_params = {}
 
 
-def _select_pending_action(session: Session, choices: List[Dict[str, Any]], effective_paths: List[str]) -> Optional[PendingAction]:
+def _select_pending_action(
+    session: Session,
+    choices: List[Dict[str, Any]],
+    effective_paths: List[str],
+    request_text: str = "",
+) -> Optional[PendingAction]:
     image_path = effective_paths[0] if effective_paths else None
     for rank, choice in enumerate(choices, 1):
         alias = choice.get("name") or ""
         tool_config = resolve_catalog_alias(alias)
         if not tool_config or not tool_config.endpoint:
             continue
+        endpoint_selection = _select_endpoint_for_choice(
+            tool_config=tool_config,
+            alias=alias,
+            choice=choice,
+            request_text=request_text,
+            file_count=len(effective_paths),
+        )
+        tool_config = endpoint_selection.tool
         if not tool_config.is_runnable():
             continue
         required_inputs = [
@@ -463,6 +491,7 @@ def _select_pending_action(session: Session, choices: List[Dict[str, Any]], effe
         session.pending_tool_params = {
             "endpoint_id": endpoint_id,
             "image_path": image_path,
+            "image_paths": list(effective_paths),
             "description": f"Recommended by agent: {choice.get('why', '')}",
         }
         approval = tool_config.endpoint.approval
@@ -484,6 +513,188 @@ def _select_pending_action(session: Session, choices: List[Dict[str, Any]], effe
             required_inputs=required_inputs,
         )
     return None
+
+
+def _select_endpoint_for_choice(
+    *,
+    tool_config,
+    alias: str,
+    choice: Dict[str, Any],
+    request_text: str,
+    file_count: int,
+) -> EndpointSelection:
+    if not alias_is_tool_level(alias, tool_config):
+        return EndpointSelection(tool=tool_config, score=999.0, reason="endpoint alias")
+
+    candidates = [
+        t
+        for t in list_tool_endpoints(tool_config.name)
+        if t.endpoint and t.is_runnable() and _required_file_count(t) <= file_count
+    ]
+    if len(candidates) <= 1:
+        return EndpointSelection(
+            tool=candidates[0] if candidates else tool_config,
+            score=0.0,
+            reason="single endpoint",
+        )
+
+    text = " ".join(
+        str(x or "")
+        for x in (
+            request_text,
+            choice.get("why"),
+            choice.get("context"),
+            choice.get("name"),
+        )
+    )
+    scored = sorted(
+        (
+            EndpointSelection(
+                tool=candidate,
+                score=_score_endpoint(candidate, text, file_count),
+                reason="request match",
+            )
+            for candidate in candidates
+        ),
+        key=lambda item: item.score,
+        reverse=True,
+    )
+    best = scored[0]
+    runner_up = scored[1].score if len(scored) > 1 else 0.0
+    default_id = tool_config.endpoint_id
+
+    if best.score >= 2.0 and best.score - runner_up >= 0.75:
+        return best
+    if default_id:
+        default = next((c for c in candidates if c.endpoint_id == default_id), None)
+        if default:
+            return EndpointSelection(tool=default, score=0.0, reason="default endpoint")
+    return best
+
+
+def _score_endpoint(tool_config, request_text: str, file_count: int) -> float:
+    endpoint = tool_config.endpoint
+    if not endpoint:
+        return 0.0
+    text = _normalize_match_text(request_text)
+    corpus = _endpoint_match_corpus(tool_config)
+    score = 0.0
+
+    request_tokens = _tokenize_for_match(text)
+    corpus_tokens = _tokenize_for_match(corpus)
+    score += len(request_tokens & corpus_tokens) * 0.4
+
+    for alias in endpoint.catalog_aliases:
+        alias_text = _normalize_match_text(alias)
+        if alias_text and alias_text in text:
+            score += 3.0
+
+    endpoint_key = _normalize_match_text(
+        " ".join([endpoint.id, endpoint.display_name, endpoint.description or ""])
+    )
+    if any(p in text for p in ("frame to frame", "frame-to-frame", "moving frame")):
+        if "frame" in endpoint_key:
+            score += 4.0
+        if "stack" in endpoint_key and "frame" not in endpoint.id:
+            score -= 1.0
+
+    if any(
+        p in text
+        for p in (
+            "reference stack",
+            "moving stack",
+            "separate reference",
+            "external reference",
+            "stack to stack",
+            "stack-to-stack",
+        )
+    ):
+        if "reference" in endpoint_key or "stack to stack" in endpoint_key:
+            score += 4.0
+        if "intra" in endpoint_key:
+            score -= 2.0
+
+    if any(
+        p in text
+        for p in (
+            "same stack",
+            "single stack",
+            "within stack",
+            "within the stack",
+            "intra stack",
+            "intra-stack",
+            "stabilize stack",
+            "drift correct",
+            "drift correction",
+        )
+    ):
+        if "intra" in endpoint_key or "within" in endpoint_key:
+            score += 4.0
+        if "reference" in endpoint_key and file_count < 2:
+            score -= 1.0
+
+    if file_count >= 2:
+        if _required_file_count(tool_config) >= 2:
+            score += 1.5
+    elif _required_file_count(tool_config) > file_count:
+        score -= 5.0
+
+    return score
+
+
+def _endpoint_match_corpus(tool_config) -> str:
+    endpoint = tool_config.endpoint
+    gradio = tool_config.gradio
+    if not endpoint:
+        return ""
+    parts: List[str] = [
+        tool_config.name,
+        tool_config.display_name,
+        endpoint.id,
+        endpoint.display_name,
+        endpoint.description or "",
+        endpoint.api_name or "",
+        " ".join(endpoint.catalog_aliases),
+    ]
+    if gradio:
+        parts.extend([gradio.description or "", " ".join(gradio.catalog_aliases)])
+    for param in endpoint.input_mapping.parameters:
+        parts.extend([param.name, param.source, str(param.param or ""), str(param.value or "")])
+    return _normalize_match_text(" ".join(parts))
+
+
+def _required_file_count(tool_config) -> int:
+    endpoint = tool_config.endpoint
+    if not endpoint:
+        return 0
+    required_indices = [
+        p.file_index
+        for p in endpoint.input_mapping.parameters
+        if p.required and p.source in ("session_file", "image_path")
+    ]
+    return max(required_indices) + 1 if required_indices else 0
+
+
+def _normalize_match_text(value: str) -> str:
+    return " ".join((value or "").replace("_", " ").replace("-", " ").casefold().split())
+
+
+def _tokenize_for_match(value: str) -> set[str]:
+    stop = {
+        "a",
+        "an",
+        "and",
+        "for",
+        "from",
+        "in",
+        "my",
+        "of",
+        "on",
+        "the",
+        "to",
+        "with",
+    }
+    return {t for t in re.findall(r"[a-z0-9]+", value) if len(t) > 2 and t not in stop}
 
 
 def _execute_pending_demo(session: Session, attached_ids: List[str]) -> ChatTurnResult:
@@ -523,6 +734,7 @@ def _execute_registered_tool(
             tool_id=tool_config.name,
             endpoint_id=endpoint_id,
             image_path=params.get("image_path"),
+            image_paths=params.get("image_paths", []),
             description=params.get("description"),
             params=params.get("params", {}),
         )
