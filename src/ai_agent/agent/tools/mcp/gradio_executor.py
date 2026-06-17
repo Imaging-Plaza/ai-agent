@@ -209,6 +209,14 @@ def _extract_bool(obj: Any, selector: Optional[str]) -> Optional[bool]:
     value = _select(obj, selector)
     if value is None:
         return None
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if not normalized:
+            return None
+        if normalized in {"1", "true", "yes", "y", "on", "success", "succeeded"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", "failed", "failure", "error"}:
+            return False
     return bool(value)
 
 

@@ -13,6 +13,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Recommendation demo offers now scan ranked recommendations for the first runnable configured endpoint and avoid creating stale pending actions when no endpoint is runnable.
+- Configured Gradio tools now appear in MCP registry listings even when they have a default endpoint.
+- Gradio endpoint success fields now parse common string boolean values such as `"false"` and `"0"` correctly.
+- Chat turns now pass only prior conversation history to the agent, preventing the current request from appearing twice in the prompt.
+- Text-only agent requests no longer include image-preview analysis instructions.
+- Endpoint-specific MCP aliases now wait for all required uploaded files before creating a tool approval.
 
 ### Changed
 - Replaced all in-memory caches (image metadata, preview, repo info) with a

@@ -482,13 +482,13 @@ def list_tool_endpoints(tool_name: str) -> List[ToolConfig]:
 def list_tools() -> List[str]:
     initialize_registry()
     with _LOCK:
-        return [name for name, config in TOOL_REGISTRY.items() if config.endpoint is None]
+        return [name for name in TOOL_REGISTRY if ":" not in name]
 
 
 def list_configured_tools() -> List[ToolConfig]:
     initialize_registry()
     with _LOCK:
-        return [config for config in TOOL_REGISTRY.values() if config.endpoint is None]
+        return [config for name, config in TOOL_REGISTRY.items() if ":" not in name]
 
 
 def get_tool_display_name(name: str, endpoint_id: Optional[str] = None) -> str:

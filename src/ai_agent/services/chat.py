@@ -181,6 +181,7 @@ def process_turn(
     # 3) Parse banlist tags out of the message
     clean_message = strip_tags(request.message or "")
     session.banlist |= set(parse_exclusions(request.message or ""))
+    prior_conversation_history = list(session.conversation_history)
     session.conversation_history.append(f"User: {clean_message}")
 
     # 4) Demo confirmation short-circuit
@@ -237,7 +238,7 @@ def process_turn(
             image_paths=effective_paths,
             image_bytes=image_bytes,
             excluded=list(session.banlist),
-            conversation_history=session.conversation_history,
+            conversation_history=prior_conversation_history,
             model=model_name,
             base_url=base_url_override if request.model else None,
             api_key_env=api_key_env,
@@ -474,6 +475,8 @@ def _select_pending_action(
         )
         tool_config = endpoint_selection.tool
         if not tool_config.is_runnable():
+            continue
+        if _required_file_count(tool_config) > len(effective_paths):
             continue
         required_inputs = [
             p.name
