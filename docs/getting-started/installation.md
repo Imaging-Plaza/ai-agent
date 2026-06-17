@@ -1,143 +1,153 @@
 # Installation
 
-This guide will help you install and set up the AI Imaging Agent on your system.
+This guide installs the Python backend and the React frontend.
 
 ## Prerequisites
 
-Before installing, ensure you have:
+- Python 3.10-3.12
+- Node.js 20+ and npm
+- OpenAI API key or another OpenAI-compatible endpoint key
+- Internet access for model calls and optional catalog sync
 
-- **Python 3.10–3.12** installed
-- **pip** (Python package manager)
-- **OpenAI API key** (or compatible API endpoint)
-- Internet connection for model calls
+The dev container uses Python 3.12 and `uv`; local installs can use either `uv` or `pip`.
 
-## Installation Steps
-
-### 1. Clone the Repository
+## Clone The Repository
 
 ```bash
 git clone https://github.com/imaging-plaza/ai-agent.git
 cd ai-agent
 ```
 
-### 2. Create Virtual Environment
+## Python Backend
 
-It's recommended to use a virtual environment to isolate dependencies:
+### Dev Container / uv
+
+```bash
+uv venv
+uv pip install -e .
+uv pip install -e ".[dev]"
+```
+
+### Local pip
 
 === "Linux/macOS"
 
     ```bash
     python -m venv .venv
     source .venv/bin/activate
+    pip install --upgrade pip
+    pip install -e ".[dev]"
     ```
 
 === "Windows"
 
-    ```bash
+    ```powershell
     python -m venv .venv
     .venv\Scripts\activate
+    pip install --upgrade pip
+    pip install -e ".[dev]"
     ```
 
-### 3. Install the Package
-
-For regular use:
+## React Frontend
 
 ```bash
-pip install --upgrade pip
-pip install -e .
+cd src/frontend
+npm install
+npm run build
+cd ../..
 ```
 
-For development (includes test dependencies):
-
-```bash
-pip install -e ".[dev]"
-```
+For development, use `npm run dev` instead of `npm run build`.
 
 ## Verify Installation
-
-Verify that the installation was successful:
 
 ```bash
 ai_agent --help
 ```
 
-You should see the available commands:
+Expected modes:
 
-```
-usage: ai_agent [-h] {chat,sync}
+```text
+usage: ai_agent [-h] {chat,sync,serve}
 
 AI Agent CLI
 
 positional arguments:
-  {chat,sync}  'chat' launches the chat UI; 'sync' runs one catalog refresh.
+  {chat,sync,serve}
+    chat   launches the legacy Gradio UI
+    sync   runs one catalog refresh
+    serve  starts the FastAPI backend used by the React frontend
 ```
 
-## Next Steps
+Check the frontend:
 
-Now that you have installed the AI Imaging Agent, proceed to:
+```bash
+cd src/frontend
+npm run lint
+```
 
-- [Configuration](configuration.md) - Set up your environment and API keys
-- [Quick Start](quickstart.md) - Run your first query
+## Docker Installation
+
+The root `Dockerfile` builds the Vite frontend and runs the FastAPI backend. The backend serves the built SPA from the same origin.
+
+```bash
+docker build -t ai-agent .
+docker run -p 7860:7860 --env-file .env ai-agent
+```
+
+Open `http://localhost:7860`.
+
+The included `docker-compose.yml` also starts a Cloudflare tunnel sidecar:
+
+```bash
+docker compose up --build
+```
 
 ## Troubleshooting
 
 ### Python Version Issues
 
-If you encounter issues with Python version compatibility:
-
 ```bash
-# Check your Python version
 python --version
-
-# Use a specific Python version
-python3.10 -m venv .venv
+python3.12 -m venv .venv
 ```
 
-### Installation Errors
-
-If you encounter dependency conflicts:
+### Backend Dependency Errors
 
 ```bash
-# Upgrade pip first
 pip install --upgrade pip setuptools wheel
-
-# Try installing again
-pip install -e .
+pip install -e ".[dev]"
 ```
+
+### Frontend Dependency Errors
+
+```bash
+cd src/frontend
+npm ci
+```
+
+Use `npm install` when changing dependencies and `npm ci` when reproducing `package-lock.json`.
 
 ### Missing System Dependencies
-
-Some packages may require system libraries:
 
 === "Ubuntu/Debian"
 
     ```bash
     sudo apt-get update
-    sudo apt-get install python3-dev build-essential
+    sudo apt-get install python3-dev build-essential git
     ```
 
 === "macOS"
 
     ```bash
-    # Using Homebrew
-    brew install python@3.10
+    brew install python@3.12 node@20
     ```
 
 === "Windows"
 
-    Ensure you have [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) installed.
+    Install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) if native Python packages fail to build.
 
-## Docker Installation (Alternative)
+## Next Steps
 
-A Dockerfile is available for containerized deployment:
-
-```bash
-# Build the Docker image
-docker build -t ai-agent -f Dockerfile .
-
-# Run the container
-docker run -p 7860:7860 --env-file .env ai-agent
-```
-
-!!! note
-    Make sure to create a `.env` file with your configuration before running the Docker container.
+- [Configuration](configuration.md)
+- [Quick Start](quickstart.md)

@@ -1,82 +1,78 @@
 # Configuration
 
-Before running the AI Imaging Agent, you need to configure it with your API keys and preferences.
+Configuration is split between environment variables in `.env` and model/retrieval settings in `config.yaml`.
 
-## Environment Variables
+## Minimal `.env`
 
-Create a `.env` file in the repository root with the following configuration:
+Create `.env` in the repository root:
 
 ```dotenv
-# Required: OpenAI API key
+# Use the keys referenced by config.yaml.
 OPENAI_API_KEY=sk-xxxx
+EPFL_API_KEY=your-epfl-key
+EPFL_API_KEY_EMBEDDER=your-epfl-embedder-key
 
-# Optional: GitHub token for repository info tool
-GITHUB_TOKEN=ghp_xxxx
-
-# Optional: Alternative model providers
-EPFL_API_KEY=sk-xxxx
-
-# Software catalog path
+CONFIG_PATH=config.yaml
 SOFTWARE_CATALOG=dataset/catalog.jsonl
+RAG_INDEX_DIR=artifacts/rag_index
 
-# Logging configuration
+# React/FastAPI auth. Leave unset to disable auth in local dev.
+APP_PASSWORD=change-me
+
+# FastAPI server defaults for ai_agent serve.
+HOST=0.0.0.0
+PORT=8000
+DEV_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+
+# Recommendation defaults.
+TOP_K=8
+NUM_CHOICES=3
+EMBED_CATALOG_ON_START=1
+
+# Logging.
 LOGLEVEL_CONSOLE=WARNING
 LOGLEVEL_FILE=INFO
 FILE_LOG=1
 LOG_DIR=logs
-LOG_PROMPTS=0         # Set to 1 to save prompt snapshots for debugging
-
-# Custom config path
-CONFIG_PATH=config.yaml
+LOG_PROMPTS=0
 ```
 
-## Required Configuration
+## API Keys
 
-### API Key
+The required key depends on `config.yaml`.
 
-The AI Imaging Agent requires an API key for the vision-language model. Which key you need depends on the `agent_model` in `config.yaml`:
+### EPFL Default
 
-**For the default EPFL endpoint** (`config.yaml` default):
+The checked-in default agent model uses the EPFL OpenAI-compatible endpoint:
 
 ```dotenv
 EPFL_API_KEY=your-epfl-key
 EPFL_API_KEY_EMBEDDER=your-epfl-embedder-key
 ```
 
-**For a standard OpenAI endpoint**:
+`EPFL_API_KEY_EMBEDDER` is used by the remote embedder and reranker.
 
-1. Sign up for an account at [OpenAI](https://platform.openai.com/)
-2. Navigate to [API Keys](https://platform.openai.com/api-keys)
-3. Create a new API key
-4. Add it to your `.env` file:
+### Standard OpenAI
+
+To use OpenAI directly, set an OpenAI model in `config.yaml` and provide:
 
 ```dotenv
-OPENAI_API_KEY=sk-your-actual-key-here
+OPENAI_API_KEY=sk-your-actual-key
 ```
 
 ## Model Configuration
 
-The agent model and retrieval stack are configured via `config.yaml`. The defaults use the EPFL OpenAI-compatible inference endpoint:
+`config.yaml` controls the default agent model, model picker entries, and retrieval stack.
 
 ```yaml
-# AI Agent Model Configuration
-
-# Default model (used for CLI and initial startup)
 agent_model:
   name: "openai/gpt-oss-120b"
   base_url: "https://inference-rcp.epfl.ch/v1"
   api_key_env: "EPFL_API_KEY"
 
-# Available models for UI dropdown
 available_models:
   - display_name: "gpt-4o-mini"
     name: "gpt-4o-mini"
-    base_url: null          # null = standard OpenAI endpoint
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
-  
-  - display_name: "gpt-4o"
-    name: "gpt-4o"
     base_url: null
     provider: "OpenAI"
     api_key_env: "OPENAI_API_KEY"
@@ -87,7 +83,6 @@ available_models:
     provider: "EPFL"
     api_key_env: "EPFL_API_KEY"
 
-# Retrieval stack (embedder + reranker)
 retrieval:
   embedder:
     backend: "remote"
@@ -104,39 +99,26 @@ retrieval:
     timeout_s: 20
 ```
 
-### Using Standard OpenAI Models
+The React model picker reads `/api/models`, which is populated from `available_models`.
 
-To use standard OpenAI models instead of the EPFL endpoint, update `agent_model` in `config.yaml`:
+## Running With OpenAI Models
 
 ```yaml
 agent_model:
   name: "gpt-4o-mini"
-  base_url: null                        # null = default OpenAI endpoint
+  base_url: null
   api_key_env: "OPENAI_API_KEY"
 ```
 
-Then add `OPENAI_API_KEY` to your `.env`.
-
-### Using Alternative Model Providers
-
-Any OpenAI-compatible endpoint can be configured:
-
-```yaml
-agent_model:
-  name: "your-model-name"
-  base_url: "https://your-endpoint.example.com/v1"
-  api_key_env: "YOUR_CUSTOM_API_KEY"
-```
-
-Then add the corresponding API key to your `.env`:
+Then set:
 
 ```dotenv
-YOUR_CUSTOM_API_KEY=your-key
+OPENAI_API_KEY=sk-your-actual-key
 ```
 
-### Local Retrieval (No Remote Embedder)
+## Local Retrieval
 
-To run the embedder and reranker locally (no remote endpoint needed):
+To avoid remote embedding/reranking endpoints:
 
 ```yaml
 retrieval:
@@ -148,93 +130,108 @@ retrieval:
     model_name: "BAAI/bge-reranker-v2-m3"
 ```
 
-Install the required extras:
+Local models require the relevant model downloads and enough CPU/GPU memory.
+
+## Frontend And API Settings
+
+### APP_PASSWORD
+
+When set, the React app requires this shared passphrase and stores an httpOnly auth cookie after login.
+
+```dotenv
+APP_PASSWORD=change-me
+```
+
+When unset, auth is disabled. This is useful for local development behind trusted access controls.
+
+### HOST / PORT
+
+`ai_agent serve` reads:
+
+```dotenv
+HOST=0.0.0.0
+PORT=8000
+```
+
+Docker overrides `PORT=7860`.
+
+### DEV_CORS_ORIGINS
+
+Allowed frontend origins for local Vite development:
+
+```dotenv
+DEV_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+In production, FastAPI serves the built frontend from the same origin, so CORS is normally irrelevant.
+
+### FRONTEND_DIST_DIR
+
+Path to the built React bundle:
+
+```dotenv
+FRONTEND_DIST_DIR=src/frontend/dist
+```
+
+If this directory contains `index.html`, `ai_agent serve` serves the SPA and static assets. If not, it assumes Vite is serving the frontend in development.
+
+### VITE_API_TARGET
+
+Used only by the frontend dev server proxy:
 
 ```bash
-pip install sentence-transformers
+VITE_API_TARGET=http://localhost:8000 npm run dev
 ```
 
-## Optional Configuration
+If unset, Vite proxies `/api/*` to `http://localhost:8000`.
 
-### GitHub Token
+## Catalog Sync
 
-For the repository info tool (optional):
-
-```dotenv
-GITHUB_TOKEN=ghp_your_github_personal_access_token
-```
-
-This enables the agent to fetch detailed information about GitHub repositories via direct API calls. Without it, the tool falls back to DeepWiki MCP or the repocards library.
-
-### Pipeline Parameters
-
-Adjust recommendations via environment variables:
-
-```dotenv
-NUM_CHOICES=3    # Number of tool recommendations (default: 3)
-```
-
-You can also override these values per-session from the UI settings panel.
-
-### Catalog Sync
-
-The `ai_agent sync` command (and background auto-refresh) requires a GraphDB SPARQL endpoint:
+Manual and background catalog sync require a GraphDB SPARQL endpoint:
 
 ```dotenv
 GRAPHDB_URL=https://graphdb.example.com/repositories/imaging
 GRAPHDB_GRAPH=https://example.org/graph/imaging-tools
-GRAPHDB_QUERY_FILE=get_relevant_software.rq
-SYNC_EVERY_HOURS=24     # 0 to disable background refresh
+GRAPHDB_QUERY_FILE=src/ai_agent/queries/get_relevant_software.rq
+SYNC_EVERY_HOURS=24
 ```
 
-See [Environment Variables](../reference/environment.md) for the full list.
+Run one sync:
 
-### Logging
+```bash
+ai_agent sync
+```
 
-Configure logging behavior:
+## Logging
 
 ```dotenv
-# Console log level (DEBUG, INFO, WARNING, ERROR)
 LOGLEVEL_CONSOLE=WARNING
-
-# File log level
 LOGLEVEL_FILE=INFO
-
-# Enable file logging (0 or 1)
 FILE_LOG=1
-
-# Log directory
 LOG_DIR=logs
-
-# Save VLM prompts and images for debugging (0 or 1)
 LOG_PROMPTS=0
 ```
 
-!!! tip "Debug Mode"
-    Set `LOG_PROMPTS=1` to save VLM prompts and images to the `logs/` directory. This is useful for debugging but will increase disk usage.
-
-### Software Catalog
-
-Specify the path to your software catalog:
-
-```dotenv
-SOFTWARE_CATALOG=dataset/catalog.jsonl
-```
-
-The catalog should be in JSONL format following the schema.org SoftwareSourceCode structure.
+!!! warning
+    `LOG_PROMPTS=1` can save prompt text and image previews locally. Use it only for debugging sessions.
 
 ## Verification
 
-After configuring, verify your setup:
+Check that the backend can start:
 
 ```bash
-# Check that environment variables are loaded
-python -c "from dotenv import load_dotenv; import os; load_dotenv(); print('API Key:', 'SET' if os.getenv('OPENAI_API_KEY') else 'NOT SET')"
+ai_agent serve
+```
+
+Check the frontend build:
+
+```bash
+cd src/frontend
+npm run build
 ```
 
 ## Next Steps
 
-With configuration complete, you're ready to:
-
 - [Run the Quick Start](quickstart.md)
 - Learn about [Using the Chat Interface](../user-guide/chat-interface.md)
+- See the full [Environment Variables](../reference/environment.md) reference

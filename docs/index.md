@@ -1,83 +1,88 @@
 # AI Imaging Agent
 
-**An intelligent RAG + AI agent system that helps users discover the right imaging software for their images and tasks.**
+**AI Imaging Agent**, also known as **Imaging Plaza**, is a conversational RAG + AI agent system for discovering imaging software. Upload an image or volume, describe the task, and receive ranked recommendations with explanations, compatibility metadata, and runnable demo links.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/imaging-plaza/ai-agent/blob/main/LICENSE)
 
----
+## Key Features
 
-## What is AI Imaging Agent?
-
-AI Imaging Agent (also known as **Imaging Plaza**) is a conversational AI assistant that helps researchers and practitioners find the right imaging analysis tools for their specific needs. Simply upload an image, describe what you want to do, and get ranked software recommendations with links to runnable demos.
-
-## ✨ Key Features
-
-- **🤖 Conversational AI Agent**: Natural language interaction with multi-turn context
-- **🔍 Smart Retrieval**: Qwen3-Embedding-8B embeddings + FAISS + BGE-M3 CrossEncoder reranking
-- **👁️ Vision-Aware Selection**: VLM-based tool selection considering both image content and metadata
-- **🏥 Medical Imaging Focus**: Specialized support for CT, MRI, DICOM, NIfTI, and other medical formats
-- **🎯 Format-Aware Matching**: IO compatibility scoring based on file formats and dimensions
-- **🚀 Demo Integration**: Direct execution of Gradio Space demos on your images
-- **📊 Rich UI**: Chat interface with image previews, file management, and execution traces
+- **React chat interface** with local conversation history, queued follow-ups, examples, model controls, theme toggle, and inline media.
+- **FastAPI backend** with password auth, SSE chat events, file/session APIs, model discovery, and production SPA serving.
+- **Smart retrieval** using remote or local embedding models, FAISS search, and optional reranking.
+- **Vision-aware agent selection** that considers the uploaded preview, original metadata, user task, and candidate catalog entries.
+- **Medical/scientific imaging support** for DICOM, NIfTI, TIFF stacks, CT, MRI, microscopy, and standard image formats.
+- **Volume-aware asset tools** including previews, slices, MIPs, raw file serving, and browser-side 3D rendering.
+- **Demo workflows** for runnable examples such as Hugging Face Gradio Spaces.
 
 ## Quick Example
 
+Run the backend:
+
 ```bash
-# Install and run
-pip install -e .
-ai_agent chat
+ai_agent serve
 ```
 
-Then in the web interface:
+Run the frontend in another terminal:
 
-1. Upload an image (e.g., a CT scan, or a PNG)
-2. Type your request (e.g., _"I want to segment the lungs from this image"_ or _"I want to deblur this image"_)
-3. Get ranked tool recommendations with accuracy scores
-4. Click "Run demo" to execute tools directly
+```bash
+cd src/frontend
+npm run dev
+```
 
-## Use Cases
+Then open `http://localhost:5173`, upload an image or volume, and ask:
 
-### Medical Imaging
-- Segment organs from CT/MRI scans
-- Register brain images
-- Detect tumors and anomalies
-- Analyze DICOM files
+```text
+I want to segment the lungs from this CT scan
+```
 
-### Scientific Imaging
-- Process microscopy images
-- Analyze multidimensional TIFF stacks
-- Extract features from scientific images
-
-### General Computer Vision
-- Object detection and segmentation
-- Image classification
-- OCR and text extraction
-- Image enhancement
+For production, build the frontend with `npm run build`; `ai_agent serve` will serve the built React bundle when `src/frontend/dist` exists.
 
 ## How It Works
 
 ![User Integration Flow](assets/user_flow.png)
 
-The system uses a **two-stage pipeline**:
+The system uses four cooperating layers:
 
-1. **Retrieval Stage**: Fast text search using Qwen3-Embedding-8B embeddings and FAISS to find candidate tools from a curated catalog
-2. **Agent Selection**: Vision-language model (GPT-4o) analyzes your image and task to rank the best tools with explanations
+1. **React SPA** handles chat, assets, conversation history, model settings, and previews.
+2. **FastAPI service** authenticates users, stores session assets, streams chat events, and serves files/views.
+3. **PydanticAI agent** orchestrates catalog search, alternatives, repository lookup, and demo actions.
+4. **Retrieval pipeline** builds metadata-aware queries, searches FAISS, reranks candidates, and passes them to the agent.
 
 Learn more in the [Architecture Overview](architecture/overview.md).
 
+## Use Cases
+
+### Medical Imaging
+
+- Segment organs from CT/MRI scans
+- Register brain images
+- Analyze DICOM files and 3D volumes
+- Compare tools by modality, dimension, format, and license
+
+### Scientific Imaging
+
+- Process microscopy images
+- Analyze multidimensional TIFF stacks
+- Find tools for denoising, segmentation, enhancement, or measurement
+
+### General Computer Vision
+
+- Object detection and segmentation
+- Image classification
+- OCR and text extraction
+- Image restoration and enhancement
+
 ## Getting Started
 
-Ready to try it out? Head over to the [Installation Guide](getting-started/installation.md) to get started!
+Start with the [Installation Guide](getting-started/installation.md), then follow the [Quick Start](getting-started/quickstart.md).
 
-## Project Guide
-
-For maintainers and contributors, see the [Project Guide](guide.md) for a detailed repository map, dev-container environment defaults, and practical codebase improvement guidelines.
+For maintainers and contributors, see the [Project Guide](guide.md).
 
 ## Project Status
 
-This project is actively developed and maintained by the Imaging Plaza team. Check the [Changelog](reference/changelog.md) for recent updates.
+This project is actively developed by the Imaging Plaza team. See the [Changelog](reference/changelog.md) for recent updates.
 
 ## License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](https://github.com/imaging-plaza/ai-agent/blob/main/LICENSE) file for details.
+This project is licensed under the Apache 2.0 License. See the [LICENSE](https://github.com/imaging-plaza/ai-agent/blob/main/LICENSE) file for details.

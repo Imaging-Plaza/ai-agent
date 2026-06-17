@@ -1,4 +1,4 @@
-# Advanced Features (not tested for now..)
+# Advanced Features
 
 The AI Imaging Agent includes several advanced features for power users and specialized use cases.
 
@@ -160,33 +160,27 @@ Show me details for [tool]
 
 ### State Tracking
 
-The agent maintains state across conversation:
+The backend and frontend maintain complementary conversation state:
 
-- **Uploaded files**: All files in session
-- **Preview images**: Converted images for VLM
+- **Uploaded files**: Server-side session assets with asset IDs, previews, and metadata
+- **Preview images**: Converted images used for VLM analysis and UI display
 - **Excluded tools**: Tools filtered via `[EXCLUDE:]`
-- **Conversation history**: Previous messages and context
-- **Turn counter**: Current conversation turn
+- **Conversation history**: Browser-local transcripts that can be restored into a backend session
+- **Pending actions**: Demo or confirmation actions waiting for user approval
+- **Queued messages**: Follow-ups submitted while the agent is busy
 
 ### Viewing State
 
-In the sidebar (debug mode):
+Use the React interface to inspect state:
 
-```json
-{
-  "conversation_turn": 3,
-  "uploaded_files": ["scan.dcm", "brain.nii"],
-  "excluded_tools": ["tool1", "tool2"],
-  "preview_images": ["/tmp/scan_preview.png"]
-}
-```
+- The sidebar lists saved local conversations and opens the session asset gallery.
+- The chat header shows the active conversation title and turn count.
+- Asset modals show previews and metadata for uploaded files.
+- Recommendation cards and tool traces show the agent's selected tools and actions.
 
 ### Resetting State
 
-To start fresh:
-- Refresh the page
-- Clear uploaded files
-- Start new conversation
+To start fresh, click new conversation in the sidebar. If the backend has restarted, previously restored browser transcripts may still appear, but old server-side asset IDs can no longer resolve; reupload files in that case.
 
 ## Retrieval Query Behavior
 

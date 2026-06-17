@@ -1,188 +1,142 @@
 # Quick Start
 
-This guide will walk you through your first interaction with the AI Imaging Agent.
+This guide walks through your first local session with the React frontend and FastAPI backend.
 
-## Starting the Application
+## Start The Application
 
-Once you've [installed](installation.md) and [configured](configuration.md) the agent, start the chat interface:
+After [installation](installation.md) and [configuration](configuration.md), start the backend from the repository root:
 
 ```bash
-ai_agent chat
+ai_agent serve
 ```
 
-You should see output like:
+By default this starts FastAPI on `http://localhost:8000`.
 
-```
-Running on local URL:  http://127.0.0.1:7860
+In a second terminal, start the Vite frontend:
+
+```bash
+cd src/frontend
+npm run dev
 ```
 
-Open your web browser and navigate to **http://127.0.0.1:7860**
+Open `http://localhost:5173`. Vite proxies `/api/*` requests to the backend.
+
+!!! note "Production mode"
+    If `src/frontend/dist` exists, `ai_agent serve` serves the built React app directly. In Docker, the frontend is built into the image and exposed on port `7860`.
+
+## Sign In
+
+If `APP_PASSWORD` is set in `.env`, enter that passphrase on the login page. If `APP_PASSWORD` is unset, the frontend skips enforced auth for local development.
 
 ## Your First Query
 
-### Example 1: Object Segmentation
+### Example 1: Medical Volume
 
-Let's try a simple segmentation task:
+1. Click the attach control or drag a file into the composer.
+2. Upload a DICOM file, NIfTI volume, TIFF stack, or standard image.
+3. Ask:
 
-1. **Upload an Image**: Click the upload area or drag and drop an image (e.g., a photo of a cat)
-
-2. **Type Your Request**: In the chat input, type:
-   ```
-   I want to segment the cat from this image
-   ```
-
-3. **Review Recommendations**: The agent will return ranked tool recommendations with:
-    - Tool names and descriptions
-    - Accuracy scores
-    - Explanations for why each tool matches your task
-    - Links to runnable demos
-
-4. **Run a Demo** (optional): Click the "Run Demo" button to see the result of the tool on your uploaded image
-
-### Example 2: Medical Image Analysis
-
-For medical imaging tasks:
-
-1. **Upload a Medical Image**: Upload a DICOM file, NIfTI volume, or medical image
-
-2. **Describe Your Task**:
-   ```
-   Segment the lungs from this CT scan
-   ```
-
-3. **Get Format-Aware Results**: The agent considers:
-    - Your image format (DICOM, NIfTI, etc.)
-    - Image dimensions (2D, 3D, 4D)
-    - Medical imaging modality (CT, MRI, etc.)
-
-### Example 3: General Computer Vision
-
-For general tasks:
-
-```
-Detect all objects in this image
+```text
+Segment the lungs from this CT scan
 ```
 
+The app will upload the asset, extract metadata, generate previews, and stream status updates while the agent searches the catalog.
+
+### Example 2: Standard Image
+
+Upload a PNG or JPG and ask:
+
+```text
+I want to segment the foreground object from this image
 ```
-Extract text from this document image
+
+### Example 3: General Discovery
+
+You can also ask without files:
+
+```text
+What tools can register two brain MRI images?
 ```
 
+## Review Results
+
+Recommendation cards include:
+
+- Rank and accuracy score
+- Tool name and short explanation
+- Format, modality, dimension, license, and category metadata when available
+- Demo or repository links
+- Optional pending actions, such as approving a demo run
+
+## Interface Basics
+
+- **Sidebar**: start a new chat, reopen stored local conversations, and open the asset gallery.
+- **Header**: choose the model, adjust top-k retrieval and number of recommendations, switch theme, or sign out.
+- **Composer**: attach files, select session assets, use example prompts, or submit follow-ups.
+- **Queue banner**: messages sent while the agent is busy are queued and can be canceled.
+- **Minimap**: jump through longer conversations.
+- **Asset views**: preview uploaded files, inspect metadata, view slices/MIPs, and render supported volumes in 3D.
+
+## Useful Commands
+
+```bash
+/help
+/img <asset-id | name | url>
+/audio <url>
+/video <url>
+/youtube <id | url>
+/embed <url>
 ```
-Classify what type of animal is in this picture
-```
 
-## Understanding the Interface
-
-### Chat Panel
-
-- **Message History**: Scroll to see previous interactions
-- **Rich Media**: Images, files, and tool cards are rendered inline
-- **Code Blocks**: Formatted code and JSON responses
-
-### Sidebar
-
-- **Uploaded Files**: View all files you've uploaded in the session
-- **Preview Images**: See converted image previews
-- **Debug Info**: View conversation state and excluded tools (if in debug mode)
-
-### Tool Recommendation Cards
-
-Each recommended tool shows:
-
-- **Rank**: Priority order (1 = best match)
-- **Name**: Tool/software name
-- **Accuracy Score**: Confidence level (0-100%)
-- **Description**: What the tool does
-- **Explanation**: Why it matches your request
-- **Metadata**:
-    - Supported modalities (CT, MRI, etc.)
-    - Dimensions (2D, 3D, etc.)
-    - File formats (DICOM, NIfTI, PNG, etc.)
-    - License information
-    - Tags and categories
-- **Demo Link**: Direct link to runnable example
+Slash commands add inline media/embed turns to the conversation without invoking the recommendation agent.
 
 ## Advanced Usage
 
 ### Multi-Turn Conversations
 
-The agent maintains conversation context:
+The agent keeps conversational context:
 
-```
-You: I have a lung CT scan
-Agent: [Provides general information about lung CT analysis tools]
+```text
+You: I have a lung CT scan.
+Agent: What would you like to do with it?
 
-You: I want to segment the airways
-Agent: [Provides specific airway segmentation tools]
+You: Segment the airways.
+Agent: [Provides airway segmentation tools]
 
-You: Show me alternatives
-Agent: [Provides different tool options]
+You: Show me alternatives.
+Agent: [Searches again with a different strategy]
 ```
 
 ### Excluding Tools
 
-Exclude specific tools from results:
+Use control tags to remove specific tools from retrieval:
 
-```
+```text
 Find lung segmentation tools [EXCLUDE:totalsegmentator|medicalsam]
 ```
 
-### Requesting Alternatives
+### Running The Legacy UI
 
-If initial results don't match your needs:
-
-```
-Show me alternative tools
-
-Can you search for other options?
-
-What else is available?
-```
-
-## CLI Commands
-
-The agent provides two main commands:
-
-### Launch Chat Interface
+The older Gradio interface remains available:
 
 ```bash
 ai_agent chat
 ```
 
-Starts the Gradio web interface with automatic catalog synchronization.
+Use the React frontend for new development unless you are specifically testing legacy Gradio behavior.
 
-### Sync Catalog
+## Tips
 
-```bash
-ai_agent sync
-```
+!!! tip "Upload before asking"
+    File metadata and previews improve format-aware recommendations.
 
-Manually synchronize the software catalog without launching the UI.
+!!! tip "Be specific"
+    "Segment the liver from an abdominal CT volume" gives the agent more signal than "process this image".
 
-## Tips for Best Results
-
-!!! tip "Be Specific"
-    The more specific your request, the better the recommendations:
-    
-    - ❌ "Process this image"
-    - ✅ "Segment the liver from this abdominal CT scan"
-
-!!! tip "Upload First"
-    Upload your image before describing the task. The agent can see image content and metadata.
-
-!!! tip "Mention Formats"
-    If you need specific format support, mention it:
-    
-    "I need a tool that works with DICOM files"
-
-!!! tip "Use Natural Language"
-    No need to use technical jargon - conversational language works fine:
-    
-    "Help me find tumors in this MRI" works just as well as "Tumor detection in MRI volumes"
+!!! tip "Mention constraints"
+    Include requirements such as DICOM support, 3D volume support, open-source license, or GPU availability.
 
 ## Next Steps
-
-Now that you've run your first queries:
 
 - Learn more about [Using the Chat Interface](../user-guide/chat-interface.md)
 - Explore [Supported File Formats](../user-guide/file-formats.md)

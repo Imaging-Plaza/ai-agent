@@ -3,550 +3,255 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-An intelligent RAG + AI agent system that helps users discover the right imaging software for their images and tasks. Upload an image, describe what you want to do, and get ranked tool recommendations with links to runnable demos.
+AI Imaging Agent is a RAG + AI agent system that helps users discover the right imaging software for their images and tasks. Upload an image or volume, describe what you want to do, and get ranked tool recommendations with explanations and runnable demo links.
 
-## ✨ Key Features
+## Key Features
 
-- **🤖 Conversational AI Agent**: Natural language interaction with multi-turn context
-- **🔍 Smart Retrieval**: BGE-M3 embeddings + FAISS + CrossEncoder reranking
-- **👁️ Vision-Aware Selection**: VLM-based tool selection considering both image content and metadata
-- **🏥 Medical Imaging Focus**: Specialized support for CT, MRI, DICOM, NIfTI, and other medical formats
-- **🎯 Format-Aware Matching**: IO compatibility scoring based on file formats and dimensions
-- **🚀 Demo Integration**: Direct execution of Gradio Space demos on your images
-- **📊 Rich UI**: Chat interface with image previews, file management, and execution traces
+- **Conversational agent**: Multi-turn chat with tool search, alternatives, repository lookup, and demo follow-up actions.
+- **React web app**: Modern chat UI with conversation history, queued follow-ups, dark/light theme, model selection, example prompts, and inline media.
+- **FastAPI backend**: Authenticated API, SSE chat streaming, file upload/session handling, model discovery, health checks, and static SPA serving in production.
+- **Smart retrieval**: Qwen3-Embedding-8B/BGE-style embeddings, FAISS search, and optional BGE reranking.
+- **Vision-aware selection**: VLM reasoning over the user task, image previews, metadata, and retrieved catalog candidates.
+- **Medical imaging focus**: DICOM, NIfTI, TIFF stacks, CT, MRI, microscopy, and other scientific imaging workflows.
+- **Rich asset handling**: 2D previews, raw file serving, slice/MIP views, and browser-side 3D volume rendering for supported volumes.
+- **Demo integration**: Links and guarded execution flows for runnable examples such as Hugging Face Gradio Spaces.
 
 <p align="center">
     <img src="https://github.com/Imaging-Plaza/ai-agent/blob/develop/assets/example.gif?raw=true" height="700">
 </p>
 
----
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-- Python 3.10–3.12
-- OpenAI API key (or compatible API endpoint)
-- Internet connection for model calls
+- Python 3.10-3.12
+- Node.js 20+ for frontend development
+- OpenAI API key or an OpenAI-compatible endpoint key
+- Internet access for model calls and optional catalog sync
 
-### Installation
+### Install
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/imaging-plaza/ai-agent.git
 cd ai-agent
 
-# Create virtual environment
 python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# Activate virtual environment
-# On Linux/macOS:
-source .venv/bin/activate
-# On Windows:
-.venv\Scripts\activate
-
-# Install the package
 pip install --upgrade pip
-pip install -e .
-
-# For development (includes test dependencies)
 pip install -e ".[dev]"
+
+cd src/frontend
+npm install
+cd ../..
 ```
 
-### Configuration
+The dev container workflow uses `uv`:
+
+```bash
+uv venv
+uv pip install -e .
+uv pip install -e ".[dev]"
+```
+
+### Configure
 
 Create a `.env` file at the repository root:
 
 ```dotenv
-# Required: OpenAI API key
+# Agent model keys. Use the key referenced by config.yaml.
 OPENAI_API_KEY=sk-xxxx
+EPFL_API_KEY=your-epfl-key
+EPFL_API_KEY_EMBEDDER=your-epfl-embedder-key
 
-# Optional: GitHub token for repo info tool
-GITHUB_TOKEN=ghp_xxxx
+# Optional password for the React app. If unset, auth is disabled.
+APP_PASSWORD=change-me
 
-# Optional: Alternative model providers (EPFL, etc.)
-EPFL_API_KEY=sk-xxxx
-EPFL_API_KEY_EMBEDDER=sk-xxxx
-
-# Software catalog path
+# Runtime paths
+CONFIG_PATH=config.yaml
 SOFTWARE_CATALOG=dataset/catalog.jsonl
+RAG_INDEX_DIR=artifacts/rag_index
 
-# Pipeline configuration
-TOP_K=8                # Number of candidates to retrieve
-NUM_CHOICES=3          # Number of tools to recommend
-AGENT_OUTPUT_RETRIES=3 # Structured output validation retries
-EMBED_CATALOG_ON_START=1  # Pre-embed catalog if FAISS is empty
+# Backend server
+HOST=0.0.0.0
+PORT=8000
+DEV_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 
-# Logging configuration
+# Recommendation defaults
+TOP_K=8
+NUM_CHOICES=3
+EMBED_CATALOG_ON_START=1
+
+# Optional catalog sync
+GRAPHDB_URL=https://graphdb.example.com/repositories/imaging
+GRAPHDB_GRAPH=https://example.org/graph/imaging-tools
+GRAPHDB_QUERY_FILE=src/ai_agent/queries/get_relevant_software.rq
+SYNC_EVERY_HOURS=0
+
+# Logging
 LOGLEVEL_CONSOLE=WARNING
 LOGLEVEL_FILE=INFO
 FILE_LOG=1
 LOG_DIR=logs
-LOG_PROMPTS=0         # Set to 1 to save prompt snapshots for debugging
-
-# Custom config path
-CONFIG_PATH=config.yaml
+LOG_PROMPTS=0
 ```
 
-### Model Configuration
+Models and retrieval backends are configured in `config.yaml`. The checked-in default uses an EPFL OpenAI-compatible endpoint for the default agent model and remote EPFL endpoints for embedding/reranking, while the UI model picker is populated from `available_models`.
 
-The agent model can be configured via `config.yaml`:
+### Run Locally
 
-```yaml
-# AI Agent Model Configuration
-
-# Default/fallback model (used for CLI and initial startup)
-agent_model:
-  name: "gpt-5.1"
-  base_url: null                        # null for default OpenAI endpoint
-  api_key_env: "OPENAI_API_KEY"
-
-# Available models for UI dropdown
-available_models:
-  - display_name: "gpt-4o-mini"
-    name: "gpt-4o-mini"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
-  
-  - display_name: "gpt-4o"
-    name: "gpt-4o"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
-  
-  - display_name: "gpt-5-mini"
-    name: "gpt-5-mini"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
-
-  - display_name: "gpt-5.1"
-    name: "gpt-5.1"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
-
-retrieval:
-  embedder:
-    backend: "remote"   # "remote" or "local"
-    model_name: "Qwen/Qwen3-Embedding-8B"
-    base_url: "https://inference-rcp.epfl.ch/v1"
-    api_key_env: "EPFL_API_KEY_EMBEDDER"
-    timeout_s: 20
-    # local example:
-    # backend: "local"
-    # model_name: "BAAI/bge-m3"
-    # device: "cpu" # optional
-
-  reranker:
-    backend: "remote"   # "remote" or "local"
-    model_name: "BAAI/bge-reranker-v2-m3"
-    base_url: "https://inference-rcp.epfl.ch/v1"
-    api_key_env: "EPFL_API_KEY_EMBEDDER"
-    timeout_s: 20
-    # local example:
-    # backend: "local"
-    # model_name: "BAAI/bge-reranker-v2-m3"
-    # device: "cpu" # optional
-```
-
-### Running the App
+Start the FastAPI backend:
 
 ```bash
-# Start the chat interface
+ai_agent serve
+```
+
+In a second terminal, start the React development server:
+
+```bash
+cd src/frontend
+npm run dev
+```
+
+Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `http://localhost:8000`.
+
+The legacy Gradio UI is still available:
+
+```bash
 ai_agent chat
-
-# Open your browser to:
-# http://127.0.0.1:7860
 ```
 
-Try uploading a cat image and asking:
-> "I want to segment the cat from this image"
-
----
-
-## 💬 Usage
-
-### Chat Interface
-
-The chat interface provides a natural conversation flow:
-
-1. **Upload Files**: Drop images (PNG, JPG, TIFF, DICOM, NIfTI, etc.) or other supported files
-2. **Describe Your Task**: Use natural language like "segment the lungs" or "register brain MRI"
-3. **Review Recommendations**: Get ranked tool suggestions with accuracy scores and explanations
-4. **Run Demos**: Click "Run demo" to execute tools directly on your uploaded images
-5. **Iterate**: Ask for alternatives, refine your query, or upload different files
-
-### Supported File Formats
-
-**Images:**
-- Standard: PNG, JPG, JPEG, WEBP, BMP, GIF
-- Medical: DICOM (.dcm), NIfTI (.nii, .nii.gz), TIFF stacks
-- Scientific: Multi-page TIFF, TIFF with metadata
-
-**Other Files:**
-- Data: CSV, JSON, XML
-- Media: MP3, MP4
-
-### Example Queries
-
-- "Segment the lungs from this CT scan"
-- "Register these two brain MRI images"
-- "Extract text from this medical report image"
-- "Classify what organ is shown in this ultrasound"
-- "Detect tumors in this MRI scan"
-- "I need to analyze DICOM files, what tools are available?"
-
-### Understanding Results
-
-Each recommendation includes:
-- **Rank**: Priority order (1 = best match)
-- **Accuracy Score**: Confidence level (0-100%)
-- **Explanation**: Why this tool matches your request
-- **Metadata**: Supported modalities, dimensions, formats, license
-- **Demo Link**: Direct link to runnable example
-
----
-
-## 🏗️ Architecture
-
-### Pipeline Overview
-
-The system follows a two-stage architecture:
-
-```
-User Input (Image + Text Query)
-        ↓
-┌───────────────────────────────┐
-│   RETRIEVAL STAGE             │
-│  - BGE-M3 Embeddings          │
-│  - FAISS Vector Search        │
-│  - CrossEncoder Reranking     │
-│  - Format Token Matching      │
-└───────────────────────────────┘
-        ↓ Top-K Candidates
-┌───────────────────────────────┐
-│   AGENT SELECTION             │
-│  - Pydantic AI Agent          │
-│  - OpenAI VLM                 │
-│  - Image + Metadata Analysis  │
-│  - Multi-Tool Reasoning       │
-└───────────────────────────────┘
-        ↓
-   Ranked Recommendations
-```
-
-### Retrieval Stage
-
-**No LLM calls** - purely text-based search:
-
-1. **Query Construction**: User task + format tokens from uploaded files
-2. **Embedding**: BGE-M3 model generates query embedding
-3. **Vector Search**: FAISS retrieves top candidates
-4. **Reranking**: CrossEncoder refines results for precision
-5. **Retry Broadening**: If too few hits, retry with a shorter/broader query
-
-### Agent Selection Stage
-
-**Single VLM call** - multimodal reasoning:
-
-1. **Input Preparation**:
-   - Text: User query + candidate table + file metadata
-   - Image: PNG preview (converted from any format)
-   - Context: Original file format, dimensions, modality
-
-2. **Agent Tools**:
-   - `search_tools`: Search catalog with query
-   - `search_alternative`: Find alternatives (iterative)
-  - `repo_info`: Fetch GitHub documentation via DeepWiki MCP
-
-3. **Output**: Ranked tool selections with accuracy scores and explanations
-
-### Key Components
-
-- **`api/pipeline.py`**: RAG retrieval orchestrator
-- **`agent/agent.py`**: Pydantic AI agent with tool definitions
-- **`retriever/`**: Embedding, FAISS indexing, reranking
-- **`generator/`**: Prompts and schema for tool selection
-- **`ui/`**: Gradio chat interface components
-- **`utils/`**: Image processing, metadata extraction, file validation
-- **`catalog/`**: Catalog syncing from GraphDB (optional)
-
----
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `OPENAI_API_KEY` | OpenAI API key | - | ✅ |
-| `EPFL_API_KEY_EMBEDDER` | API key for remote embedder and reranker endpoints | - | ✅ (when `retrieval.embedder.backend: remote` and/or `retrieval.reranker.backend: remote`) |
-| `GITHUB_TOKEN` | GitHub token for repo info | - | ❌ |
-| `SOFTWARE_CATALOG` | Path to catalog JSONL | `dataset/catalog.jsonl` | ✅ |
-| `TOP_K` | Retrieval candidates count | `8` | ❌ |
-| `NUM_CHOICES` | Tools to recommend | `3` | ❌ |
-| `AGENT_OUTPUT_RETRIES` | Structured output validation retries | `3` | ❌ |
-| `EMBED_CATALOG_ON_START` | Pre-embed catalog on startup when FAISS is empty | `1` | ❌ |
-| `LOGLEVEL_CONSOLE` | Console log level | `WARNING` | ❌ |
-| `LOGLEVEL_FILE` | File log level | `INFO` | ❌ |
-| `FILE_LOG` | Enable file logging | `1` | ❌ |
-| `LOG_DIR` | Log directory | `logs` | ❌ |
-| `LOG_PROMPTS` | Save prompt snapshots | `0` | ❌ |
-| `CONFIG_PATH` | Model config file | `config.yaml` | ✅ |
-
-### GraphDB Catalog Sync (Optional)
-
-For automatic catalog syncing from a GraphDB instance:
-
-```dotenv
-GRAPHDB_URL=https://your-graphdb.example.com
-GRAPHDB_GRAPH=your-graph-name
-GRAPHDB_USER=username
-GRAPHDB_PASSWORD=password
-GRAPHDB_QUERY_FILE=/path/to/query.rq
-SYNC_EVERY_HOURS=24  # Auto-refresh interval (0 to disable)
-OUTPUT_JSONLD=dataset/catalog.jsonld
-OUTPUT_JSONL=dataset/catalog.jsonl
-```
-
-Run manual sync:
-```bash
-ai_agent sync
-```
-
----
-
-## 📋 Catalog Format
-
-The catalog is a JSONL file where each line is a `SoftwareDoc` following schema.org SoftwareSourceCode structure.
-
-### Minimal Example
-
-```json
-{
-  "name": "3d-lungs-segmentation",
-  "description": "3D lung segmentation from CT; returns a mask/overlay.",
-  
-  "applicationCategory": ["Medical Imaging"],
-  "featureList": ["segmentation"],
-  "imagingModality": ["CT"],
-  "dims": [3],
-  "anatomy": ["lung"],
-  "keywords": ["mask", "overlay", "lung segmentation", "CT"],
-  
-  "programmingLanguage": "Python",
-  "requiresGPU": false,
-  "isAccessibleForFree": true,
-  "license": "Apache-2.0",
-  
-  "supportingData": [
-    {
-      "datasetFormat": "TIFF",
-      "bodySite": "lung",
-      "imagingModality": "CT",
-      "hasDimensionality": 3
-    },
-    {
-      "datasetFormat": "DICOM",
-      "bodySite": "lung",
-      "imagingModality": "CT",
-      "hasDimensionality": 3
-    }
-  ],
-  
-  "runnableExample": [
-    {
-      "hostType": "gradio",
-      "url": "https://huggingface.co/spaces/qchapp/3d-lungs-segmentation",
-      "name": "HF Space"
-    }
-  ]
-}
-```
-
-### Key Fields
-
-- **name**: Unique identifier for the tool
-- **description**: Clear explanation of what the tool does
-- **featureList**: Operations (e.g., segmentation, registration, classification)
-- **imagingModality**: Medical imaging types (CT, MRI, XR, US, PET)
-- **dims**: Supported dimensions (2D, 3D, 4D)
-- **anatomy**: Body parts/organs
-- **supportingData**: Format compatibility information (critical for matching)
-- **runnableExample**: Links to live demos (HuggingFace Spaces, notebooks, web apps)
-
----
-
-## 🔧 Development
-
-### Project Structure
-
-```
-ai-agent/
-├── src/ai_agent/
-│   ├── agent/              # Pydantic AI agent and tools
-│   │   ├── agent.py        # Agent definition
-│   │   ├── models.py       # Agent state models
-│   │   ├── tools/          # Agent tool implementations
-│   │   │   ├── search_tool.py
-│   │   │   ├── search_alternative_tool.py
-│   │   │   ├── gradio_space_tool.py
-│   │   │   ├── repo_info_tool.py
-│   │   │   └── deepwiki_tool.py
-│   │   └── utils.py
-│   ├── api/                # Pipeline orchestration
-│   │   └── pipeline.py     # RAGImagingPipeline
-│   ├── retriever/          # Retrieval components
-│   │   ├── text_embedder.py
-│   │   ├── vector_index.py
-│   │   ├── reranker.py
-│   │   └── software_doc.py
-│   ├── generator/          # Agent prompts and schemas
-│   │   ├── prompts.py
-│   │   └── schema.py
-│   ├── ui/                 # Gradio interface
-│   │   ├── app.py
-│   │   ├── handlers.py
-│   │   ├── components.py
-│   │   ├── formatters.py
-│   │   ├── state.py
-│   │   └── visualizations.py
-│   ├── utils/              # Shared utilities
-│   │   ├── config.py       # Configuration management
-│   │   ├── file_validator.py
-│   │   ├── image_meta.py   # Metadata extraction
-│   │   ├── image_io.py
-│   │   ├── previews.py
-│   │   └── tags.py
-│   ├── catalog/            # Catalog syncing
-│   │   └── sync.py
-│   └── cli.py              # CLI entry point
-├── tests/                  # Test suite
-│   ├── test_retrieval_pipeline.py
-│   ├── test_repo_summary.py
-│   └── data/
-├── artifacts/              # Generated artifacts
-│   └── rag_index/          # FAISS index
-├── dataset/                # Catalog data
-│   └── catalog.jsonl
-├── logs/                   # Application logs
-├── config.yaml             # Model configuration
-├── pyproject.toml          # Project metadata & dependencies
-├── Dockerfile              # Production Docker image
-├── tools/image/Dockerfile  # Development Docker image
-└── justfile                # Task runner commands
-```
-
-### Local Development
+### Build And Run The Production UI
 
 ```bash
-# Install in development mode
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/
+cd src/frontend
+npm run build
+cd ../..
+ai_agent serve
 ```
 
-### Testing
+With a built frontend present, FastAPI serves both `/api/*` and the React app from the same origin.
 
-Run the test suite:
+### Docker
+
+The root `Dockerfile` builds the React frontend and runs `ai_agent serve`.
 
 ```bash
-# All tests
+docker build -t ai-agent .
+docker run -p 7860:7860 --env-file .env ai-agent
+```
+
+Open `http://localhost:7860`.
+
+## Usage
+
+1. Sign in with `APP_PASSWORD` if auth is enabled.
+2. Start from an example prompt or upload your own files.
+3. Attach images, DICOM files, NIfTI volumes, TIFF stacks, videos, audio, or PDFs.
+4. Describe the task, such as "segment the lungs from this CT scan".
+5. Review ranked recommendations with accuracy scores, compatibility metadata, and explanations.
+6. Use demo links or approve a pending demo action when the agent offers one.
+7. Continue the conversation, ask for alternatives, or tune the model/top-k/number of choices from the header controls.
+
+Supported slash embeds in the chat composer include:
+
+```text
+/help
+/img <asset-id | name | url>
+/audio <url>
+/video <url>
+/youtube <id | url>
+/embed <url>
+```
+
+## Supported File Formats
+
+- **Standard images**: PNG, JPG, JPEG, WEBP, BMP, GIF
+- **Medical/scientific images**: DICOM (`.dcm`), NIfTI (`.nii`, `.nii.gz`), TIFF/TIFF stacks
+- **Other media**: MP3, WAV, MP4, MOV, WEBM, PDF, CSV, JSON, XML
+
+Medical and volume files are converted into preview images for VLM analysis while their original format, dimensions, and metadata remain available for compatibility matching.
+
+## Architecture
+
+The system combines a React frontend, FastAPI service layer, conversational agent, and retrieval pipeline.
+
+```text
+React SPA
+  - auth, chat, files, model picker, asset gallery, 3D volume view
+        |
+        v
+FastAPI /api/*
+  - /api/auth, /api/chat SSE, /api/files, /api/models, /api/catalog, /api/healthz
+        |
+        v
+PydanticAI Agent
+  - tool search, alternatives, repo info, demo actions
+        |
+        v
+RAG Retrieval
+  - metadata extraction, query construction, embeddings, FAISS, reranking
+        |
+        v
+Software Catalog
+  - JSONL catalog, optional GraphDB sync, runnable examples
+```
+
+Key source areas:
+
+- `src/frontend/`: React + Vite web app
+- `src/ai_agent/api/`: FastAPI app, routers, schemas, and pipeline dependencies
+- `src/ai_agent/services/`: session, file, chat, and volume-view service logic
+- `src/ai_agent/agent/`: PydanticAI agent and tools
+- `src/ai_agent/retriever/`: embedding, FAISS, reranking, and catalog document loading
+- `src/ai_agent/generator/`: prompts and structured response schemas
+- `src/ai_agent/ui/`: legacy Gradio interface
+- `src/ai_agent/catalog/`: optional GraphDB catalog synchronization
+
+## CLI
+
+```bash
+ai_agent serve  # FastAPI backend; serves built React app when dist exists
+ai_agent chat   # Legacy Gradio UI
+ai_agent sync   # One-shot catalog sync and index refresh
+```
+
+Both `ai_agent` and `ai-agent` entry points are available.
+
+## Development
+
+```bash
+# Python tests
 pytest tests/
 
-# Specific test file
-pytest tests/test_retrieval_pipeline.py
-
-# With verbose output
-pytest -v tests/
-
-# With coverage
-pytest --cov=ai_agent tests/
+# Frontend checks
+cd src/frontend
+npm run lint
+npm run build
 ```
 
-### Logging & Debugging
+When changing user-facing behavior, update the relevant docs pages under `docs/`. Keep `README.md`, `docs/index.md`, and `docs/guide.md` aligned.
 
-**Console Logs**: Set `LOGLEVEL_CONSOLE=DEBUG` for verbose output
+## Documentation
 
-**File Logs**: Automatically saved to `logs/app_YYYYMMDD.log` (rotates daily)
-
-**Prompt Snapshots**: Enable `LOG_PROMPTS=1` to save:
-- `logs/vlm_selector_YYYYMMDD_HHMMSS.txt` - System/user prompts
-
----
-
-## 📚 API & CLI Reference
-
-### CLI Commands
+Full documentation lives in `docs/` and is built with MkDocs Material:
 
 ```bash
-# Launch chat interface
-ai_agent chat
-
-# Sync catalog from GraphDB
-ai_agent sync
+mkdocs serve
 ```
 
-## 🗺️ Maintainer Guide
+Start with [docs/index.md](docs/index.md) or the maintainer-oriented [docs/guide.md](docs/guide.md).
 
-For full project documentation with detailed folder responsibilities, environment defaults, and improvement guidelines, see [docs/guide.md](docs/guide.md).
+## License
 
----
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
 
-## 📝 Changelog
+## Credits
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+Developed by the Imaging Plaza team.
 
-### Recent Highlights
+Core technologies include React, Vite, FastAPI, PydanticAI, OpenAI-compatible VLMs, FAISS, Qwen/BGE retrieval models, pydicom, nibabel, tifffile, and Three.js.
 
-**[1.0.0]**
-- ✨ New chat-based interface (`ai_agent chat`) with rich media and tool integration  
-- 🛠️ Fully agent-based architecture replacing legacy pipelines  
-- 🔍 Smarter retrieval with automatic retry  
-- 🔗 DeepWiki MCP integration for fast GitHub repository documentation access  
-- 🔧 YAML configuration (`config.yaml`) for flexible model and backend setup  
-- 🎨 Redesigned UI with Imaging Plaza branding and improved UX  
-- ⚡ Performance improvements (pre-embedding, caching, faster startup)  
-- 🧹 Major cleanup: removed deprecated code paths, legacy UI, and outdated tests  
+## Medical Disclaimer
 
-**[0.1.3] - 2025-10-22**
-- Gradio space runner tool
-- Repository info tool
-- UI fixes and polish
-
----
-
-## 📄 License
-
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Credits & Acknowledgments
-
-**Developed by**: Imaging Plaza Team
-
-**Technologies:**
-- [Pydantic AI](https://github.com/pydantic/pydantic-ai) - AI agent framework
-- [OpenAI](https://openai.com) - GPT vision model
-- [FAISS](https://github.com/facebookresearch/faiss) - Vector search
-- [BGE-M3](https://huggingface.co/BAAI/bge-m3) - Multilingual embeddings
-- [Gradio](https://gradio.app) - Interactive web UI
-- [DeepWiki](https://deepwiki.com) - GitHub repository documentation
-
-**Medical Imaging Formats:**
-- [pydicom](https://github.com/pydicom/pydicom) - DICOM support
-- [nibabel](https://nipy.org/nibabel/) - NIfTI support
-
----
-
-## 📮 Support
-
-For issues, questions, or contributions, please contact the Imaging Plaza team.
-
----
-
-**🏥 Medical Disclaimer**: This software is a tool recommendation system, not a diagnostic tool. Always consult qualified medical professionals for clinical decisions.
+This software recommends imaging tools. It is not a diagnostic tool and should not be used for clinical decisions without qualified medical review.

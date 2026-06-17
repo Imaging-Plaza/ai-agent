@@ -16,12 +16,12 @@ cd ai-agent
 ### 2. Set Up Development Environment
 
 ```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv venv
+uv pip install -e .
+uv pip install -e ".[dev]"
 
-# Install in development mode
-pip install -e ".[dev]"
+cd src/frontend
+npm install
 ```
 
 ### 3. Create a Branch
@@ -80,6 +80,14 @@ pytest tests/test_retrieval_pipeline.py
 
 # Run with coverage
 pytest --cov=ai_agent tests/
+```
+
+Frontend checks:
+
+```bash
+cd src/frontend
+npm run lint
+npm run build
 ```
 
 ## Contribution Guidelines
@@ -236,9 +244,16 @@ ai_agent sync
 5. **Test retrieval**:
 
 ```bash
-ai_agent chat
-# Try queries that should return your new tool
+ai_agent serve
+
+# In another terminal:
+cd src/frontend
+npm run dev
+
+# Open http://localhost:5173 and try queries that should return your new tool.
 ```
+
+Use `ai_agent chat` only when you specifically need to test the legacy Gradio UI.
 
 ### Tool Criteria
 

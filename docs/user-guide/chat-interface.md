@@ -1,275 +1,178 @@
-# Using the Chat Interface
+# Using The Chat Interface
 
-The AI Imaging Agent provides a conversational interface for discovering and using imaging software. This guide explains how to interact with the chat interface effectively.
+The React chat interface is the primary way to use AI Imaging Agent. It combines file upload, conversation history, recommendation cards, media previews, and controlled demo actions in one workspace.
 
-## Interface Layout
+## Layout
 
-The interface consists of three main areas:
+### Sidebar
 
-### Left Panel: Chat Conversation
-- **Message History**: Your conversation with the agent
-- **Rich Media Rendering**: Images, tool cards, and files are displayed inline
-- **Input Box**: Type your messages at the bottom
-- **File Upload**: Attach files via the paperclip icon or drag-and-drop
-
-### Right Panel: Sidebar
-- **Files Tab**: View uploaded files with format information
-- **State Tab**: Debug information showing conversation state
+- Start a new conversation.
+- Reopen conversations stored in browser local storage.
+- Open the session asset gallery.
+- Keep prior turns available when you resume a conversation.
 
 ### Header
-- **Model Selector**: Choose which AI model to use
-- **Settings**: Access configuration options
+
+- View the current conversation title.
+- Select the agent model from `config.yaml`.
+- Adjust retrieval `top_k` and the number of recommendations.
+- Switch light/dark theme.
+- Sign out when password auth is enabled.
+
+### Message Area
+
+- Shows user turns, agent replies, recommendation cards, tool traces, generated media, and clarification prompts.
+- Streams status updates from the backend while the synchronous agent run is in progress.
+- Includes a minimap for navigating longer conversations.
+
+### Composer
+
+- Type natural-language requests.
+- Attach new files from disk.
+- Reattach previous session assets from the gallery.
+- Prefill from example prompts.
+- Use slash commands for inline media embeds.
+
+If you send another message while the agent is busy, it is added to a queue. Queued messages appear in a banner and can be canceled before they run.
 
 ## Basic Workflow
 
-### 1. Upload Files
+1. **Upload files** by dragging them into the composer or using the attach control.
+2. **Describe the task**, for example:
 
-Upload images or other files in several ways:
+   ```text
+   Segment the lungs from this CT scan
+   ```
 
-- **Drag and Drop**: Drag files directly onto the upload area
-- **Click to Browse**: Click the upload area to select files
-- **Attach to Message**: Use the paperclip icon in the input box
+3. **Watch status updates** as the backend validates files, searches the catalog, ranks candidates, and prepares the response.
+4. **Review recommendations** with rank, accuracy, explanation, metadata, and demo links.
+5. **Answer clarification prompts** if the agent needs more context.
+6. **Approve or decline pending actions** such as demo execution.
 
-Files are automatically processed and metadata is extracted.
+## File And Asset Handling
 
-### 2. Describe Your Task
+Uploaded files are stored in the current server-side session. The frontend receives asset IDs and preview URLs, then can request additional views from the backend.
 
-Use natural language to describe what you want to do:
+Supported views include:
 
-!!! example "Good Task Descriptions"
-    - "I want to segment the lungs from this CT scan"
-    - "Help me detect tumors in this MRI"
-    - "I need to register these two brain images"
-    - "Extract text from this medical report"
-    - "Classify the organ shown in this ultrasound"
+- Cached PNG preview for VLM and UI display.
+- Raw original file serving for supported media/PDF formats.
+- Slice views for volume assets.
+- Maximum intensity projections for volume assets.
+- Downsampled Float32 volume bytes for browser-side Three.js rendering.
 
-### 3. Review Recommendations
+The asset gallery lets you reuse already-uploaded files without selecting them from disk again.
 
-The agent returns ranked tool recommendations with:
+## Supported Interactions
 
-- **Tool Cards**: Each tool is presented in a card format
-- **Accuracy Scores**: Confidence levels for each recommendation
-- **Explanations**: Why each tool matches your request
-- **Metadata**: Technical details about compatibility
+### Natural-Language Requests
 
-### 4. Run Demos (Optional)
+Good requests include both the imaging task and constraints:
 
-The agent may offer to run demos:
-
-```
-Agent: Would you like me to run the demo with your image?
+```text
+Find open-source tools that segment kidneys in 3D NIfTI MRI data.
 ```
 
-Respond with affirmative language:
-- "yes"
-- "sure"
-- "ok"
-- "please"
-- "go ahead"
+```text
+Register these two brain MRI images and prefer tools with runnable demos.
+```
 
-The agent will execute the tool and show results.
+### Alternatives
 
-## Multi-Turn Conversations
+Ask for another search strategy:
 
-The agent maintains context across multiple messages:
+```text
+Show me alternatives.
+```
 
-!!! example "Multi-Turn Example"
-    ```
-    You: I have a lung CT scan [uploads file]
-    
-    Agent: I can see you have a DICOM CT image. What would you like to do with it?
-    
-    You: Segment the airways
-    
-    Agent: [Provides airway segmentation tool recommendations]
-    
-    You: What about segmenting the whole lung?
-    
-    Agent: [Provides lung segmentation tools, remembering you're working with CT]
-    
-    You: Show me alternatives
-    
-    Agent: [Provides additional options]
-    ```
-
-## Advanced Features
+The agent can perform limited alternative searches in a conversation.
 
 ### Excluding Tools
 
-Exclude specific tools using the `[EXCLUDE:...]` tag:
+Use the `[EXCLUDE:...]` control tag:
 
-```
-Find segmentation tools [EXCLUDE:totalsegmentator|medicalsam]
-```
-
-You can exclude multiple tools separated by `|`.
-
-### Requesting Alternatives
-
-Ask the agent to search with different strategies:
-
-```
-Can you search for alternatives?
-
-Show me other options
-
-Find different tools for this task
+```text
+Find lung segmentation tools [EXCLUDE:totalsegmentator|medicalsam]
 ```
 
-The agent can perform up to 3 alternative searches per conversation.
+### Slash Embeds
 
-## Understanding Agent Responses
+Slash commands add media/embed turns without running the recommendation agent:
 
-### Recommendation Cards
-
-Each recommendation includes:
-
-#### Header
-- **Rank Number**: 1, 2, 3 (1 = best match)
-- **Tool Name**: Software/tool identifier
-- **Accuracy Score**: 0-100% confidence
-
-#### Body
-- **Description**: What the tool does
-- **Explanation**: Why it matches your task
-- **Demo Link**: Click to visit runnable example
-
-#### Footer Metadata
-- **Modalities**: CT, MRI, X-ray, etc.
-- **Dimensions**: 2D, 3D, 4D
-- **Formats**: Supported file formats (DICOM, NIfTI, etc.)
-- **License**: Software license information
-- **Tags**: Categorization and keywords
-
-### Execution Traces
-
-When demos run, you'll see execution details:
-
-```
-<details>
-<summary>Tool Execution Trace</summary>
-
-Image uploaded to Gradio Space
-Processing started...
-Result: Success
-Output saved to: result.png
-</details>
+```text
+/help
+/img <asset-id | name | url>
+/audio <url>
+/video <url>
+/youtube <id | url>
+/embed <url>
 ```
 
-Click to expand and see full execution logs.
+`/img` can resolve an uploaded session asset by exact ID, ID prefix, or filename substring.
 
-### Clarification Questions
+## Recommendation Cards
 
-Sometimes the agent needs more information:
+Each card can include:
 
-```
-Agent: I found several segmentation tools. Which organ are you trying to segment?
+- Rank and tool name.
+- Accuracy score.
+- Explanation for the match.
+- Catalog metadata such as modality, anatomy, dimension, format, license, and categories.
+- Demo URL or repository link.
 
-You: The liver
+The agent may also emit tool traces. These show which tools ran and what intermediate actions were taken.
 
-Agent: [Provides liver-specific segmentation tools]
-```
+## Demo Actions
 
-## File Management
+Some recommendations include runnable examples. When the agent can run or prepare a demo action, the UI shows a pending action panel. You can approve, decline, or confirm the demo flow.
 
-### Uploaded Files List
+!!! warning
+    Running external demos can send your uploaded data to third-party services such as public Hugging Face Spaces. Review the destination before approving.
 
-The sidebar shows all uploaded files with:
+## Conversation Persistence
 
-- **Filename**: Original file name
-- **Format**: File type/extension
-- **Size**: File size
-- **Preview**: Thumbnail (for images)
+The frontend stores conversation transcripts in browser local storage and restores them into server-side sessions when you continue a chat. Uploaded files themselves live in the server process temporary upload area, so restarting the backend can invalidate old asset IDs.
 
-### Image Previews
+## Tips
 
-Medical images are automatically converted:
+!!! tip "Upload first"
+    The agent gets better results when it can inspect image previews and original metadata.
 
-- **DICOM**: PNG previews; 3D series use orthogonal composite views (MIPs + central slices) rather than a single slice
-- **NIfTI**: PNG previews built from orthogonal composite views of the volume
-- **TIFF Stacks**: PNG previews built from orthogonal composite views of the stack
-- **Standard 2D Images**: Resized PNG preview of the original image
+!!! tip "Use constraints"
+    Mention DICOM/NIfTI/TIFF, 2D/3D/4D, modality, anatomy, license, or GPU constraints when they matter.
 
-Previews are used for VLM analysis while preserving original format metadata.
+!!! tip "Use the model controls"
+    Switch to a faster model for exploration and a stronger model for more ambiguous visual reasoning.
 
-### Removing Files
-
-Click the 'X' button next to a file to remove it from the current session.
-
-## Conversation State
-
-The debug sidebar shows:
-
-### Current State
-- **Status**: idle, processing, waiting
-- **Conversation Turn**: Current turn number
-- **Excluded Tools**: Tools filtered from results
-
-### Preview Images
-- Images prepared for VLM analysis
-- Format conversions applied
-
-## Tips for Effective Interaction
-
-!!! tip "Be Specific About Requirements"
-    Mention specific needs:
-    
-    - "I need a tool that works with NIfTI files"
-    - "Must support 3D volumes"
-    - "Looking for open-source options"
-
-!!! tip "Use Conversational Language"
-    Natural language works best:
-    
-    - ✅ "Help me find tool that segments kidneys"
-    - ❌ "kidney_segmentation_tool filter:3D"
-
-!!! tip "Iterate Based on Results"
-    If initial results aren't perfect, refine:
-    
-    - "Can you find tools with higher accuracy?"
-    - "Show me open-source alternatives"
-    - "What about tools that support DICOM?"
-
-!!! tip "Ask Follow-Up Questions"
-    The agent maintains context:
-    
-    - "What about the second recommendation?"
-    - "Can you compare these two tools?"
-    - "Which one is fastest?"
+!!! tip "Queue follow-ups"
+    You can type follow-up messages while the agent is still working; they run in order after the current response finishes.
 
 ## Troubleshooting
 
+### Login Does Not Appear
+
+`APP_PASSWORD` is probably unset, so auth is disabled for local development.
+
+### Frontend Cannot Reach Backend
+
+- Confirm `ai_agent serve` is running.
+- In dev, confirm Vite is running on `http://localhost:5173`.
+- Check `DEV_CORS_ORIGINS` and `VITE_API_TARGET` if you changed ports.
+
+### Old Asset Previews Fail
+
+The backend may have restarted and cleared the in-memory session store. Reupload the files.
+
 ### No Recommendations
 
-If the agent can't find suitable tools:
-
-- Try rephrasing your query
-- Be more specific about the task
-- Check that your file uploaded successfully
-- Ensure your task matches the catalog domain (imaging/medical)
-
-### Wrong Recommendations
-
-If recommendations don't match:
-
-- Provide more context about your specific needs
-- Mention required file format support
-- Specify modality or domain
-- Use the exclude feature to filter out irrelevant tools
-
-### Demo Execution Fails
-
-If a demo doesn't run:
-
-- Check your internet connection
-- Verify the demo link is still active
-- Try a different recommended tool
-- Check file format compatibility
+- Rephrase the task with more domain detail.
+- Upload the relevant file before asking.
+- Mention format, modality, or anatomy explicitly.
+- Make sure the local catalog path is correct.
 
 ## Next Steps
 
 - Learn about [Supported File Formats](file-formats.md)
 - Understand [How Recommendations Work](recommendations.md)
 - Explore [Running Demos](running-demos.md)
-- Check out [Advanced Features](advanced-features.md)
+- Check [Advanced Features](advanced-features.md)

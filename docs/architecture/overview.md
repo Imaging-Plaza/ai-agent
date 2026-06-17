@@ -1,439 +1,284 @@
 # Architecture Overview
 
-The AI Imaging Agent uses a **two-stage pipeline** that combines fast text retrieval with vision-language model selection to recommend imaging tools.
+AI Imaging Agent combines a React frontend, FastAPI service layer, PydanticAI conversational agent, and retrieval pipeline to recommend imaging tools.
 
 ## System Architecture
 
 ![Architecture Diagram](../assets/architecture.png)
 
+```text
+React SPA
+  auth, chat, assets, model controls, previews, volume rendering
+        |
+        | HTTP + SSE
+        v
+FastAPI Backend
+  auth, files, chat, models, catalog, health, static SPA serving
+        |
+        v
+Service Layer
+  sessions, file ingestion, chat turn processing, volume views
+        |
+        v
+PydanticAI Agent
+  tool search, alternatives, repo info, demo actions
+        |
+        v
+Retrieval Pipeline
+  metadata, query hints, embeddings, FAISS, reranking
+        |
+        v
+Software Catalog
+  JSONL catalog, optional GraphDB sync, runnable examples
+```
+
 ## Design Principles
 
-### 1. Two-Stage Pipeline
+### Two-Stage Recommendation
 
-**Why two stages?**
+1. **Retrieval** finds likely catalog candidates quickly with embeddings, FAISS, and reranking.
+2. **Agent/VLM selection** reasons over the user task, image preview, metadata, and candidates to produce ranked recommendations.
 
-- **Speed**: Text retrieval is fast (~100ms), VLM calls are slower (~2-5s)
-- **Cost**: Only run expensive VLM on top candidates
-- **Quality**: Combine semantic search (Stage 1) with reasoning (Stage 2)
+This keeps the expensive model call focused on a small candidate set.
 
-### 2. No Generation in Retrieval
+### Service Boundary Between UI And Agent
 
-Stage 1 uses **no LLMs**:
+The React app never runs retrieval or agent logic directly. It talks to FastAPI endpoints:
 
-- Deterministic text search
-- Reproducible results
-- Fast iteration
-- Lower cost
+- `/api/auth/*` for passphrase auth
+- `/api/files/*` for upload, previews, raw files, slices, MIPs, and volume bytes
+- `/api/chat` for SSE chat turns
+- `/api/models` for the model picker
+- `/api/catalog/*` and `/api/healthz` for catalog/health support
 
-### 3. Single VLM Call in Selection
+### Metadata-Aware Retrieval
 
-Stage 2 makes **exactly one VLM call**:
+Uploads contribute format, modality, dimension, and compact metadata hints to retrieval. For example, a DICOM CT volume can add hints such as `format:DICOM`, `format:CT`, and `format:3D`.
 
-- Sees all candidates at once
-- Performs comparative reasoning
-- Returns complete rankings
-- Efficient use of context window
+### Graceful Degradation
 
-### 4. Vision + Text Integration
-
-VLM receives:
-
-- **Visual**: PNG preview of image
-- **Textual**: Query, metadata, candidate descriptions
-- **Structured**: Candidate metadata table
-
-Enables image-aware tool selection.
+If a preview or metadata extraction path fails, the system should continue with the information it has and report recoverable errors instead of crashing the chat turn.
 
 ## Data Flow
 
-### Input Processing
+### Upload And Asset Registration
 
-```
-User uploads: scan.dcm
-              "Segment the lungs"
-
-↓ File Validation
-  - Size check (< 200MB for DICOM)
-  - Format validation
-  - Security checks
-
-↓ Metadata Extraction
-  - Format: DICOM
-  - Modality: CT
-  - Dimensions: 512×512×300 (3D)
-  - Spacing: 0.7×0.7×1.5mm
-
-↓ Preview Generation
-  - Extract middle slice: scan_preview.png
-  - Format: PNG, RGB
-  - Preserve metadata separately
+```text
+User attaches file
+        |
+        v
+POST /api/files
+        |
+        v
+services.files.ingest_files()
+  - validate file
+  - extract metadata
+  - build cached preview when possible
+  - register asset in session
+        |
+        v
+React receives asset_id, display name, format, metadata, preview URL
 ```
 
-### Stage 1: Retrieval
+Volume assets can later be requested through `/api/files/asset/{asset_id}/view`, `/info`, `/volume`, or `/raw`.
 
-```
-Query: "Segment the lungs"
-Uploaded: scan.dcm (DICOM, CT, 3D)
+### Chat Turn
 
-↓ Query Enhancement
-  Enhanced: "Segment the lungs format:DICOM format:CT format:3D"
-
-↓ Metadata-Aware Hinting
-  + image metadata summary (modality/anatomy/dims)
-
-↓ Embedding (BGE-M3)
-  Vector: [0.23, -0.15, 0.87, ..., 0.34]  # 1024 dims
-
-↓ FAISS Search
-  Top 20 candidates by cosine similarity
-
-↓ Retry Broadening (if low results)
-  retry with a shorter query formulation
-
-↓ CrossEncoder Reranking
-  Re-score with cross-attention
-  Top 8 candidates
-
-→ Candidates passed to Stage 2
+```text
+React sends message + asset IDs
+        |
+        v
+POST /api/chat
+        |
+        v
+SSE stream:
+  session -> status beats -> text -> recommendations -> traces
+  -> clarification/pending_action/images/files/usage -> done
+        |
+        v
+services.chat.process_turn()
+        |
+        v
+PydanticAI agent + retrieval tools
 ```
 
-### Stage 2: Agent Selection
+The current chat processing is synchronous underneath; the API emits heartbeat status events while it runs and then streams the finished result as named SSE events.
 
+### Retrieval Stage
+
+```text
+User task + uploaded asset metadata
+        |
+        v
+Control tags stripped and format hints added
+        |
+        v
+Embed query
+        |
+        v
+FAISS top-N search
+        |
+        v
+Optional reranking
+        |
+        v
+Top-K candidates
 ```
-Inputs:
-  - User query: "Segment the lungs"
-  - Image preview: scan_preview.png
-  - Candidates: [tool1, tool2, ..., tool8]
-  - Metadata: DICOM, CT, 3D, 512×512×300
 
-↓ VLM Prompt Construction
-  System: "You are an imaging tool expert..."
-  User text: Query + metadata + candidate table
-  User image: PNG preview
+Retrieval makes no VLM calls.
 
-↓ VLM Call (GPT-4o)
-  - Analyzes image content (CT thorax)
-  - Reads candidate descriptions
-  - Considers format compatibility
-  - Reasons about task alignment
+### Agent Selection
 
-↓ Response (Structured)
-  {
-    "status": "complete",
-    "recommendations": [
-      {
-        "rank": 1,
-        "name": "TotalSegmentator",
-        "accuracy": 95,
-        "explanation": "...",
-        "reason": "task_match"
-      },
-      ...
-    ]
-  }
+The agent receives task context, candidate tools, image previews when available, and metadata summaries. It can:
 
-→ Formatted recommendations to user
-```
+- Return complete recommendations.
+- Ask a clarification question.
+- Search for alternatives.
+- Fetch repository information.
+- Propose or run supported demo actions.
 
 ## Key Components
 
-### api/pipeline.py
+### `src/frontend/`
 
-**RAGImagingPipeline**: Main orchestrator
+React + Vite application.
 
-```python
-class RAGImagingPipeline:
-    def __init__(self, catalog_path, index_dir):
-        self.retriever = TextRetriever(...)
-        # Stage 2 (selection/ranking) is handled by the PydanticAI agent
-        # configured in generator/prompts.py using models from generator/schema.py
-    
-    def recommend(self, query, files):
-        # Stage 1: Retrieval
-        candidates = self.retriever.retrieve(query)
-        
-        # Stage 2: Selection via PydanticAI agent
-        recommendations = run_selection_agent(
-            query=query,
-            candidates=candidates,
-            files=files,
-        )
-        
-        return recommendations
-```
+Important pieces:
 
-**Responsibilities**:
+- `pages/ChatPage.tsx`: main chat workspace
+- `pages/LoginPage.tsx`: passphrase login
+- `components/ChatInput.tsx`: composer and upload flow
+- `components/MessageList.tsx`: turn rendering
+- `components/RecommendationCard.tsx`: recommendation UI
+- `components/Volume3D.tsx`: Three.js volume rendering
+- `hooks/useChat.tsx`: SSE chat state
+- `hooks/useConversations.tsx`: local transcript persistence
+- `lib/api.ts`: typed API wrapper
+- `lib/sse.ts`: SSE client
 
-- File validation
-- Metadata extraction
-- Pipeline orchestration
-- Error handling
+### `src/ai_agent/api/`
 
-### retriever/
+FastAPI app and routers.
 
-**Text-based retrieval, no LLMs**
+- `server.py`: app creation, CORS, static frontend serving
+- `routers/auth.py`: login/logout/status
+- `routers/chat.py`: SSE chat and pending-action endpoints
+- `routers/files.py`: file upload and asset views
+- `routers/models.py`: model list from `config.yaml`
+- `deps.py`: auth and shared dependencies
+- `schemas.py`: API models
+- `pipeline.py`: retrieval pipeline orchestration
 
-Components:
+### `src/ai_agent/services/`
 
-- `text_embedder.py`: BGE-M3 embedding model
-- `vector_index.py`: FAISS index management
-- `reranker.py`: CrossEncoder reranking
-- `software_doc.py`: Catalog schema and loading
+Service layer used by API routes.
 
-**Retrieval flow**:
+- `sessions.py`: in-memory session and asset state
+- `files.py`: upload ingestion and preview registration
+- `chat.py`: chat turn orchestration and pending actions
+- `views.py`: slices, MIPs, info, and volume bytes
 
-1. Embed query → vector
-2. FAISS search → top-N by similarity
-3. CrossEncoder → rerank with cross-attention
-4. Return top-K candidates
+### `src/ai_agent/agent/`
 
-### generator/
+PydanticAI agent and tools.
 
-**VLM-based tool selection building blocks**
+- `agent.py`: agent definition and execution
+- `models.py`: response/tool trace models
+- `tools/search_tool.py`: primary catalog search
+- `tools/search_alternative_tool.py`: alternative searches
+- `tools/repo_info_tool.py` and `tools/deepwiki_tool.py`: repository context
+- `tools/gradio_space_tool.py`: demo support
+- `tools/mcp/`: MCP adapters
 
-Components:
+### `src/ai_agent/retriever/`
 
-- `schema.py`: Pydantic models for agent responses and tool recommendations
-- `prompts.py`: System and tool-selection prompts used by the PydanticAI agent
+Retrieval stack.
 
-**Selection logic**:
+- `text_embedder.py`: remote/local embeddings
+- `vector_index.py`: FAISS index
+- `reranker.py`: remote/local reranking
+- `software_doc.py`: catalog document schema and loading
 
-- Implemented in the PydanticAI agent (`agent/agent.py`) using these schemas and prompts
-- Single VLM call with all candidates
-- Structured output (Pydantic schemas) with ranked recommendations
-- Vision + text multimodal input
+### `src/ai_agent/generator/`
 
-### agent/
+Prompt and schema contracts for structured agent output.
 
-**PydanticAI conversational agent**
+### `src/ai_agent/ui/`
 
-Components:
-
-- `agent.py`: Agent definition and tools
-- `state.py`: ChatState dataclass
-- `tools.py`: Agent tools (search, repo_info, demo_exec)
-
-**Tools**:
-
-- `search_alternative`: Request alternative search
-- `repo_info`: Fetch GitHub repository details
-- `run_gradio_demo`: Execute Gradio Space demos
-
-### utils/
-
-**Shared utilities**
-
-- `image_meta.py`: DICOM/NIfTI/TIFF metadata extraction
-- `file_validator.py`: Size and format validation
-- `previews.py`: Image conversion to PNG
-- `tags.py`: Control tag parsing (`[EXCLUDE:...]`, etc.)
-- `config.py`: Configuration management
-
-### ui/
-
-**Gradio interface**
-
-Components:
-
-- `app.py`: Gradio application
-- `components.py`: Reusable UI components
-- `handlers.py`: Message handlers
-- `formatters.py`: Response formatting
-- `visualizations.py`: Previews and traces
-
-**Key function**:
-```python
-def respond(message: str, files: list, state: dict) -> tuple:
-    """
-    Main interaction function.
-    
-    Returns: (reply, media, updated_state)
-    """
-```
+Legacy Gradio UI, launched with `ai_agent chat`. It remains useful as a fallback but is not the primary frontend.
 
 ## Module Boundaries
 
-Clear separation of concerns:
+| Module | Purpose |
+|--------|---------|
+| `src/frontend/` | Client UI and browser interaction state |
+| `api/` | HTTP/SSE surface, dependency wiring, request/response schemas |
+| `services/` | Session, file, chat, and volume-view service logic |
+| `agent/` | Conversational policy and tool orchestration |
+| `retriever/` | Deterministic catalog retrieval |
+| `generator/` | Prompt/schema contracts |
+| `utils/` | Shared utilities |
+| `catalog/` | GraphDB sync and catalog refresh |
 
-| Module | Purpose | Dependencies |
-|--------|---------|--------------|
-| `api/` | Pipeline orchestration | `retriever/`, `generator/`, `utils/` |
-| `retriever/` | Text search only | None (pure retrieval) |
-| `generator/` | VLM selection only | None (pure generation) |
-| `agent/` | Conversational logic | `api/`, `utils/` |
-| `ui/` | Interface only | `agent/`, `api/` |
-| `utils/` | Shared functionality | None (pure utilities) |
+## Deployment Modes
 
-**Benefits**:
+### Local Development
 
-- Independent testing
-- Clear interfaces
-- Modular replacement
-- No circular dependencies
+```bash
+ai_agent serve
 
-## Data Schemas
-
-### Software Catalog
-
-JSONL format, based on schema.org SoftwareSourceCode:
-
-```json
-{
-  "name": "TotalSegmentator",
-  "description": "Automated multi-organ segmentation...",
-  "url": "https://github.com/wasserth/TotalSegmentator",
-  "codeRepository": "https://github.com/wasserth/TotalSegmentator",
-  "programmingLanguage": "Python",
-  "license": "Apache-2.0",
-  "keywords": ["segmentation", "medical-imaging", "CT"],
-  "applicationCategory": "Medical Imaging",
-  "operatingSystem": ["Linux", "Windows", "macOS"],
-  "softwareRequirements": ["Python 3.9+", "PyTorch"],
-  "supportingData": {
-    "modalities": ["CT", "MRI"],
-    "dimensions": ["3D"],
-    "formats": ["DICOM", "NIfTI"],
-    "tasks": ["segmentation"],
-    "demo_url": "https://huggingface.co/spaces/..."
-  }
-}
+cd src/frontend
+npm run dev
 ```
 
-### Agent Response
+Open `http://localhost:5173`.
 
-Pydantic models in `generator/schema.py`:
+### Production / Docker
 
-```python
-class ToolRecommendation(BaseModel):
-    rank: int
-    name: str
-    accuracy_score: int  # 0-100
-    explanation: str
-    reason: ToolReason  # Enum
-    supporting_data: dict
-
-class AgentResponse(BaseModel):
-    status: ConversationStatus  # Enum
-    recommendations: list[ToolRecommendation]
-    message: str | None
+```bash
+cd src/frontend
+npm run build
+cd ../..
+ai_agent serve
 ```
 
-**Validation**:
+If `FRONTEND_DIST_DIR` contains the built SPA, FastAPI serves the frontend and API from the same origin. The Dockerfile performs this build automatically and exposes port `7860`.
 
-- Type checking via Pydantic
-- Enum constraints
-- Field aliases for LLM compatibility
+### Legacy UI
 
-## Extension Points
-
-### Adding New Models
-
-In `config.yaml`:
-
-```yaml
-available_models:
-  - display_name: "Custom Model"
-    name: "model-name"
-    base_url: "https://api.example.com/v1"
-    api_key_env: "CUSTOM_API_KEY"
+```bash
+ai_agent chat
 ```
-
-### Adding New Tools
-
-Add a tool in `agent/agent.py` and route implementation to `agent/tools/` modules:
-
-```python
-@agent.tool
-async def new_tool(ctx: RunContext[AgentState], param: str) -> str:
-  """Tool description for the agent."""
-  # Delegate to ai_agent.agent.tools.* implementation
-  return result
-```
-
-### Custom Metadata Extractors
-
-In `utils/image_meta.py`:
-
-```python
-def extract_custom_format(file_path: str) -> dict:
-    """Extract metadata from custom format."""
-    # Implementation
-    return metadata
-```
-
-<!-- ## Performance Characteristics
-
-### Latency Breakdown
-
-Typical request (~3-5 seconds total):
-
-| Stage | Time | Notes |
-|-------|------|-------|
-| File upload | 100-500ms | Network + validation |
-| Metadata extraction | 50-200ms | Format-dependent |
-| Preview generation | 100-500ms | Image conversion |
-| Retrieval (Stage 1) | 100-200ms | Embedding + FAISS |
-| Reranking | 200-500ms | CrossEncoder |
-| VLM call (Stage 2) | 2-4s | OpenAI API |
-| Response formatting | 50ms | JSON → UI |
-
-**Bottleneck**: VLM API call (Stage 2)
-
-### Scalability
-
-**Current**:
-
-- Single-user Gradio app
-- In-memory FAISS index
-- Synchronous processing
-
-**Production considerations**:
-
-- FastAPI backend for multi-user
-- Async VLM calls
-- Redis for session state
-- CDN for catalog + index -->
 
 ## Security Considerations
 
-### User Data
+- `APP_PASSWORD` enables shared-passphrase auth with an httpOnly cookie.
+- If `APP_PASSWORD` is unset, auth is disabled.
+- Uploaded files are stored on the server under `UPLOAD_ROOT` or a temp directory.
+- VLM calls can include image previews and metadata.
+- External demos may receive user data only after the user chooses or approves that action.
+- Prompt logging is local-only but can store sensitive previews/text when `LOG_PROMPTS=1`.
 
-- **Images**: Sent to OpenAI API (preview PNG) if gpt is selected
-- **Metadata**: Processed locally, sent to VLM as text
-- **Queries**: Sent to OpenAI API
+## Extension Points
 
-**Privacy**: User data sees OpenAI's VLM API only.
+### Add A Frontend Feature
 
-### Catalog Integrity
+Add UI components under `src/frontend/src/components`, route-level behavior under `pages`, and API calls under `lib/api.ts` or `lib/sse.ts`.
 
-- Software catalog is curated
-- SHA1 checksums verify integrity
-- No user-generated catalog entries
+### Add An API Endpoint
 
-### Demo Execution
+Add a router under `src/ai_agent/api/routers`, shared schemas in `schemas.py`, and reusable logic in `services/` when stateful or cross-route.
 
-- Calls external Gradio Spaces (user choice)
-- No credentials shared with demos
-- User's image uploaded to public spaces (warn users)
+### Add A Tool
 
-## Future Improvements
+Implement tool behavior under `src/ai_agent/agent/tools/` and register it through the agent/tool registry pattern already used in `agent.py`.
 
-The following areas are planned for future development:
+### Add A Metadata Extractor
 
-### UX/UI Enhancements
-
-The current Gradio interface is functional but has room for improvement. Planned work includes better result presentation, improved file management UX, and a more polished visual design to lower the barrier for non-expert users.
-
-### MCP Integration by Users
-
-Today, MCP (Model Context Protocol) tool adapters are defined by the development team. A future goal is to allow users to register and contribute their own MCP-compatible tools directly from the interface, making the catalog extensible without requiring code changes.
-
-### SQLite Integration
-
-Conversation history, tool usage logs, and per-session state currently live only in memory. Adding a SQLite backend would enable persistent sessions, usage analytics, and a foundation for personalised recommendations over time.
-- Explore [Software Catalog](catalog.md)
+Extend `utils/image_meta.py` and ensure preview behavior remains graceful for unsupported files.
 
 ## Next Steps
 
 - Deep dive into [Retrieval Pipeline](retrieval.md)
 - Learn about [Agent & VLM Selection](agent.md)
+- Review the [Project Guide](../guide.md)

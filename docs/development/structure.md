@@ -1,404 +1,315 @@
 # Project Structure
 
-The AI Imaging Agent is organized into modular components with clear separation of concerns.
+AI Imaging Agent is organized around a React frontend, FastAPI backend, PydanticAI agent, and retrieval pipeline.
 
 ## Directory Layout
 
-```
+```text
 ai-agent/
 ├── .github/
-│   └── copilot-instructions.md  # Architecture + agent instructions
+│   └── copilot-instructions.md
 ├── artifacts/
-│   └── rag_index/               # FAISS index and metadata
-│       ├── index.faiss
-│       └── meta.json
-├── dataset/
-│   ├── catalog.jsonl            # Software catalog (JSONL)
-│   ├── catalog.jsonld           # Raw JSON-LD from SPARQL fetch
-│   └── catalog.jsonl.sha1       # SHA-1 for change detection
-├── docs/                        # MkDocs documentation source
-├── logs/                        # Application logs
-├── src/
-│   └── ai_agent/               # Main package
-│       ├── agent/              # PydanticAI agent + tools
-│       ├── api/                # Pipeline orchestration
-│       ├── catalog/            # Catalog sync (SPARQL → JSONL)
-│       ├── core/               # Shared pipeline singleton
-│       ├── generator/          # VLM schemas and prompts
-│       ├── queries/            # SPARQL query files
-│       ├── retriever/          # Embedding, FAISS, reranking
-│       ├── ui/                 # Gradio interface
-│       └── utils/              # Shared utilities
-├── tests/                      # Test suite
-├── config.yaml                 # Model and retrieval configuration
-├── mkdocs.yml                  # Documentation config
-├── pyproject.toml              # Package metadata, dependencies
-└── README.md                   # Project readme
-```
-
-## Core Modules
-
-### src/ai_agent/
-
-Main package containing all application code.
-
-#### agent/
-
-PydanticAI conversational agent implementation.
-
-```
-agent/
-├── __init__.py
-├── agent.py               # Agent definition, tool registration, run_agent()
-├── models.py              # Agent output/log models
-├── utils.py               # AgentState, limit_tool_calls() decorator
-└── tools/
-    ├── __init__.py
-    ├── deepwiki_tool.py       # Repository info via DeepWiki MCP
-    ├── gradio_space_tool.py   # Gradio Space demo discovery
-    ├── query_utils.py         # Query preprocessing helpers
-    ├── repo_info_tool.py      # repo_info_batch (GitHub + DeepWiki)
-    ├── search_alternative_tool.py  # search_alternative tool
-    ├── search_tool.py         # search_tools primary tool
-    ├── utils.py               # Shared tool helpers
-    └── mcp/                   # MCP server integrations
-        ├── __init__.py
-        ├── base.py
-        ├── lungs_segmentation_tool.py
-        └── registry.py
-```
-
-**Key components**:
-
-- `agent.py`: Agent instance, system prompt, `run_agent()` entry point
-- `models.py`: Agent output and tool usage schemas
-- `utils.py`: `AgentState` model, `limit_tool_calls()` prepare hook
-- `tools/`: Modular tool implementations (search, alternatives, repo info, MCP)
-
-**Dependencies**: `api/`, `utils/`
-
-#### api/
-
-Pipeline orchestration and core logic.
-
-```
-api/
-├── __init__.py
-└── pipeline.py            # RAGImagingPipeline main class
-```
-
-**Responsibilities**:
-
-- File validation and metadata extraction
-- Retrieval + VLM selection orchestration
-- Error handling and logging
-- Index management
-
-**Dependencies**: `retriever/`, `generator/`, `utils/`
-
-#### catalog/
-
-Software catalog synchronization via SPARQL.
-
-```
-catalog/
-├── __init__.py
-└── sync.py                # sync_once() — SPARQL fetch → JSON-LD → JSONL → FAISS
-```
-
-**Functions**:
-
-- Fetch catalog from GraphDB SPARQL endpoint
-- Convert JSON-LD to JSONL with SHA-1 change detection
-- Trigger FAISS index rebuild when catalog changes
-- `sync_once()`: one-shot sync; runs at startup and on schedule
-
-**Dependencies**: `retriever/`
-
-#### core/
-
-Shared pipeline singleton used across CLI, UI, and tools.
-
-```
-core/
-├── __init__.py
-└── pipeline_registry.py   # Singleton get_pipeline() / reset_pipeline()
-```
-
-**Key function**: `get_pipeline()` returns the shared `RAGImagingPipeline` instance, initializing it on first call.
-
-**Dependencies**: `api/`
-
-#### queries/
-
-SPARQL query files used by the catalog sync.
-
-```
-queries/
-└── get_relevant_software.rq   # SPARQL query with {graph} placeholder
-```
-
-The query file path can be overridden via the `GRAPHDB_QUERY_FILE` environment variable.
-
-#### generator/
-
-VLM selection schemas and types.
-
-```
-generator/
-├── __init__.py
-└── schema.py              # Pydantic models for responses
-```
-
-**Models**:
-
-- `ToolSelection`: Selected tool with accuracy score
-- `ToolChoice`: Individual recommendation
-- `Conversation`: Full conversation output with status
-- `ConversationStatus`: Enum (complete / needs_clarification / no_tool)
-- `ToolReason`: Enum for recommendation reasons
-
-**Dependencies**: None (pure schemas)
-
-#### retriever/
-
-Text-based retrieval pipeline.
-
-```
-retriever/
-├── __init__.py
-├── text_embedder.py       # LocalBGEEmbedder — remote (Qwen3-Embedding-8B) or local
-├── vector_index.py        # FAISS IndexFlatIP management
-├── reranker.py            # CrossEncoderReranker — remote (BGE-M3) or local
-└── software_doc.py        # SoftwareDoc schema and catalog loading
-```
-
-**Pipeline flow**:
-
-1. `text_embedder.py`: Embed query with Qwen3-Embedding-8B (remote by default)
-2. `vector_index.py`: FAISS exact inner-product search
-3. `reranker.py`: BGE-M3 CrossEncoder reranking (disabled if API key missing)
-4. Output: Top-K candidates with relevance scores
-
-**Dependencies**: None (pure retrieval)
-
-#### ui/
-
-Gradio web interface.
-
-```
-ui/
-├── __init__.py
-├── app.py                 # Gradio app definition
-├── components.py          # Reusable UI components
-├── formatters.py          # Response formatting
-├── handlers.py            # Message handlers
-├── state.py               # UI state management
-└── visualizations.py      # Preview and trace rendering
-```
-
-**Key files**:
-
-- `app.py`: Main Gradio interface
-- `handlers.py`: `respond()` function - core interaction logic
-- `formatters.py`: Format recommendations as markdown/cards
-- `components.py`: Reusable Gradio components
-
-**Dependencies**: `agent/`, `api/`
-
-#### utils/
-
-Shared utilities.
-
-```
-utils/
-├── __init__.py
-├── config.py              # Configuration loading
-├── file_validator.py      # File validation
-├── image_meta.py          # Metadata extraction (DICOM, NIfTI, TIFF)
-├── previews.py            # Image preview generation
-└── tags.py                # Control tag parsing
-```
-
-**Common utilities**:
-
-- `config.py`: Load `config.yaml` with Pydantic validation
-- `file_validator.py`: Size limits, format checks
-- `image_meta.py`: Extract DICOM/NIfTI/TIFF metadata
-- `previews.py`: Convert medical images to PNG
-- `tags.py`: Parse exclusion tags and strip control tags from queries
-
-**Dependencies**: None (pure utilities)
-
-#### cli.py
-
-Command-line interface entry point.
-
-```python
-def main():
-    # Parse arguments
-    # Route to chat or sync
-```
-
-**Commands**:
-
-- `ai_agent chat`: Launch UI
-- `ai_agent sync`: Sync catalog
-
-### tests/
-
-Test suite.
-
-```
-tests/
+│   └── rag_index/
 ├── data/
-│   └── test_data.json     # Test cases
-├── test_retrieval_pipeline.py
-├── test_deepwiki_repo_info.py
-└── ...
+│   └── sample.jsonl
+├── docs/
+├── logs/
+├── src/
+│   ├── ai_agent/
+│   │   ├── agent/
+│   │   ├── api/
+│   │   ├── catalog/
+│   │   ├── core/
+│   │   ├── generator/
+│   │   ├── queries/
+│   │   ├── retriever/
+│   │   ├── services/
+│   │   ├── ui/
+│   │   └── utils/
+│   └── frontend/
+│       ├── public/
+│       └── src/
+├── tests/
+├── config.yaml
+├── docker-compose.yml
+├── Dockerfile
+├── mkdocs.yml
+├── pyproject.toml
+└── README.md
 ```
 
-**Test categories**:
+## Frontend
 
-- Unit tests: Individual components
-- Integration tests: Full pipeline
-- End-to-end tests: Real API calls (optional)
+`src/frontend/` contains the React + Vite SPA.
+
+```text
+src/frontend/
+├── index.html
+├── package.json
+├── vite.config.ts
+├── public/
+│   └── examples/
+└── src/
+    ├── App.tsx
+    ├── main.tsx
+    ├── index.css
+    ├── components/
+    ├── hooks/
+    ├── lib/
+    ├── pages/
+    └── workers/
+```
+
+Important files:
+
+- `pages/ChatPage.tsx`: main chat screen
+- `pages/LoginPage.tsx`: password screen
+- `components/ChatInput.tsx`: composer, uploads, gallery hooks, slash commands
+- `components/MessageList.tsx`: conversation rendering
+- `components/RecommendationCard.tsx`: recommendation display
+- `components/Volume3D.tsx`: Three.js volume rendering
+- `components/ModelPicker.tsx`: model/top-k/choice controls
+- `hooks/useChat.tsx`: chat state and SSE events
+- `hooks/useConversations.tsx`: local transcript persistence
+- `lib/api.ts`: typed HTTP API wrapper
+- `lib/sse.ts`: SSE helpers
+- `lib/slashCommands.ts`: slash command parsing
+
+## Python Package
+
+`src/ai_agent/` contains the backend, agent, retrieval, and legacy UI.
+
+### `api/`
+
+FastAPI application and route layer.
+
+```text
+api/
+├── server.py
+├── schemas.py
+├── deps.py
+├── pipeline.py
+└── routers/
+    ├── auth.py
+    ├── catalog.py
+    ├── chat.py
+    ├── files.py
+    ├── health.py
+    └── models.py
+```
+
+Responsibilities:
+
+- Serve `/api/*` routes.
+- Authenticate with `APP_PASSWORD` when configured.
+- Stream chat events over SSE.
+- Serve uploads, previews, raw assets, slices, MIPs, and volumes.
+- Serve the built React bundle when `FRONTEND_DIST_DIR` exists.
+
+### `services/`
+
+Stateful service layer behind the API.
+
+```text
+services/
+├── chat.py
+├── files.py
+├── sessions.py
+└── views.py
+```
+
+Responsibilities:
+
+- In-memory sessions and assets.
+- File ingestion and metadata/preview registration.
+- Chat turn processing and pending actions.
+- Volume info/slice/MIP/byte extraction.
+
+### `agent/`
+
+PydanticAI conversational agent.
+
+```text
+agent/
+├── agent.py
+├── models.py
+├── utils.py
+└── tools/
+    ├── deepwiki_tool.py
+    ├── gradio_space_tool.py
+    ├── query_utils.py
+    ├── repo_info_tool.py
+    ├── search_alternative_tool.py
+    ├── search_tool.py
+    └── mcp/
+```
+
+Responsibilities:
+
+- Tool orchestration.
+- Recommendation assembly.
+- Alternative searches.
+- Repository and demo context.
+- MCP-backed tools.
+
+### `retriever/`
+
+Deterministic text retrieval stack.
+
+```text
+retriever/
+├── text_embedder.py
+├── vector_index.py
+├── reranker.py
+├── software_doc.py
+└── utils.py
+```
+
+Responsibilities:
+
+- Load catalog documents.
+- Build/load FAISS index artifacts.
+- Embed metadata-aware queries.
+- Rerank candidate tools.
+
+### `generator/`
+
+Prompt and schema contracts.
+
+```text
+generator/
+├── prompts.py
+└── schema.py
+```
+
+### `utils/`
+
+Reusable helpers.
+
+```text
+utils/
+├── cache_db.py
+├── config.py
+├── file_validator.py
+├── image_io.py
+├── image_meta.py
+├── previews.py
+├── shutdown.py
+├── tags.py
+└── temp_file_manager.py
+```
+
+### `ui/`
+
+Legacy Gradio UI launched by:
+
+```bash
+ai_agent chat
+```
+
+Keep it working, but use `src/frontend/` plus `ai_agent serve` for new frontend work.
+
+### `catalog/`, `core/`, `queries/`
+
+- `catalog/sync.py`: GraphDB sync and JSON-LD to JSONL conversion.
+- `core/pipeline_registry.py`: shared pipeline singleton.
+- `queries/get_relevant_software.rq`: SPARQL query asset.
+
+### `cli.py`
+
+Current command modes:
+
+- `ai_agent serve`: FastAPI backend for React
+- `ai_agent chat`: legacy Gradio UI
+- `ai_agent sync`: catalog sync
+
+## Tests
+
+`tests/` contains Python tests for retrieval, pipeline behavior, catalog loading, repository info, query utilities, and preview caching.
+
+Recommended command:
+
+```bash
+pytest tests/
+```
+
+Frontend checks live in `src/frontend`:
+
+```bash
+npm run lint
+npm run build
+```
 
 ## Configuration Files
 
-### pyproject.toml
+### `pyproject.toml`
 
-Python package metadata and dependencies.
+Python metadata, dependencies, package discovery, and console scripts.
 
-```toml
-[project]
-name = "ai_agent"
-version = "1.0.0"
-dependencies = [...]
+### `src/frontend/package.json`
 
-[project.scripts]
-ai_agent = "ai_agent.cli:main"
-```
+Frontend dependencies and scripts:
 
-### config.yaml
+- `npm run dev`
+- `npm run build`
+- `npm run preview`
+- `npm run lint`
 
-Model configuration.
+### `config.yaml`
 
-```yaml
-agent_model:
-  name: "gpt-4o-mini"
-  base_url: null
-  api_key_env: "OPENAI_API_KEY"
+Agent model, model picker entries, embedder, and reranker configuration.
 
-available_models:
-  - display_name: "gpt-4o-mini"
-    name: "gpt-4o-mini"
-    ...
-```
+### `.env`
 
-### mkdocs.yml
+Runtime secrets and overrides such as API keys, `APP_PASSWORD`, `PORT`, and catalog paths.
 
-Documentation configuration.
+### `Dockerfile`
 
-```yaml
-site_name: AI Imaging Agent
-theme:
-  name: material
-nav: [...]
-```
+Multi-stage build:
 
-### .env
-
-Environment variables (not committed).
-
-```dotenv
-OPENAI_API_KEY=sk-xxxx
-SOFTWARE_CATALOG=dataset/catalog.jsonl
-```
-
-## Data Files
-
-### dataset/catalog.jsonl
-
-Software catalog in JSON Lines format.
-
-Each line is a complete JSON object following schema.org SoftwareSourceCode.
-
-### artifacts/rag_index/
-
-Pre-built FAISS index and metadata.
-
-```
-artifacts/rag_index/
-├── index.faiss            # FAISS binary index
-└── meta.json              # Tool IDs, config, timestamps
-```
+1. Node builds `src/frontend`.
+2. Python installs the package.
+3. Container runs `ai_agent serve`.
 
 ## Module Boundaries
 
-Clear separation prevents circular dependencies:
-
-```
-ui/ → agent/ → api/ → retriever/
-                  → generator/
-                  → utils/
-```
-
-**Rules**:
-
-- `utils/`: No dependencies on other modules
-- `retriever/`: Pure retrieval, no generation
-- `generator/`: Pure schemas, no retrieval
-- `api/`: Orchestrates retriever + generator
-- `agent/`: Uses api for tool calls
-- `ui/`: Top-level, depends on agent + api
+- `src/frontend/`: browser UI and client-side state only.
+- `api/`: HTTP/SSE transport and dependency wiring.
+- `services/`: stateful backend use cases.
+- `agent/`: conversational decisions and tool orchestration.
+- `retriever/`: retrieval quality and indexing.
+- `generator/`: prompt/schema contracts.
+- `utils/`: reusable utilities with minimal dependencies.
+- `catalog/`: catalog sync.
 
 ## Import Patterns
 
-All imports use absolute paths from `ai_agent`:
+Python imports should use absolute package paths:
 
 ```python
 from ai_agent.retriever.vector_index import VectorIndex
 from ai_agent.utils.config import load_config
-from ai_agent.agent.utils import AgentState
 ```
 
-**Never use** relative imports like `from ..utils import ...`
+Frontend imports should keep shared API/SSE logic in `src/frontend/src/lib` and avoid scattering raw endpoint strings through components.
 
 ## Extension Points
 
-### Adding New Tools
+### Add A Frontend View
 
-Add tool adapters to `agent/agent.py` and implement logic in `agent/tools/`:
+Create or update components in `src/frontend/src/components`, add page-level state in `pages`, and centralize backend calls in `lib`.
 
-```python
-@agent.tool
-async def new_tool(ctx: RunContext[AgentState], param: str) -> str:
-    """Tool description."""
-    # Implementation
-    return result
-```
+### Add An API Route
 
-### Adding New Metadata Extractors
+Add a router in `src/ai_agent/api/routers`, schemas in `api/schemas.py`, and reusable behavior in `services/`.
 
-Add to `utils/image_meta.py`:
+### Add A Tool
 
-```python
-def extract_custom_format(file_path: str) -> dict:
-    """Extract metadata from custom format."""
-    # Implementation
-    return metadata
-```
+Add implementation in `src/ai_agent/agent/tools` and register it with the agent.
 
-### Adding New Retrieval Models
+### Add Retrieval Behavior
 
-Replace in `retriever/text_embedder.py`:
-
-```python
-class TextEmbedder:
-    def __init__(self, model_name="new-embedding-model"):
-        self.model = SentenceTransformer(model_name)
-```
+Keep embedding, FAISS, reranking, and catalog document behavior inside `retriever/`.
 
 ## Next Steps
 

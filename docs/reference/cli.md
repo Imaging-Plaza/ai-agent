@@ -1,78 +1,92 @@
 # CLI Commands
 
-The AI Imaging Agent provides a command-line interface for starting the application and managing the software catalog.
+The AI Imaging Agent exposes three command modes through both `ai_agent` and `ai-agent`.
 
-## Available Commands
+## `ai_agent serve`
 
-### ai_agent chat
+Start the FastAPI backend used by the React frontend.
 
-Launch the chat-based user interface.
+```bash
+ai_agent serve
+```
+
+What it does:
+
+1. Runs a startup catalog sync attempt.
+2. Starts background catalog refresh when `SYNC_EVERY_HOURS` is set.
+3. Initializes the shared retrieval pipeline on FastAPI startup.
+4. Serves API routes under `/api/*`.
+5. Serves the built React SPA when `FRONTEND_DIST_DIR` contains `index.html`.
+
+Default local URL:
+
+```text
+http://localhost:8000
+```
+
+Configurable environment variables:
+
+```dotenv
+HOST=0.0.0.0
+PORT=8000
+FRONTEND_DIST_DIR=src/frontend/dist
+DEV_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Development frontend:
+
+```bash
+cd src/frontend
+npm run dev
+```
+
+Production frontend:
+
+```bash
+cd src/frontend
+npm run build
+cd ../..
+ai_agent serve
+```
+
+## `ai_agent chat`
+
+Launch the legacy Gradio UI.
 
 ```bash
 ai_agent chat
 ```
 
-**What it does**:
+This mode still performs startup catalog sync, initializes the retrieval pipeline, and starts background refresh. Use it for legacy UI testing or fallback workflows. New frontend work should target `ai_agent serve` plus `src/frontend`.
 
-1. Performs startup catalog synchronization
-2. Loads the FAISS index
-3. Initializes the retrieval and agent pipelines
-4. Launches the Gradio web interface on `http://127.0.0.1:7860`
-5. Starts background catalog refresh (if configured)
+## `ai_agent sync`
 
-**Options**: None (all configuration via `.env` and `config.yaml`)
-
-**Example**:
-
-```bash
-$ ai_agent chat
-[startup-sync] 150 → dataset/catalog.jsonl
-[startup-refresh] catalog unchanged; keeping existing FAISS index
-Running on local URL:  http://127.0.0.1:7860
-
-To create a public link, set `share=True` in `launch()`.
-```
-
-**Background Refresh**:
-
-If `SYNC_EVERY_HOURS` is set in `.env`, the catalog will auto-refresh in the background:
-
-```dotenv
-SYNC_EVERY_HOURS=24  # Check every 24 hours
-```
-
-### ai_agent sync
-
-Manually synchronize the software catalog and rebuild the index.
+Run one catalog refresh without starting a UI or API server.
 
 ```bash
 ai_agent sync
 ```
 
-**What it does**:
+What it does:
 
-1. Queries the GraphDB SPARQL endpoint (`GRAPHDB_URL`) using the configured query file
-2. Saves the raw JSON-LD response to `OUTPUT_JSONLD`
-3. Converts JSON-LD to JSONL and saves to `OUTPUT_JSONL`
-4. Detects catalog changes via SHA-1 hash
-5. If changed: embeds all tool descriptions and rebuilds the FAISS index
-6. Saves index artifacts to `RAG_INDEX_DIR` (`artifacts/rag_index/` by default)
+1. Queries the configured GraphDB SPARQL endpoint.
+2. Saves the raw JSON-LD snapshot.
+3. Converts catalog data to JSONL.
+4. Detects changes via SHA-1.
+5. Rebuilds FAISS index artifacts when the catalog changes.
 
-**Required environment variables**:
+Common sync variables:
 
 ```dotenv
 GRAPHDB_URL=https://graphdb.example.com/repositories/imaging
 GRAPHDB_GRAPH=https://example.org/graph/imaging-tools
-GRAPHDB_QUERY_FILE=get_relevant_software.rq
+GRAPHDB_QUERY_FILE=src/ai_agent/queries/get_relevant_software.rq
+OUTPUT_JSONLD=dataset/catalog.jsonld
+OUTPUT_JSONL=dataset/catalog.jsonl
+SYNC_FORCE=0
 ```
 
-**When to use**:
-
-- To pull the latest catalog from GraphDB
-- To force index rebuild from the remote source
-- After graph database updates
-
-**Skip freshness check** (force sync even if catalog is recent):
+Force sync:
 
 ```bash
 SYNC_FORCE=1 ai_agent sync
@@ -80,122 +94,89 @@ SYNC_FORCE=1 ai_agent sync
 
 ## Command Aliases
 
-Both commands are available with either `ai_agent` or `ai-agent`:
-
 ```bash
-ai_agent chat   # Works
-ai-agent chat   # Also works
+ai_agent serve
+ai-agent serve
 
-ai_agent sync   # Works
-ai-agent sync   # Also works
-```
+ai_agent chat
+ai-agent chat
 
-## Common Usage Patterns
-
-### Development Workflow
-
-```bash
-# Edit catalog
-vim dataset/catalog.jsonl
-
-# Sync catalog
 ai_agent sync
-
-# Test changes
-ai_agent chat
+ai-agent sync
 ```
 
-<!-- ### Production Deployment
+## Common Workflows
+
+### React Development
+
+Terminal 1:
 
 ```bash
-# In your deployment script:
-ai_agent sync                    # Ensure index is built
-nohup ai_agent chat &           # Run in background
+ai_agent serve
 ```
 
-Or use environment variable control:
+Terminal 2:
 
 ```bash
-export SYNC_EVERY_HOURS=0       # Disable auto-refresh in production
-ai_agent chat
-``` -->
-
-### Testing & Development
-
-```bash
-# Enable debug logging
-export LOGLEVEL_CONSOLE=DEBUG
-export LOG_PROMPTS=1
-ai_agent chat
+cd src/frontend
+npm run dev
 ```
 
-## Environment Variables
+Open `http://localhost:5173`.
 
-All configuration is via environment variables (see [Environment Variables Reference](environment.md)).
+### Docker
 
-## Exit Codes
+```bash
+docker build -t ai-agent .
+docker run -p 7860:7860 --env-file .env ai-agent
+```
 
-- **0**: Success
-- **1**: General error (see logs)
+Docker runs `ai_agent serve` and exposes the bundled frontend on `http://localhost:7860`.
+
+### Debug Logging
+
+```bash
+LOGLEVEL_CONSOLE=DEBUG LOG_PROMPTS=1 ai_agent serve
+```
 
 ## Troubleshooting
 
 ### Command Not Found
 
-If you see `command not found: ai_agent`:
-
 ```bash
-# Ensure package is installed
 pip install -e .
-
-# Check installation
-pip list | grep ai-agent
-
-# Try with python -m
-python -m ai_agent.cli chat
+python -m ai_agent.cli serve
 ```
 
-### Port Already in Use
+### Backend Port Already In Use
 
-If port 7860 is occupied:
+Set a different port:
 
 ```bash
-# Find and kill process
-lsof -ti:7860 | xargs kill -9
-
-# Or change port in code (ui/app.py)
+PORT=8010 ai_agent serve
 ```
+
+If using Vite, update the proxy target:
+
+```bash
+cd src/frontend
+VITE_API_TARGET=http://localhost:8010 npm run dev
+```
+
+### Frontend Shows API Errors
+
+- Check that `ai_agent serve` is running.
+- Check `DEV_CORS_ORIGINS` if the frontend origin changed.
+- Check `APP_PASSWORD` and sign in again if auth is enabled.
 
 ### Catalog Load Error
 
-If catalog fails to load:
-
 ```bash
-# Verify catalog exists
 ls -lh dataset/catalog.jsonl
-
-# Verify JSONL syntax
 python -c "import json; [json.loads(l) for l in open('dataset/catalog.jsonl')]"
-
-# Check environment variable
-echo $SOFTWARE_CATALOG
-```
-
-### Index Build Error
-
-If FAISS index building fails:
-
-```bash
-# Check artifacts directory
-ls -lh artifacts/rag_index/
-
-# Rebuild manually
-rm -rf artifacts/rag_index/
-ai_agent sync
 ```
 
 ## Next Steps
 
 - Configure [Environment Variables](environment.md)
-- Review the [Changelog](changelog.md)
-- Return to [Getting Started](../getting-started/quickstart.md)
+- Return to [Quick Start](../getting-started/quickstart.md)

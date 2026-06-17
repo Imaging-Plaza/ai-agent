@@ -1,41 +1,51 @@
 # Project Guide
 
-This guide is a practical map of the entire repository for contributors and maintainers.
+This guide is a practical repository map for contributors and maintainers.
 
 It focuses on:
-- What each folder is responsible for
-- Which Python environment and package workflow are the defaults
-- Which commands are currently valid
-- What to improve next in architecture, testing, performance, and developer experience
 
-## 1) System Summary
+- What each folder owns
+- Which environment and commands are canonical
+- How the React frontend, FastAPI backend, agent, and retrieval pipeline fit together
+- Where to improve the project next
+
+## 1. System Summary
 
 AI Imaging Agent is a RAG plus VLM recommender for imaging software.
 
 High-level flow:
-1. User uploads file(s) and enters a task.
-2. Retrieval stage finds candidate tools (BGE-M3 + FAISS + reranker).
-3. Agent/VLM stage ranks candidates with image-aware reasoning.
-4. UI renders ranked recommendations and optional demo links.
 
-Primary orchestrator: `src/ai_agent/api/pipeline.py`
+1. User signs in to the React app when `APP_PASSWORD` is set.
+2. User uploads file(s), reuses session assets, or asks a text-only question.
+3. FastAPI stores assets, builds previews/views, and streams chat events over SSE.
+4. The PydanticAI agent searches the catalog, asks for alternatives or repo info when needed, and returns recommendations.
+5. Retrieval logic builds metadata-aware queries, searches FAISS, reranks candidates, and feeds ranked candidates back to the agent.
+6. The React UI renders recommendations, media, traces, clarification prompts, and pending demo actions.
 
-## 2) Default Python Environment And Packages (Dev Container Canonical)
+Primary runtime entry point for the new frontend: `ai_agent serve`.
 
-Assume development is done inside the dev container.
+Legacy UI entry point: `ai_agent chat`.
+
+## 2. Default Environment
+
+Assume development is done inside the dev container unless a task says otherwise.
 
 Source of truth:
+
 - Dev container: `.devcontainer/devcontainer.json`
-- Package metadata and pinned dependencies: `pyproject.toml`
-- Secondary dependency list: `requirements.txt`
+- Python package metadata: `pyproject.toml`
+- Frontend package metadata: `src/frontend/package.json`
+- Model/retrieval config: `config.yaml`
 
 Default environment:
-- OS: Debian Bookworm (dev container)
-- Python: 3.12
-- Environment manager: uv
-- Virtual environment path: .venv
 
-Recommended commands:
+- OS: Debian Bookworm in the dev container
+- Python: 3.12 in the dev container
+- Package manager: `uv`
+- Virtual environment path: `.venv`
+- Frontend runtime: Node.js 20+
+
+Recommended Python setup:
 
 ```bash
 uv venv
@@ -43,235 +53,239 @@ uv pip install -e .
 uv pip install -e ".[dev]"
 ```
 
+Recommended frontend setup:
+
+```bash
+cd src/frontend
+npm install
+```
+
 Run and test:
 
 ```bash
+ai_agent serve
 ai_agent chat
 ai_agent sync
 pytest tests/
 ```
 
-Important note on command drift:
-- CLI officially supports `chat` and `sync` in `src/ai_agent/cli.py`.
-- `justfile` currently references `ai_agent ui`, which does not match current CLI modes.
-- Documentation in this guide follows the actual CLI implementation.
+Frontend checks:
 
-## 3) Repository Top-Level Map
+```bash
+cd src/frontend
+npm run lint
+npm run build
+```
+
+## 3. Repository Top-Level Map
 
 - `.github/`: automation and agent instructions
 - `.devcontainer/`: dev container build and editor defaults
-- [docs/](.): MkDocs source pages
-- `src/`: application source code
-- `tests/`: test suite
+- `docs/`: MkDocs source pages
+- `src/ai_agent/`: Python backend, agent, retrieval, services, and legacy Gradio UI
+- `src/frontend/`: React + Vite frontend
+- `tests/`: Python test suite
 - `data/`: sample data assets
 - `tools/`: container/tooling helpers
 - `CHANGELOG.md`: release history
-- `config.yaml`: model/provider configuration
+- `config.yaml`: model/provider/retrieval configuration
+- `Dockerfile`: production image that builds frontend and runs FastAPI
+- `docker-compose.yml`: container plus Cloudflare tunnel sidecar
 - `mkdocs.yml`: docs site navigation and theme
-- `pyproject.toml`: package metadata, dependencies, entrypoints
+- `pyproject.toml`: Python package metadata, dependencies, entrypoints
 
-## 4) Detailed Source Folder Responsibilities
+## 4. Source Responsibilities
 
-Package root: `src/ai_agent/`
+### `src/frontend/`
 
-### 4.1 `src/ai_agent/agent/`
+Purpose: React SPA for the primary user experience.
+
+Key areas:
+
+- `src/frontend/src/pages/ChatPage.tsx`: main chat shell
+- `src/frontend/src/pages/LoginPage.tsx`: passphrase login
+- `src/frontend/src/components/`: chat input, message list, sidebar, model picker, asset modals, volume renderer, recommendation cards
+- `src/frontend/src/hooks/`: auth, chat, conversations, transcription, theme state
+- `src/frontend/src/lib/`: API wrapper, SSE client, slash commands, backup/date utilities
+- `src/frontend/src/workers/`: browser worker support
+- `src/frontend/public/examples/`: example prompt assets
+
+Boundary:
+
+- Frontend calls `/api/*`; it should not duplicate recommendation logic.
+- Local browser storage can keep transcripts, but server assets are session-scoped and may disappear after backend restart.
+
+### `src/ai_agent/api/`
+
+Purpose: FastAPI app, API routers, dependency wiring, schemas, and pipeline access.
+
+Key files:
+
+- `server.py`: app factory, CORS, router mounting, production SPA serving
+- `schemas.py`: request/response models
+- `deps.py`: auth and shared dependency helpers
+- `routers/auth.py`: passphrase login/logout/status
+- `routers/chat.py`: SSE chat, approvals, declines, demo confirmation
+- `routers/files.py`: upload, previews, raw files, volume bytes, slice/MIP views
+- `routers/models.py`: model picker options from `config.yaml`
+- `routers/catalog.py`, `routers/health.py`: catalog and health endpoints
+- `pipeline.py`: RAG retrieval orchestration
+
+Boundary:
+
+- API/service modules own transport and session concerns.
+- Retrieval internals stay in `retriever/`.
+- Agent behavior stays in `agent/`.
+
+### `src/ai_agent/services/`
+
+Purpose: stateful service layer behind FastAPI.
+
+Key files:
+
+- `sessions.py`: in-memory sessions, assets, and pending actions
+- `files.py`: file ingestion and preview/metadata registration
+- `chat.py`: synchronous chat turn processing and pending action handling
+- `views.py`: volume info, slices, MIPs, and raw volume bytes
+
+Boundary:
+
+- Services bridge API routes and core agent/pipeline behavior.
+- Keep UI rendering decisions in the frontend.
+
+### `src/ai_agent/agent/`
 
 Purpose: conversational orchestration using PydanticAI.
 
 Key files:
-- `src/ai_agent/agent/agent.py`: agent setup, tool wiring, response flow
-- `src/ai_agent/agent/models.py`: state/output models
-- `src/ai_agent/agent/utils.py`: helper utilities and guardrails
-- `src/ai_agent/agent/tools/`: concrete tool implementations
-- `src/ai_agent/agent/tools/mcp/`: MCP adapters
+
+- `agent.py`: agent setup, tool wiring, response flow
+- `models.py`: state/output models
+- `utils.py`: helper utilities and guardrails
+- `tools/`: search, alternatives, repo info, demo discovery, MCP adapters
 
 Boundary:
-- Should orchestrate tools and policy, not own retrieval internals.
 
-### 4.2 `src/ai_agent/api/`
+- Agent orchestrates tools and policy; retrieval quality logic stays in `retriever/`.
 
-Purpose: pipeline orchestration between inputs, retrieval, and selection.
+### `src/ai_agent/retriever/`
 
-Key file:
-- `src/ai_agent/api/pipeline.py`
-
-Responsibilities:
-- validate files
-- extract metadata
-- build retrieval query
-- call retrieval and selection stages
-- manage index refresh/reload behavior
-
-Boundary:
-- Keep UI concerns out of this module.
-
-### 4.3 `src/ai_agent/retriever/`
-
-Purpose: deterministic retrieval stack (no LLM calls).
+Purpose: deterministic retrieval stack.
 
 Key files:
-- `src/ai_agent/retriever/text_embedder.py`
-- `src/ai_agent/retriever/vector_index.py`
-- `src/ai_agent/retriever/reranker.py`
-- `src/ai_agent/retriever/software_doc.py`
+
+- `text_embedder.py`: remote/local embedding
+- `vector_index.py`: FAISS index management
+- `reranker.py`: remote/local reranking
+- `software_doc.py`: catalog schema and loading
+- `utils.py`: retrieval helpers
 
 Boundary:
-- Retrieval quality logic should stay here.
 
-### 4.4 `src/ai_agent/generator/`
+- No UI code and no conversation transport.
 
-Purpose: selection schema and prompting primitives.
+### `src/ai_agent/generator/`
+
+Purpose: selection schemas and prompting primitives.
 
 Key files:
-- `src/ai_agent/generator/prompts.py`
-- `src/ai_agent/generator/schema.py`
+
+- `prompts.py`
+- `schema.py`
 
 Boundary:
-- Keep this layer focused on schema and prompt contracts, not transport/UI concerns.
 
-### 4.5 `src/ai_agent/ui/`
+- Keep schema and prompt contracts here, not API or UI behavior.
 
-Purpose: Gradio app and interaction handling.
+### `src/ai_agent/ui/`
+
+Purpose: legacy Gradio interface.
+
+This remains available through `ai_agent chat`, but the React/FastAPI stack is the primary UI path.
+
+### `src/ai_agent/utils/`
+
+Purpose: cross-cutting utilities.
 
 Key files:
-- `src/ai_agent/ui/app.py`
-- `src/ai_agent/ui/handlers.py`
-- `src/ai_agent/ui/components.py`
-- `src/ai_agent/ui/formatters.py`
-- `src/ai_agent/ui/state.py`
-- `src/ai_agent/ui/visualizations.py`
+
+- `config.py`
+- `file_validator.py`
+- `image_meta.py`
+- `image_io.py`
+- `previews.py`
+- `tags.py`
+- `temp_file_manager.py`
 
 Boundary:
-- UI should call orchestrators, not reimplement retrieval/selection decisions.
 
-### 4.6 `src/ai_agent/utils/`
-
-Purpose: cross-cutting utility functions.
-
-Key files:
-- `src/ai_agent/utils/config.py`
-- `src/ai_agent/utils/file_validator.py`
-- `src/ai_agent/utils/image_meta.py`
-- `src/ai_agent/utils/image_io.py`
-- `src/ai_agent/utils/previews.py`
-- `src/ai_agent/utils/tags.py`
-- `src/ai_agent/utils/temp_file_manager.py`
-
-Boundary:
 - Keep utilities reusable and independent from UI-specific logic.
 
-### 4.7 `src/ai_agent/catalog/`
+### `src/ai_agent/catalog/`
 
 Purpose: catalog synchronization and refresh helpers.
 
 Key file:
-- `src/ai_agent/catalog/sync.py`
 
-Boundary:
-- Catalog IO and sync logic should stay isolated from ranking logic.
+- `sync.py`
 
-### 4.8 `src/ai_agent/core/`
+## 5. Command Contract
 
-Purpose: shared core coordination such as pipeline registry.
+Current CLI modes in `src/ai_agent/cli.py`:
 
-Key file:
-- `src/ai_agent/core/pipeline_registry.py`
+- `ai_agent serve`: FastAPI backend for React; serves built SPA when available
+- `ai_agent chat`: legacy Gradio UI
+- `ai_agent sync`: one-shot catalog refresh
 
-Boundary:
-- Keep core primitives minimal and dependency-light.
+Documentation and scripts should follow this contract.
 
-### 4.9 `src/ai_agent/queries/`
+## 6. Known Inconsistencies To Track
 
-Purpose: query assets used by catalog sync/retrieval support.
+1. Some older comments and docs may still call `chat` the main UI path.
+2. `pyproject.toml` description still mentions Gradio, while the primary UI is React/FastAPI.
+3. `requirements.txt` is looser than `pyproject.toml`, which is the stronger dependency source.
+4. Session storage is in-memory; frontend transcript restore can outlive backend assets.
 
-Key file:
-- `src/ai_agent/queries/get_relevant_software.rq`
+## 7. Improvement Guidelines
 
-Boundary:
-- Keep query definitions versioned and testable.
+### Architecture
 
-### 4.10 `src/ai_agent/cli.py`
+1. Keep frontend transport code in `src/frontend/src/lib`.
+2. Keep API route handlers thin; move reusable behavior into `services/`.
+3. Keep retrieval in `retriever/`, schema/prompt contracts in `generator/`, and orchestration in `agent/` or `api/`.
+4. Avoid adding business logic to React components beyond presentation and client-side interaction state.
 
-Purpose: command entry point and mode dispatch.
+### Testing
 
-Current modes:
-- `chat`
-- `sync`
+1. Add API route tests for auth, files, chat approval/decline, and model listing.
+2. Add frontend build/type checks to CI.
+3. Add regression tests for volume view endpoints.
+4. Keep retrieval quality checks small and reproducible.
 
-This is the command contract docs should follow.
+### Developer Experience
 
-## 5) Supporting Folders
+1. Align task runners with `serve`, `chat`, and `sync`.
+2. Add docs link validation in CI.
+3. Document one canonical local development workflow.
+4. Add a release checklist that includes Python tests, frontend build, docs build, and changelog updates.
 
-### 5.1 `tests/`
-
-Contains unit/integration tests and test fixtures under `tests/data/`.
-
-Improvement target:
-- add more focused tests for UI handler edge cases and tool failure handling.
-
-### 5.2 `tools/`
-
-Container and deployment support assets.
-
-Notable file:
-- `tools/image/Dockerfile` (uv + Python 3.12 baseline)
-
-### 5.3 [docs/](.)
-
-Documentation source for MkDocs.
-
-Add new pages to `mkdocs.yml` nav to keep docs discoverable.
-
-## 6) Known Inconsistencies To Track
-
-1. `justfile` uses `ai_agent ui`, while `src/ai_agent/cli.py` defines `chat` and `sync`.
-2. Installation docs often show pip-first flow, while dev container bootstrap is uv-first.
-3. `requirements.txt` is looser than `pyproject.toml`, which contains current pinned/runtime dependencies.
-
-## 7) Codebase Improvement Guidelines
-
-### 7.1 Architecture And Modularity
-
-1. Keep strict stage boundaries: retrieval logic in `retriever`, selection contracts in `generator`, orchestration in `api`.
-2. Minimize cross-layer imports from `ui` to low-level modules.
-3. Introduce lightweight interface contracts for tool adapters to reduce coupling in `agent/tools`.
-4. Centralize shared constants/env defaults to reduce duplicated configuration behavior.
-
-### 7.2 Testing And Quality Gates
-
-1. Add regression tests for format-token query construction and retry broadening behavior.
-2. Add failure-path tests for image preview generation and graceful degradation.
-3. Add contract tests for agent tool outputs (search, alternative search, repo info).
-4. Enforce formatting/lint/type checks in CI (`ruff`, `black --check`, `mypy`, `pytest`).
-
-### 7.3 Performance And Retrieval Quality
-
-1. Add benchmark fixtures for retrieval latency and reranker throughput.
-2. Track retrieval quality with a small fixed evaluation set (top-k recall, MRR).
-3. Cache expensive metadata extraction where safe for repeated files in a session.
-4. Make index reload behavior observable with structured counters in logs.
-
-### 7.4 Developer Experience And CI
-
-1. Align `just` tasks with real CLI contract (`chat`/`sync`).
-2. Add a docs link checker in CI to prevent markdown drift.
-3. Document one canonical local workflow (dev container first, optional local pip fallback).
-4. Add a short maintainer checklist for release prep and changelog updates.
-
-## 8) Practical Contributor Checklist
+## 8. Contributor Checklist
 
 Before opening a PR:
-1. Install/update in editable mode in the active environment.
-2. Run tests relevant to changed modules.
-3. Validate docs links if docs were touched.
-4. Update `CHANGELOG.md` for user-visible changes.
-5. Confirm command and environment docs still match real behavior.
 
-## 9) Related References
+1. Confirm behavior from executable code.
+2. Run relevant Python tests.
+3. Run `npm run lint` and `npm run build` for frontend changes.
+4. Update user docs for user-facing changes.
+5. Update `CHANGELOG.md` for user-visible changes.
+6. Verify README, `docs/index.md`, and this guide still agree.
+
+## 9. Related References
 
 - `README.md`
 - [docs/index.md](index.md)
-- [docs/architecture/overview.md](architecture/overview.md)
-- [docs/development/structure.md](development/structure.md)
+- [Architecture Overview](architecture/overview.md)
+- [Project Structure](development/structure.md)
+- [CLI Reference](reference/cli.md)
 - `AGENTS.md`
 - `.github/copilot-instructions.md`
