@@ -13,6 +13,7 @@ load_dotenv()
 log = logging.getLogger("ai_agent.cli")
 
 from ai_agent.catalog.sync import sync_once
+from ai_agent.utils.shutdown import register as _register_shutdown_hooks
 
 
 def _ui_funcs():
@@ -82,6 +83,7 @@ def run_chat():
     try:
         _, _, _, ensure_logging_initialized = _ui_funcs()
         ensure_logging_initialized()
+        _register_shutdown_hooks()
 
         res = sync_once()
         log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
@@ -117,6 +119,7 @@ def run_chat():
 
 def run_sync():
     try:
+        _register_shutdown_hooks()
         r = sync_once()
         log.info("[sync] %s → %s", r.get("count", "?"), r.get("jsonl_path"))
     except Exception:
@@ -124,13 +127,47 @@ def run_sync():
         raise
 
 
+def run_serve():
+    """Launch the FastAPI backend with uvicorn.
+
+    The FastAPI app reuses the same pipeline singleton as the Gradio path,
+    so a one-time catalog sync at startup keeps both surfaces consistent.
+    """
+    try:
+        res = sync_once()
+        log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
+    except Exception:
+        log.exception("[startup-sync] failed")
+
+    _background_refresh()
+
+    import uvicorn
+
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8000"))
+    reload_flag = os.getenv("UVICORN_RELOAD", "0").lower() in ("1", "true", "yes", "on")
+    log.info("Starting FastAPI on %s:%d (reload=%s)", host, port, reload_flag)
+    uvicorn.run(
+        "ai_agent.api.server:app",
+        host=host,
+        port=port,
+        reload=reload_flag,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
+
+
 # --------------------------- main entry ---------------------------
 def main():
     p = argparse.ArgumentParser(description="AI Agent CLI")
     p.add_argument(
         "mode",
-        choices=["chat", "sync"],
-        help="'chat' launches the chat UI; 'sync' runs one catalog refresh.",
+        choices=["chat", "sync", "serve"],
+        help=(
+            "'chat' launches the legacy Gradio UI; "
+            "'sync' runs one catalog refresh; "
+            "'serve' starts the FastAPI backend (used by the React frontend)."
+        ),
     )
     args = p.parse_args()
 
@@ -138,6 +175,8 @@ def main():
         run_chat()
     elif args.mode == "sync":
         run_sync()
+    elif args.mode == "serve":
+        run_serve()
     else:
         p.print_help()
         sys.exit(f"Unsupported mode: {args.mode}")

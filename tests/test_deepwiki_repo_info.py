@@ -46,6 +46,7 @@ from ai_agent.agent.tools.deepwiki_tool import (
     get_wiki_contents,
 )
 from ai_agent.agent.utils import coerce_github_url_or_none, _coerce_owner_repo_ref
+from ai_agent.utils.cache_db import CacheDB, reset_cache_db
 
 # ======================== Fixtures ========================
 
@@ -80,9 +81,12 @@ def mock_repocards_response():
 
 @pytest.fixture(autouse=True)
 def clear_repo_info_cache_between_tests():
+    db = CacheDB(":memory:")
+    reset_cache_db(db)
     _clear_repo_summary_cache_for_tests()
     yield
     _clear_repo_summary_cache_for_tests()
+    reset_cache_db(None)
 
 
 # ======================== DeepWiki Tool Tests ========================

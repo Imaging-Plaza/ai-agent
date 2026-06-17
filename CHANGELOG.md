@@ -15,6 +15,23 @@ All notable changes to this project will be documented in this file.
   - `docs/development/structure.md`: Added `core/` module, `queries/` directory, updated `agent/tools/` listing with all tool files and mcp/ subdir; fixed generator schema models; improved retriever pipeline description
   - `docs/reference/cli.md`: Updated `ai_agent sync` to describe actual SPARQL/GraphDB mechanism and required env vars
   - `docs/index.md`: Updated retrieval stack description to Qwen3-Embedding-8B + BGE-M3
+- Replaced all in-memory caches (image metadata, preview, repo info) with a
+  shared SQLite-backed `CacheDB` (`utils/cache_db.py`).  Caches now survive
+  short process restarts and share a single on-disk file in Python's temp
+  directory (`tempfile.gettempdir()`), named `ai_agent_cache{_uid}.db`
+  (for example, `/tmp/ai_agent_cache_1000.db`), overridable via
+  `CACHE_DB_PATH`.
+
+### Added
+- `utils/shutdown.py`: background cleanup thread that runs immediately on
+  startup and then every `CLEANUP_INTERVAL_SECONDS` (default 7200 s):
+  - Sweeps expired rows from the cache DB.
+  - Deletes log files under `LOG_DIR` older than `LOG_RETENTION_DAYS`
+    (default 7 days); only `app_*.log*` files are touched.
+- `atexit` hook performs a final VACUUM + connection close on process exit.
+- New env vars: `CACHE_DB_PATH`, `CLEANUP_INTERVAL_SECONDS`, `LOG_RETENTION_DAYS`.
+
+---
 
 ## [1.0.0]
 
