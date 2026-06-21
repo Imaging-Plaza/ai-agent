@@ -1092,7 +1092,7 @@
     },
     {
       "id": "qchapp_pystackreg_app",
-      "display_name": "Pystackreg App",
+      "display_name": "Pystackreg",
       "description": "Align every frame in a TIFF stack to a chosen reference frame. Each frame in stack_file is registered to the selected reference frame using the chosen transformation model. The reference frame can come from the same stack or from a separate external TIFF stack.",
       "icon": "T",
       "enabled": true,
@@ -1102,7 +1102,7 @@
         "required": false
       },
       "catalog_aliases": [
-        "pystackreg app",
+        "pystackreg",
         "qchapp_pystackreg_app"
       ],
       "default_endpoint": "align_stack_to_reference",
@@ -1201,10 +1201,78 @@
                 {
                   "label": "1st",
                   "type": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "size": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "orig_name": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "mime_type": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "is_stream": {
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "type": "object",
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "url",
+                      "size",
+                      "orig_name",
+                      "mime_type",
+                      "is_stream",
+                      "meta"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "dict(path: str, url: None | str, size: None | int, orig_name: None | str, mime_type: None | str, is_stream: bool, meta: dict(_type: Literal[gradio.FileData]))",
                     "description": ""
                   },
                   "component": "Api"
@@ -1265,10 +1333,78 @@
                 {
                   "label": "1st",
                   "type": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "size": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "orig_name": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "mime_type": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "is_stream": {
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "type": "object",
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "url",
+                      "size",
+                      "orig_name",
+                      "mime_type",
+                      "is_stream",
+                      "meta"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "dict(path: str, url: None | str, size: None | int, orig_name: None | str, mime_type: None | str, is_stream: bool, meta: dict(_type: Literal[gradio.FileData]))",
                     "description": ""
                   },
                   "component": "Api"
@@ -1344,10 +1480,78 @@
                 {
                   "label": "1st",
                   "type": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "size": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "orig_name": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "mime_type": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "is_stream": {
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "type": "object",
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "url",
+                      "size",
+                      "orig_name",
+                      "mime_type",
+                      "is_stream",
+                      "meta"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "dict(path: str, url: None | str, size: None | int, orig_name: None | str, mime_type: None | str, is_stream: bool, meta: dict(_type: Literal[gradio.FileData]))",
                     "description": ""
                   },
                   "component": "Api"
@@ -1467,7 +1671,7 @@
           "id": "align_stack_to_reference",
           "display_name": "pystackreg_app__mcp_align_stack_to_reference",
           "description": "Align every frame in a TIFF stack to a chosen reference frame. Each frame in stack_file is registered to the selected reference frame using the chosen transformation model. The reference frame can come from the same stack or from a separate external TIFF stack.",
-          "api_name": "/intra_stack_align",
+          "api_name": "/align_stack_to_reference",
           "enabled": true,
           "catalog_aliases": [
             "pystackreg_app__mcp_align_stack_to_reference",
@@ -1478,19 +1682,20 @@
             "file"
           ],
           "input_mapping": {
-            "call_style": "positional",
+            "call_style": "keyword",
             "parameters": [
               {
                 "name": "stack_file",
                 "source": "session_file",
-                "required": true,
+                "required": false,
                 "file_index": 0,
-                "as_gradio_file": true,
+                "as_gradio_file": false,
                 "metadata": {
                   "description": "Path or HTTP/HTTPS URL to the input TIFF stack.",
                   "type": "string",
                   "format": null,
-                  "choices": []
+                  "choices": [],
+                  "upload_to_gradio_path": true
                 }
               },
               {
@@ -1504,9 +1709,25 @@
                   "description": "Zero-based index of the reference frame inside",
                   "type": "integer",
                   "format": null,
-                  "choices": []
-                },
-                "value": 0
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "mode",
+                "source": "param",
+                "required": false,
+                "value": "RIGID_BODY",
+                "param": "mode",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
               },
               {
                 "name": "external_reference_file",
@@ -1519,7 +1740,8 @@
                   "description": "Optional path or URL to an external TIFF",
                   "type": null,
                   "format": null,
-                  "choices": []
+                  "choices": [],
+                  "upload_to_gradio_path": false
                 }
               },
               {
@@ -1533,43 +1755,22 @@
                   "description": "Zero-based index of the reference frame",
                   "type": "integer",
                   "format": null,
-                  "choices": []
-                },
-                "value": 0
-              },
-              {
-                "name": "mode",
-                "source": "param",
-                "required": false,
-                "param": "mode",
-                "file_index": 0,
-                "as_gradio_file": false,
-                "metadata": {
-                  "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
-                  "type": "string",
-                  "format": null,
-                  "choices": [
-                    "TRANSLATION",
-                    "RIGID_BODY",
-                    "SCALED_ROTATION",
-                    "AFFINE",
-                    "BILINEAR"
-                  ]
-                },
-                "value": "RIGID_BODY"
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
               }
             ]
           },
           "output_mapping": {
             "original": {
-              "selector": "4",
+              "selector": "first",
               "materialize": true,
               "build_preview": false
             },
             "preview": {
-              "selector": "2",
+              "selector": "first",
               "materialize": true,
-              "build_preview": false
+              "build_preview": true
             }
           },
           "approval": {
@@ -1580,14 +1781,6 @@
             "available": true
           },
           "metadata": {
-            "preflight_calls": [
-              {
-                "api_name": "/lambda_3",
-                "arg_indexes": [
-                  0
-                ]
-              }
-            ],
             "gradio_info": {
               "parameters": [
                 {
@@ -1677,10 +1870,78 @@
                 {
                   "label": "1st",
                   "type": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "size": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "orig_name": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "mime_type": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "is_stream": {
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "type": "object",
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "url",
+                      "size",
+                      "orig_name",
+                      "mime_type",
+                      "is_stream",
+                      "meta"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "dict(path: str, url: None | str, size: None | int, orig_name: None | str, mime_type: None | str, is_stream: bool, meta: dict(_type: Literal[gradio.FileData]))",
                     "description": ""
                   },
                   "component": "Api"
@@ -1737,7 +1998,7 @@
           "id": "align_stack_to_stack",
           "display_name": "pystackreg_app__mcp_align_stack_to_stack",
           "description": "Align every frame in a moving TIFF stack to the first frame of a reference stack.",
-          "api_name": "/reference_align",
+          "api_name": "/align_stack_to_stack",
           "enabled": true,
           "catalog_aliases": [
             "pystackreg_app__mcp_align_stack_to_stack",
@@ -1748,38 +2009,42 @@
             "file"
           ],
           "input_mapping": {
-            "call_style": "positional",
+            "call_style": "keyword",
             "parameters": [
               {
                 "name": "reference_stack_file",
                 "source": "session_file",
-                "required": true,
+                "required": false,
                 "file_index": 0,
-                "as_gradio_file": true,
+                "as_gradio_file": false,
                 "metadata": {
                   "description": "Path or HTTP/HTTPS URL to the reference TIFF",
                   "type": "string",
                   "format": null,
-                  "choices": []
+                  "choices": [],
+                  "upload_to_gradio_path": true
                 }
               },
               {
                 "name": "moving_stack_file",
-                "source": "session_file",
-                "required": true,
-                "file_index": 1,
-                "as_gradio_file": true,
+                "source": "param",
+                "required": false,
+                "param": "moving_stack_file",
+                "file_index": 0,
+                "as_gradio_file": false,
                 "metadata": {
                   "description": "Path or HTTP/HTTPS URL to the moving TIFF stack",
                   "type": "string",
                   "format": null,
-                  "choices": []
+                  "choices": [],
+                  "upload_to_gradio_path": false
                 }
               },
               {
                 "name": "mode",
                 "source": "param",
                 "required": false,
+                "value": "RIGID_BODY",
                 "param": "mode",
                 "file_index": 0,
                 "as_gradio_file": false,
@@ -1787,28 +2052,22 @@
                   "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
                   "type": "string",
                   "format": null,
-                  "choices": [
-                    "TRANSLATION",
-                    "RIGID_BODY",
-                    "SCALED_ROTATION",
-                    "AFFINE",
-                    "BILINEAR"
-                  ]
-                },
-                "value": "RIGID_BODY"
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
               }
             ]
           },
           "output_mapping": {
             "original": {
-              "selector": "4",
+              "selector": "first",
               "materialize": true,
               "build_preview": false
             },
             "preview": {
-              "selector": "2",
+              "selector": "first",
               "materialize": true,
-              "build_preview": false
+              "build_preview": true
             }
           },
           "approval": {
@@ -1871,10 +2130,78 @@
                 {
                   "label": "1st",
                   "type": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "size": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "orig_name": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "mime_type": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "is_stream": {
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "type": "object",
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "url",
+                      "size",
+                      "orig_name",
+                      "mime_type",
+                      "is_stream",
+                      "meta"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "dict(path: str, url: None | str, size: None | int, orig_name: None | str, mime_type: None | str, is_stream: bool, meta: dict(_type: Literal[gradio.FileData]))",
                     "description": ""
                   },
                   "component": "Api"
@@ -1916,7 +2243,7 @@
           "id": "align_frame_to_frame",
           "display_name": "pystackreg_app__mcp_align_frame_to_frame",
           "description": "Align a single moving frame to a reference frame within the same TIFF stack.",
-          "api_name": "/frame_to_frame_align",
+          "api_name": "/align_frame_to_frame",
           "enabled": true,
           "catalog_aliases": [
             "pystackreg_app__mcp_align_frame_to_frame",
@@ -1927,19 +2254,20 @@
             "file"
           ],
           "input_mapping": {
-            "call_style": "positional",
+            "call_style": "keyword",
             "parameters": [
               {
                 "name": "stack_file",
                 "source": "session_file",
-                "required": true,
+                "required": false,
                 "file_index": 0,
-                "as_gradio_file": true,
+                "as_gradio_file": false,
                 "metadata": {
                   "description": "Path or HTTP/HTTPS URL to the TIFF stack containing both",
                   "type": "string",
                   "format": null,
-                  "choices": []
+                  "choices": [],
+                  "upload_to_gradio_path": true
                 }
               },
               {
@@ -1953,9 +2281,9 @@
                   "description": "Zero-based index of the reference frame.",
                   "type": "integer",
                   "format": null,
-                  "choices": []
-                },
-                "value": 0
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
               },
               {
                 "name": "moving_index",
@@ -1968,14 +2296,15 @@
                   "description": "Zero-based index of the frame to align.",
                   "type": "integer",
                   "format": null,
-                  "choices": []
-                },
-                "value": 0
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
               },
               {
                 "name": "mode",
                 "source": "param",
                 "required": false,
+                "value": "RIGID_BODY",
                 "param": "mode",
                 "file_index": 0,
                 "as_gradio_file": false,
@@ -1983,28 +2312,22 @@
                   "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
                   "type": "string",
                   "format": null,
-                  "choices": [
-                    "TRANSLATION",
-                    "RIGID_BODY",
-                    "SCALED_ROTATION",
-                    "AFFINE",
-                    "BILINEAR"
-                  ]
-                },
-                "value": "RIGID_BODY"
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
               }
             ]
           },
           "output_mapping": {
             "original": {
-              "selector": "1",
+              "selector": "first",
               "materialize": true,
               "build_preview": false
             },
             "preview": {
               "selector": "first",
               "materialize": true,
-              "build_preview": false
+              "build_preview": true
             }
           },
           "approval": {
@@ -2015,14 +2338,6 @@
             "available": true
           },
           "metadata": {
-            "preflight_calls": [
-              {
-                "api_name": "/lambda_10",
-                "arg_indexes": [
-                  0
-                ]
-              }
-            ],
             "gradio_info": {
               "parameters": [
                 {
@@ -2090,10 +2405,78 @@
                 {
                   "label": "1st",
                   "type": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "size": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "orig_name": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "mime_type": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "is_stream": {
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "type": "object",
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "url",
+                      "size",
+                      "orig_name",
+                      "mime_type",
+                      "is_stream",
+                      "meta"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "dict(path: str, url: None | str, size: None | int, orig_name: None | str, mime_type: None | str, is_stream: bool, meta: dict(_type: Literal[gradio.FileData]))",
                     "description": ""
                   },
                   "component": "Api"
