@@ -100,6 +100,8 @@ export const api = {
     jsonPost<GradioToolsValidation>("/api/gradio-tools/validate", { config }),
   saveGradioTools: (config: Record<string, any>) =>
     jsonPost<GradioToolsSave>("/api/gradio-tools/save", { config }),
+  importGradioToolLink: (url: string) =>
+    jsonPost<GradioToolsSave>("/api/gradio-tools/import-link", { url }),
   reloadGradioTools: () => jsonPost<GradioToolsSave>("/api/gradio-tools/reload", {}),
 
   // Files

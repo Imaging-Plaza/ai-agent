@@ -41,6 +41,29 @@ export type ChatEvent =
         matched_alias?: string | null;
         api_name?: string | null;
         required_inputs?: string[];
+        runtime_parameters?: {
+          name: string;
+          label: string;
+          required: boolean;
+          description?: string | null;
+          default?: unknown;
+          choices?: unknown[];
+        }[];
+        endpoint_options?: {
+          endpoint_id: string;
+          display_name: string;
+          description?: string | null;
+          api_name?: string | null;
+          required_inputs?: string[];
+          runtime_parameters?: {
+            name: string;
+            label: string;
+            required: boolean;
+            description?: string | null;
+            default?: unknown;
+            choices?: unknown[];
+          }[];
+        }[];
       };
     }
   | {
@@ -50,7 +73,15 @@ export type ChatEvent =
   | { event: "images"; data: { paths: string[] } }
   | {
       event: "files";
-      data: { items: { path: string; label: string }[] };
+      data: {
+        items: {
+          path: string;
+          label: string;
+          asset_id?: string | null;
+          preview_url?: string | null;
+          display_name?: string | null;
+        }[];
+      };
     }
   | { event: "usage"; data: { total: number; input: number; output: number } }
   | { event: "error"; data: { message: string; code: string } }

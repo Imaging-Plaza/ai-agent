@@ -113,7 +113,7 @@ class ChatMessage:
 
     text: str = ""
     images: List[str] = field(default_factory=list)  # file paths
-    files: List[Tuple[str, str]] = field(default_factory=list)  # (path, label)
+    files: List[Any] = field(default_factory=list)  # (path, label) or asset payload
     json_data: Optional[Dict[str, Any]] = None
     code_blocks: List[Tuple[str, str]] = field(default_factory=list)  # (lang, code)
     tool_traces: List[Dict[str, Any]] = field(default_factory=list)
@@ -132,7 +132,7 @@ class ChatMessage:
             parts.append(stats_md)
 
         # Render file links
-        for file_path, label in self.files:
+        for file_path, label in _file_links(self.files):
             if os.path.exists(file_path):
                 parts.append(f"\n📎 [{label}]({file_path})")
 
@@ -146,3 +146,17 @@ class ChatMessage:
             parts.append(f"\n```{lang}\n{code}\n```")
 
         return "\n".join(parts)
+
+
+def _file_links(files: List[Any]) -> List[Tuple[str, str]]:
+    links: List[Tuple[str, str]] = []
+    for item in files:
+        if isinstance(item, dict):
+            path = item.get("path")
+            label = item.get("label") or item.get("display_name") or "result file"
+            if path:
+                links.append((path, label))
+            continue
+        path, label = item
+        links.append((path, label))
+    return links

@@ -37,16 +37,17 @@ def execute_gradio_endpoint(inp: GenericGradioInput) -> GenericGradioOutput:
         return _failure(inp, f"Missing authentication environment variable ({envs})", started, tool=tool)
 
     try:
-        args, kwargs = _build_inputs(tool, inp)
-    except ValueError as exc:
-        return _failure(inp, str(exc), started, tool=tool)
-
-    try:
         client = _make_client(str(tool.gradio.gradio_url), hf_token, tool.endpoint.timeout_seconds or tool.gradio.timeout_seconds)
     except Exception as exc:
         return _failure(inp, f"Gradio connection failed: {exc}", started, tool=tool)
 
     try:
+        args, kwargs = _build_inputs(tool, inp, client=client)
+    except ValueError as exc:
+        return _failure(inp, str(exc), started, tool=tool)
+
+    try:
+        _run_preflight_calls(tool, client, args, kwargs)
         if tool.endpoint.input_mapping.call_style == "positional":
             response = client.predict(*args, api_name=tool.endpoint.api_name)
         else:
@@ -86,7 +87,21 @@ def execute_gradio_endpoint(inp: GenericGradioInput) -> GenericGradioOutput:
     elapsed = time.time() - started
 
     if success and not (origin or preview):
-        return _failure(inp, "Missing configured output from Gradio response", started, tool=tool, stdout=str(response)[:6000])
+        returned = str(response)[:6000]
+        notes = _undownloadable_notes(response, tool.endpoint.display_name)
+        return GenericGradioOutput(
+            success=True,
+            error=None,
+            compute_time_seconds=compute_time if compute_time is not None else elapsed,
+            result_preview=None,
+            result_origin=None,
+            result_path=None,
+            metadata_text=f"Gradio endpoint returned: {returned}",
+            notes=notes,
+            endpoint_url=str(tool.gradio.gradio_url),
+            api_name=tool.endpoint.api_name or "",
+            stdout=returned,
+        )
 
     return GenericGradioOutput(
         success=bool(success),
@@ -103,7 +118,7 @@ def execute_gradio_endpoint(inp: GenericGradioInput) -> GenericGradioOutput:
     )
 
 
-def _build_inputs(tool, inp: GenericGradioInput) -> tuple[list[Any], Dict[str, Any]]:
+def _build_inputs(tool, inp: GenericGradioInput, client: Optional[Client] = None) -> tuple[list[Any], Dict[str, Any]]:
     args: list[Any] = []
     kwargs: Dict[str, Any] = {}
     for param in tool.endpoint.input_mapping.parameters:
@@ -117,6 +132,12 @@ def _build_inputs(tool, inp: GenericGradioInput) -> tuple[list[Any], Dict[str, A
                 if not os.path.exists(value):
                     raise ValueError(f"Input file does not exist: {value}")
                 value = handle_file(value)
+            elif value and _upload_as_gradio_path(param):
+                if not os.path.exists(value):
+                    raise ValueError(f"Input file does not exist: {value}")
+                if client is None:
+                    raise ValueError(f"Cannot upload input file for {param.name!r}: Gradio client is not available")
+                value = _upload_file_to_gradio_path(client, value)
         elif param.source == "description":
             value = inp.description
             if param.required and not value:
@@ -125,7 +146,7 @@ def _build_inputs(tool, inp: GenericGradioInput) -> tuple[list[Any], Dict[str, A
             value = param.value
         elif param.source == "param":
             key = param.param or param.name
-            value = inp.params.get(key)
+            value = inp.params.get(key, param.value)
             if param.required and value in (None, ""):
                 raise ValueError(f"Missing required input parameter {key!r}")
         else:
@@ -133,8 +154,61 @@ def _build_inputs(tool, inp: GenericGradioInput) -> tuple[list[Any], Dict[str, A
         if tool.endpoint.input_mapping.call_style == "positional":
             args.append(value)
         else:
+            if not param.required and value in (None, ""):
+                continue
             kwargs[param.name] = value
     return args, kwargs
+
+
+def _run_preflight_calls(tool, client: Client, args: list[Any], kwargs: Dict[str, Any]) -> None:
+    calls = tool.endpoint.metadata.get("preflight_calls") if tool.endpoint else None
+    if not isinstance(calls, list):
+        return
+    for call in calls:
+        if not isinstance(call, dict):
+            continue
+        api_name = call.get("api_name")
+        if not isinstance(api_name, str) or not api_name:
+            continue
+        call_args: list[Any] = []
+        for index in call.get("arg_indexes", []):
+            if isinstance(index, int) and 0 <= index < len(args):
+                call_args.append(args[index])
+        call_kwargs: Dict[str, Any] = {}
+        for name in call.get("kwarg_names", []):
+            if isinstance(name, str) and name in kwargs:
+                call_kwargs[name] = kwargs[name]
+        if call_args or call_kwargs:
+            client.predict(*call_args, api_name=api_name, **call_kwargs)
+
+
+def _upload_as_gradio_path(param) -> bool:
+    metadata = getattr(param, "metadata", None)
+    return bool(isinstance(metadata, dict) and metadata.get("upload_to_gradio_path"))
+
+
+def _upload_file_to_gradio_path(client: Client, file_path: str) -> str:
+    upload_url = getattr(client, "upload_url", None)
+    if not upload_url:
+        raise ValueError("Gradio client does not expose an upload URL")
+    with open(file_path, "rb") as f:
+        files = [("files", (Path(file_path).name, f))]
+        response = requests.post(
+            upload_url,
+            headers=getattr(client, "headers", None),
+            cookies=getattr(client, "cookies", None),
+            verify=getattr(client, "ssl_verify", True),
+            files=files,
+            timeout=getattr(client, "httpx_kwargs", {}).get("timeout", 120),
+        )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, list) or not payload or not isinstance(payload[0], str):
+        raise ValueError(f"Unexpected Gradio upload response: {payload!r}")
+    base = (getattr(client, "src", None) or getattr(client, "src_prefixed", None) or "").rstrip("/")
+    if not base:
+        raise ValueError("Gradio client does not expose a source URL")
+    return f"{base}/gradio_api/file={payload[0]}"
 
 
 def _make_client(endpoint: str, hf_token: Optional[str], timeout: float) -> Client:
@@ -258,6 +332,19 @@ def _materialize_any(obj: Any, client: Client, hf_token: Optional[str], max_byte
         if value.startswith("/"):
             return _download_from_gradio_file_endpoint(client, value, hf_token, max_bytes)
     return None
+
+
+def _undownloadable_notes(response: Any, endpoint_name: str) -> str:
+    if isinstance(response, str) and response.strip().startswith("/"):
+        return (
+            f"Executed {endpoint_name}; the Space returned a server-local path that "
+            "Gradio did not expose for download. Return a Gradio File/FileData output "
+            "or add the output directory to the Space's allowed_paths to make it viewable."
+        )
+    return (
+        f"Executed {endpoint_name}; the app returned a value that could not be "
+        "downloaded automatically."
+    )
 
 
 def _download_to_temp(url: str, hf_token: Optional[str], max_bytes: int) -> Optional[str]:

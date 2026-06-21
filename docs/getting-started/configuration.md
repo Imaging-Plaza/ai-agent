@@ -195,7 +195,9 @@ Supported input parameter sources are `session_file`, `image_path`, `description
 
 Output selectors support `first`, `root`, dotted dictionary paths such as `result.file`, and numeric list indexes such as `0.path`. Materialized outputs are downloaded safely with the configured size limit. Preview generation failures do not fail the whole tool execution.
 
-The React app exposes a Custom Tools page at `/tools`. It lets authenticated users view the tool/endpoint hierarchy, edit or import/export the JSON, validate it server-side, save it atomically, and reload the active registry. Failed validation does not replace the active file; failed reload preserves the previous active registry.
+The React app exposes a Custom Tools page at `/tools`. It lets authenticated users add a Hugging Face Space link such as `user-tool.hf.space`, `huggingface.co/user/tool`, or `huggingface.co/spaces/user/tool`. The backend fetches `/gradio_api/info` and `/gradio_api/mcp/schema`, converts the discovered description, endpoints, endpoint descriptions, and parameters into the registry format, saves the config atomically, and reloads the active registry. The page lists configured tools and endpoints but does not expose JSON editing controls.
+
+When a configured endpoint needs runtime values, the Run Tool approval panel shows simple parameter fields for those values before execution.
 
 ## Verification
 

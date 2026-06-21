@@ -15,6 +15,7 @@ from ai_agent.agent.tools.mcp import (
     save_config_payload,
     validate_config_payload,
 )
+from ai_agent.agent.tools.mcp.gradio_importer import build_tool_config_from_space_url
 from ai_agent.api.deps import require_auth
 
 log = logging.getLogger("api.routers.gradio_tools")
@@ -45,6 +46,10 @@ class SaveResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class ImportLinkRequest(BaseModel):
+    url: str
+
+
 @router.get("", response_model=ConfigReadResponse)
 def read_config() -> ConfigReadResponse:
     try:
@@ -73,6 +78,28 @@ def save_config(body: ConfigEnvelope) -> SaveResponse:
         reload_registry(path)
     except RegistryValidationError as exc:
         log.exception("Saved Gradio tools config but reload failed")
+        return SaveResponse(ok=False, path=str(path), reloaded=False, restart_required=True, errors=[str(exc)])
+    return SaveResponse(ok=True, path=str(path), reloaded=True)
+
+
+@router.post("/import-link", response_model=SaveResponse)
+def import_link(body: ImportLinkRequest) -> SaveResponse:
+    try:
+        tool = build_tool_config_from_space_url(body.url)
+        config = active_config_json()
+        existing_tools = list(config.get("tools") or [])
+        if any(item.get("id") == tool["id"] for item in existing_tools if isinstance(item, dict)):
+            raise RegistryValidationError(f"A tool with id {tool['id']!r} already exists")
+        config["version"] = config.get("version") or 1
+        config["tools"] = [*existing_tools, tool]
+        path = save_config_payload(config)
+    except RegistryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        reload_registry(path)
+    except RegistryValidationError as exc:
+        log.exception("Saved imported Gradio tool but reload failed")
         return SaveResponse(ok=False, path=str(path), reloaded=False, restart_required=True, errors=[str(exc)])
     return SaveResponse(ok=True, path=str(path), reloaded=True)
 

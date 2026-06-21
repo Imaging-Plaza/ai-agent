@@ -25,6 +25,7 @@ from ai_agent.agent.tools.mcp.registry import (
     TOOL_REGISTRY,
 )
 from ai_agent.generator.schema import Conversation, ConversationStatus, ToolChoice
+from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.services import chat as chat_service
 from ai_agent.services.chat import ChatRequest, approve_pending, decline_pending, process_turn
 from ai_agent.services.sessions import Asset, Session
@@ -201,6 +202,202 @@ def test_tool_search_selection_creates_pending_approval(
     assert session.tool_calls[0]["tool"] == "search_tools"
 
 
+def test_catalog_runnable_example_link_creates_pending_approval_when_name_differs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured_mcp_registry
+) -> None:
+    session = _asset_session(tmp_path)
+
+    def fake_run_agent(*args, **kwargs):
+        return AgentToolSelection(
+            conversation=Conversation(status=ConversationStatus.COMPLETE),
+            choices=[
+                ToolChoice(
+                    name="catalog-only-name",
+                    rank=1,
+                    accuracy=99.0,
+                    why="Catalog name differs from configured Gradio tool id.",
+                    demo_link="https://example.com/",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(chat_service, "run_agent", fake_run_agent)
+
+    result = process_turn(
+        session,
+        ChatRequest(message="Segment this image", asset_ids=["asset-1"]),
+        doc_index={},
+    )
+
+    assert result.status == "pending_action"
+    assert result.pending_action is not None
+    assert result.pending_action.tool_name == "demo_tool"
+    assert result.pending_action.recommendation_name == "catalog-only-name"
+    assert result.pending_action.matched_alias == "https://example.com/"
+    assert session.pending_catalog_alias == "https://example.com/"
+
+
+def test_catalog_doc_runnable_example_creates_pending_approval_when_agent_omits_demo_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured_mcp_registry
+) -> None:
+    session = _asset_session(tmp_path)
+
+    def fake_run_agent(*args, **kwargs):
+        return _agent_result("catalog-only-name")
+
+    monkeypatch.setattr(chat_service, "run_agent", fake_run_agent)
+
+    result = process_turn(
+        session,
+        ChatRequest(message="Segment this image", asset_ids=["asset-1"]),
+        doc_index={
+            "catalog-only-name": SoftwareDoc(
+                name="catalog-only-name",
+                runnableExample=[{"url": "https://example.com/"}],
+            )
+        },
+    )
+
+    assert result.status == "pending_action"
+    assert result.pending_action is not None
+    assert result.pending_action.tool_name == "demo_tool"
+    assert result.recommendations[0].demo_url == "https://example.com/"
+
+
+def test_catalog_doc_hf_space_runnable_example_matches_configured_space(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured_mcp_registry
+) -> None:
+    session = _asset_session(tmp_path)
+
+    def fake_run_agent(*args, **kwargs):
+        return _agent_result("catalog-only-name")
+
+    monkeypatch.setattr(chat_service, "run_agent", fake_run_agent)
+
+    result = process_turn(
+        session,
+        ChatRequest(message="Segment this image", asset_ids=["asset-1"]),
+        doc_index={
+            "catalog-only-name": SoftwareDoc(
+                name="catalog-only-name",
+                runnableExample=["https://example.com/"],
+            )
+        },
+    )
+
+    assert result.status == "pending_action"
+    assert result.pending_action is not None
+    assert result.pending_action.tool_name == "demo_tool"
+
+
+def test_catalog_bridge_uses_normalized_doc_name_and_all_runnable_links(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured_mcp_registry
+) -> None:
+    session = _asset_session(tmp_path)
+
+    def fake_run_agent(*args, **kwargs):
+        return _agent_result("pystackreg")
+
+    monkeypatch.setattr(chat_service, "run_agent", fake_run_agent)
+
+    result = process_turn(
+        session,
+        ChatRequest(message="Register this stack to the first frame", asset_ids=["asset-1"]),
+        doc_index={
+            "PyStackReg": SoftwareDoc(
+                name="PyStackReg",
+                runnableExample=[
+                    {"url": "https://github.com/glichtner/pystackreg/", "priority": 0},
+                    {"url": "https://example.com/", "priority": 100},
+                ],
+            )
+        },
+    )
+
+    assert result.status == "pending_action"
+    assert result.pending_action is not None
+    assert result.pending_action.tool_name == "demo_tool"
+    assert result.pending_action.matched_alias == "https://example.com/"
+    assert result.recommendations[0].demo_url == "https://github.com/glichtner/pystackreg/"
+
+
+def test_catalog_bridge_auto_imports_hf_space_when_not_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "gradio_tools.json"
+    config_path.write_text(json.dumps({"version": 1, "tools": []}), encoding="utf-8")
+    monkeypatch.setenv(GRADIO_TOOLS_CONFIG_ENV, str(config_path))
+    reload_registry(config_path)
+    session = _asset_session(tmp_path)
+
+    def fake_run_agent(*args, **kwargs):
+        return _agent_result("pystackreg")
+
+    def fake_build_tool_config_from_space_url(url: str):
+        assert url == "https://huggingface.co/spaces/qchapp/pystackreg-app"
+        return {
+            "id": "qchapp_pystackreg_app",
+            "display_name": "PyStackReg",
+            "enabled": True,
+            "gradio_url": "https://qchapp-pystackreg-app.hf.space",
+            "catalog_aliases": ["pystackreg"],
+            "default_endpoint": "align_stack_to_reference",
+            "endpoints": [
+                {
+                    "id": "align_stack_to_reference",
+                    "display_name": "Align Stack To Reference",
+                    "api_name": "/align_stack_to_reference",
+                    "catalog_aliases": ["align-stack-to-reference"],
+                    "input_mapping": {
+                        "parameters": [
+                            {"name": "stack_file", "source": "session_file", "required": True},
+                            {
+                                "name": "mode",
+                                "source": "param",
+                                "param": "mode",
+                                "required": False,
+                                "value": "RIGID_BODY",
+                            },
+                        ]
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(chat_service, "run_agent", fake_run_agent)
+    monkeypatch.setattr(
+        chat_service,
+        "build_tool_config_from_space_url",
+        fake_build_tool_config_from_space_url,
+    )
+
+    result = process_turn(
+        session,
+        ChatRequest(message="Register this stack to the first frame", asset_ids=["asset-1"]),
+        doc_index={
+            "PyStackReg": SoftwareDoc(
+                name="PyStackReg",
+                runnableExample=[
+                    {"url": "https://github.com/glichtner/pystackreg/", "priority": 0},
+                    {
+                        "url": "https://huggingface.co/spaces/qchapp/pystackreg-app",
+                        "priority": 100,
+                    },
+                ],
+            )
+        },
+    )
+
+    assert result.status == "pending_action"
+    assert result.pending_action is not None
+    assert result.pending_action.tool_name == "qchapp_pystackreg_app"
+    assert result.pending_action.matched_alias == "https://huggingface.co/spaces/qchapp/pystackreg-app"
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert [tool["id"] for tool in saved["tools"]] == ["qchapp_pystackreg_app"]
+    monkeypatch.delenv(GRADIO_TOOLS_CONFIG_ENV, raising=False)
+    reload_registry()
+
+
 def test_catalog_demo_link_without_upload_does_not_create_tool_approval(
     monkeypatch: pytest.MonkeyPatch, configured_mcp_registry
 ) -> None:
@@ -316,9 +513,95 @@ def test_approval_executes_tool_and_records_success_history(
     assert result.status == "tool_executed"
     assert "completed" in result.text.lower()
     assert "mask voxels=10" in result.text
+    assert result.files == [
+        {
+            "path": "/api/files/asset/artifact-0/raw",
+            "label": "Demo Tool result",
+            "asset_id": "artifact-0",
+            "preview_url": "/api/files/preview/artifact-0",
+            "display_name": "result.png",
+        }
+    ]
     assert session.pending_tool_approval is None
     assert session.tool_calls[-1]["success"] is True
     assert session.conversation_history[-1].startswith("Assistant:")
+
+
+def test_approval_can_override_selected_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = {
+        "version": 1,
+        "tools": [
+            {
+                "id": "switchable_tool",
+                "display_name": "Switchable Tool",
+                "enabled": True,
+                "gradio_url": "https://example.com/",
+                "catalog_aliases": ["switchable-tool"],
+                "default_endpoint": "first",
+                "endpoints": [
+                    {
+                        "id": "first",
+                        "display_name": "First Endpoint",
+                        "api_name": "/first",
+                        "catalog_aliases": ["switchable-first"],
+                        "input_mapping": {
+                            "parameters": [
+                                {"name": "image", "source": "session_file", "required": True}
+                            ]
+                        },
+                    },
+                    {
+                        "id": "second",
+                        "display_name": "Second Endpoint",
+                        "api_name": "/second",
+                        "catalog_aliases": ["switchable-second"],
+                        "input_mapping": {
+                            "parameters": [
+                                {"name": "image", "source": "session_file", "required": True},
+                                {
+                                    "name": "mode",
+                                    "source": "param",
+                                    "param": "mode",
+                                    "required": False,
+                                },
+                            ]
+                        },
+                    },
+                ],
+            }
+        ],
+    }
+    config_path = tmp_path / "gradio_tools.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv(GRADIO_TOOLS_CONFIG_ENV, str(config_path))
+    reload_registry(config_path)
+
+    session = _asset_session(tmp_path)
+    session.pending_tool_approval = "switchable_tool"
+    session.pending_tool_endpoint = "first"
+    session.pending_tool_params = {
+        "endpoint_id": "first",
+        "image_path": session.assets["asset-1"].path,
+        "image_paths": [session.assets["asset-1"].path],
+    }
+    captured: dict[str, Any] = {}
+
+    def fake_executor(inp):
+        captured["endpoint_id"] = inp.endpoint_id
+        captured["params"] = inp.params
+        return GenericGradioOutput(success=True, notes="done")
+
+    TOOL_REGISTRY["switchable_tool:second"].executor = fake_executor
+
+    result = approve_pending(session, params={"mode": "accurate"}, endpoint_id="second")
+
+    assert result.status == "tool_executed"
+    assert captured == {"endpoint_id": "second", "params": {"mode": "accurate"}}
+    assert session.pending_tool_endpoint is None
+    monkeypatch.delenv(GRADIO_TOOLS_CONFIG_ENV, raising=False)
+    reload_registry()
 
 
 def test_rejection_clears_pending_action_and_records_history(

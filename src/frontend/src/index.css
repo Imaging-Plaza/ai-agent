@@ -1110,9 +1110,15 @@ a:hover {
   flex-wrap: wrap;
   gap: 8px;
 }
+.result-file-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+}
 .result-file {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 28px;
   padding: 0 10px;
   border: 1px solid var(--border-strong);
@@ -1121,9 +1127,16 @@ a:hover {
   background: var(--bg-input);
   font-size: 12px;
   text-decoration: none;
+  font-family: inherit;
+  cursor: pointer;
 }
 .result-file:hover {
   border-color: var(--accent);
+}
+.result-file.secondary {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 /* ============================================================================
@@ -1334,6 +1347,37 @@ a:hover {
   display: flex;
   gap: 8px;
   position: relative;
+}
+.pending-params {
+  display: grid;
+  gap: 10px;
+  position: relative;
+}
+.pending-params label {
+  display: grid;
+  gap: 5px;
+}
+.pending-params span {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+.pending-params input,
+.pending-params select {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  padding: 9px 10px;
+  outline: none;
+}
+.pending-params input:focus,
+.pending-params select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 /* ============================================================================
@@ -3604,6 +3648,7 @@ a:hover {
 .endpoint-row div {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
 }
@@ -3618,6 +3663,13 @@ a:hover {
   font-family: var(--font-mono);
   font-size: 11px;
   overflow-wrap: anywhere;
+}
+
+.endpoint-row small {
+  flex-basis: 100%;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .tools-editor {
@@ -3671,6 +3723,32 @@ a:hover {
   width: min(940px, calc(100vw - 32px));
   max-height: min(86vh, 920px);
   overflow: auto;
+}
+
+.tools-link-field {
+  display: grid;
+  gap: 6px;
+}
+
+.tools-link-field span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.tools-link-field input {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text);
+  padding: 10px 11px;
+  font-size: 13px;
+  outline: 0;
+}
+
+.tools-link-field input:focus {
+  border-color: var(--accent);
 }
 
 .tools-form-grid {

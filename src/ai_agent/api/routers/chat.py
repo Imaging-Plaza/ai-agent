@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sse_starlette.sse import EventSourceResponse
 
 from ai_agent.api.deps import get_doc_index, require_auth
-from ai_agent.api.schemas import ChatStartBody
+from ai_agent.api.schemas import ApprovePendingBody, ChatStartBody
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.services.chat import (
     ChatRequest,
@@ -125,6 +125,23 @@ def _stream_result(
                     "matched_alias": pa.matched_alias,
                     "api_name": pa.api_name,
                     "required_inputs": pa.required_inputs,
+                    "runtime_parameters": [
+                        _runtime_parameter_payload(p) for p in pa.runtime_parameters
+                    ],
+                    "endpoint_options": [
+                        {
+                            "endpoint_id": option.endpoint_id,
+                            "display_name": option.display_name,
+                            "description": option.description,
+                            "api_name": option.api_name,
+                            "required_inputs": option.required_inputs,
+                            "runtime_parameters": [
+                                _runtime_parameter_payload(p)
+                                for p in option.runtime_parameters
+                            ],
+                        }
+                        for option in pa.endpoint_options
+                    ],
                 },
             )
 
@@ -133,7 +150,7 @@ def _stream_result(
         if result.files:
             yield _event(
                 "files",
-                {"items": [{"path": p, "label": label} for p, label in result.files]},
+                {"items": [_file_payload(item) for item in result.files]},
             )
 
         if result.usage:
@@ -145,6 +162,36 @@ def _stream_result(
         yield _event("done", {"status": result.status})
 
     return gen()
+
+
+def _runtime_parameter_payload(param) -> Dict[str, Any]:
+    return {
+        "name": param.name,
+        "label": param.label,
+        "required": param.required,
+        "description": param.description,
+        "default": param.default,
+        "choices": param.choices,
+    }
+
+
+def _file_payload(item) -> Dict[str, Any]:
+    if isinstance(item, dict):
+        return {
+            "path": item.get("path"),
+            "label": item.get("label"),
+            "asset_id": item.get("asset_id"),
+            "preview_url": item.get("preview_url"),
+            "display_name": item.get("display_name"),
+        }
+    path, label = item
+    return {
+        "path": path,
+        "label": label,
+        "asset_id": None,
+        "preview_url": None,
+        "display_name": None,
+    }
 
 
 def _resolve_or_error(session_id: str) -> Session:
@@ -228,11 +275,15 @@ async def start_chat(
 @router.post("/{session_id}/approve")
 async def approve(
     session_id: str,
+    body: ApprovePendingBody,
     doc_index: Dict[str, SoftwareDoc] = Depends(get_doc_index),
 ):
     session = _resolve_or_error(session_id)
     return EventSourceResponse(
-        _with_heartbeat(session, lambda: approve_pending(session))
+        _with_heartbeat(
+            session,
+            lambda: approve_pending(session, body.params, body.endpoint_id),
+        )
     )
 
 

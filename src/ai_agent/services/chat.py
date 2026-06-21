@@ -30,17 +30,26 @@ from typing import Any, Dict, List, Literal, Optional
 from ai_agent.agent.agent import run_agent
 from ai_agent.agent.tools.mcp import (
     alias_is_tool_level,
+    active_config_json,
     extract_downloads,
     extract_metadata,
     extract_output_field,
     extract_preview,
     get_tool,
     list_tool_endpoints,
+    reload_registry,
     resolve_catalog_alias,
+    resolve_runnable_url,
+    save_config_payload,
 )
+from ai_agent.agent.tools.mcp.gradio_importer import (
+    build_tool_config_from_space_url,
+    normalize_space_url,
+)
+from ai_agent.agent.tools.mcp.registry import RegistryValidationError
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.utils.tags import parse_exclusions, strip_tags
-from ai_agent.utils.utils import _is_affirmative
+from ai_agent.utils.utils import _best_runnable_link, _is_affirmative
 
 from .files import asset_paths, ingest_files
 from .sessions import Asset, Session
@@ -67,6 +76,26 @@ class Recommendation:
 
 
 @dataclass
+class RuntimeParameter:
+    name: str
+    label: str
+    required: bool = True
+    description: Optional[str] = None
+    default: Any = None
+    choices: List[Any] = field(default_factory=list)
+
+
+@dataclass
+class EndpointOption:
+    endpoint_id: str
+    display_name: str
+    description: Optional[str] = None
+    api_name: Optional[str] = None
+    required_inputs: List[str] = field(default_factory=list)
+    runtime_parameters: List[RuntimeParameter] = field(default_factory=list)
+
+
+@dataclass
 class PendingAction:
     """A turn that ends asking the user to confirm something.
 
@@ -89,6 +118,8 @@ class PendingAction:
     matched_alias: Optional[str] = None
     api_name: Optional[str] = None
     required_inputs: List[str] = field(default_factory=list)
+    runtime_parameters: List[RuntimeParameter] = field(default_factory=list)
+    endpoint_options: List[EndpointOption] = field(default_factory=list)
 
 
 @dataclass
@@ -118,7 +149,7 @@ class ChatTurnResult:
     # Extras used by Gradio rendering (preview images, downloads from a
     # tool execution turn). Empty for normal chat turns.
     images: List[str] = field(default_factory=list)
-    files: List[tuple] = field(default_factory=list)
+    files: List[Any] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +287,11 @@ def process_turn(
     )
 
 
-def approve_pending(session: Session) -> ChatTurnResult:
+def approve_pending(
+    session: Session,
+    params: Optional[Dict[str, Any]] = None,
+    endpoint_id: Optional[str] = None,
+) -> ChatTurnResult:
     """Resume a turn that ended with a ``tool_approval`` pending action.
 
     Calls the registered tool with the previously-captured parameters, then
@@ -269,8 +304,15 @@ def approve_pending(session: Session) -> ChatTurnResult:
             text="There is no pending tool approval to confirm.",
             error="no_pending_action",
         )
-    params = dict(session.pending_tool_params)
-    return _execute_registered_tool(session, tool_name, params)
+    tool_params = dict(session.pending_tool_params)
+    if endpoint_id:
+        tool_params["endpoint_id"] = endpoint_id
+        session.pending_tool_endpoint = endpoint_id
+    if params:
+        runtime_params = dict(tool_params.get("params") or {})
+        runtime_params.update(params)
+        tool_params["params"] = runtime_params
+    return _execute_registered_tool(session, tool_name, tool_params)
 
 
 def decline_pending(session: Session) -> ChatTurnResult:
@@ -402,9 +444,20 @@ def _shape_agent_result(
         if c.get("name"):
             session.banlist.add(c["name"])
 
+    enriched_choices: List[Dict[str, Any]] = []
     recommendations: List[Recommendation] = []
     for i, c in enumerate(choices, 1):
-        doc = doc_index.get(c["name"])
+        doc = _lookup_doc(doc_index, c["name"])
+        doc_runnable_links = _runnable_links_for_doc(doc)
+        demo_link = c.get("demo_link") or (
+            _best_runnable_link(doc) if doc is not None else None
+        )
+        enriched = dict(c)
+        if demo_link and not enriched.get("demo_link"):
+            enriched["demo_link"] = demo_link
+        if doc_runnable_links:
+            enriched["demo_links"] = doc_runnable_links
+        enriched_choices.append(enriched)
         recommendations.append(
             Recommendation(
                 rank=i,
@@ -412,7 +465,7 @@ def _shape_agent_result(
                 accuracy=float(c.get("accuracy", 0.0)),
                 why=c.get("why", ""),
                 doc=doc.model_dump(mode="python") if doc is not None else None,
-                demo_url=c.get("demo_link"),
+                demo_url=demo_link,
             )
         )
 
@@ -424,7 +477,7 @@ def _shape_agent_result(
     text = "\n".join(text_parts)
 
     pending_action = _select_pending_action(
-        session, choices, effective_paths, request_text
+        session, enriched_choices, effective_paths, request_text
     )
     if pending_action and pending_action.recommendation_rank and pending_action.recommendation_rank > 1:
         text += (
@@ -441,6 +494,46 @@ def _shape_agent_result(
         pending_action=pending_action,
         usage=usage_payload,
     )
+
+
+def _lookup_doc(doc_index: Dict[str, SoftwareDoc], name: str) -> Optional[SoftwareDoc]:
+    doc = doc_index.get(name)
+    if doc is not None:
+        return doc
+
+    wanted = _normalize_match_text(name)
+    for key, candidate in doc_index.items():
+        if _normalize_match_text(key) == wanted:
+            return candidate
+        if _normalize_match_text(candidate.name) == wanted:
+            return candidate
+    return None
+
+
+def _runnable_links_for_doc(doc: Optional[SoftwareDoc]) -> List[str]:
+    if doc is None:
+        return []
+
+    links: List[str] = []
+
+    def add_url(item) -> None:
+        url = None
+        if isinstance(item, str):
+            url = item.strip()
+        elif isinstance(item, dict):
+            raw = item.get("url")
+            if isinstance(raw, str):
+                url = raw.strip()
+            elif isinstance(raw, list) and raw:
+                url = str(raw[0]).strip()
+        if url and url not in links:
+            links.append(url)
+
+    for item in getattr(doc, "runnable_example", None) or []:
+        add_url(item)
+    for item in getattr(doc, "has_executable_notebook", None) or []:
+        add_url(item)
+    return links
 
 
 def _clear_pending(session: Session) -> None:
@@ -464,11 +557,23 @@ def _select_pending_action(
     for rank, choice in enumerate(choices, 1):
         alias = choice.get("name") or ""
         tool_config = resolve_catalog_alias(alias)
+        matched_alias = alias
+        endpoint_selection_alias = alias
+        runnable_links = [
+            link
+            for link in [choice.get("demo_link"), *(choice.get("demo_links") or [])]
+            if isinstance(link, str) and link.strip()
+        ]
+        if not tool_config:
+            tool_config, matched_link = _resolve_or_import_runnable_tool(runnable_links)
+            if tool_config and matched_link:
+                matched_alias = matched_link
+            endpoint_selection_alias = tool_config.name if tool_config else alias
         if not tool_config or not tool_config.endpoint:
             continue
         endpoint_selection = _select_endpoint_for_choice(
             tool_config=tool_config,
-            alias=alias,
+            alias=endpoint_selection_alias,
             choice=choice,
             request_text=request_text,
             file_count=len(effective_paths),
@@ -478,19 +583,21 @@ def _select_pending_action(
             continue
         if _required_file_count(tool_config) > len(effective_paths):
             continue
-        required_inputs = [
-            p.name
-            for p in tool_config.endpoint.input_mapping.parameters
-            if p.required and p.source in ("session_file", "image_path")
-        ]
+        required_inputs = _required_inputs_for_tool(tool_config)
+        runtime_parameters = _runtime_parameters_for_tool(tool_config)
         if required_inputs and not image_path:
             continue
         endpoint_id = tool_config.endpoint.id
+        endpoint_options = _endpoint_options_for_tool(
+            tool_config.name,
+            selected_endpoint_id=endpoint_id,
+            file_count=len(effective_paths),
+        )
         session.pending_tool_approval = tool_config.name
         session.pending_tool_endpoint = endpoint_id
         session.pending_recommendation_name = alias
         session.pending_recommendation_rank = rank
-        session.pending_catalog_alias = alias
+        session.pending_catalog_alias = matched_alias
         session.pending_tool_params = {
             "endpoint_id": endpoint_id,
             "image_path": image_path,
@@ -511,11 +618,130 @@ def _select_pending_action(
             endpoint_display_name=tool_config.endpoint.display_name,
             recommendation_name=alias,
             recommendation_rank=rank,
-            matched_alias=alias,
+            matched_alias=matched_alias,
             api_name=tool_config.api_name,
             required_inputs=required_inputs,
+            runtime_parameters=runtime_parameters,
+            endpoint_options=endpoint_options,
         )
     return None
+
+
+def _resolve_or_import_runnable_tool(
+    runnable_links: List[str],
+) -> tuple[Optional[Any], Optional[str]]:
+    for link in runnable_links:
+        tool_config = resolve_runnable_url(link)
+        if tool_config:
+            return tool_config, link
+
+    for link in runnable_links:
+        try:
+            # Filters out GitHub, notebooks, and other non-Space links.
+            normalize_space_url(link)
+        except RegistryValidationError:
+            continue
+        try:
+            _import_gradio_space_link(link)
+        except RegistryValidationError as exc:
+            log.info("Could not auto-import catalog runnable Space %s: %s", link, exc)
+            continue
+        except Exception:
+            log.exception("Unexpected failure auto-importing catalog runnable Space %s", link)
+            continue
+        tool_config = resolve_runnable_url(link)
+        if tool_config:
+            return tool_config, link
+    return None, None
+
+
+def _import_gradio_space_link(link: str) -> None:
+    base_url, _, _ = normalize_space_url(link)
+    tool = build_tool_config_from_space_url(link)
+    config = active_config_json()
+    existing_tools = list(config.get("tools") or [])
+    for item in existing_tools:
+        if not isinstance(item, dict):
+            continue
+        if item.get("id") == tool["id"]:
+            return
+        existing_url = str(item.get("gradio_url") or "")
+        try:
+            existing_base_url, _, _ = normalize_space_url(existing_url)
+        except RegistryValidationError:
+            existing_base_url = existing_url.rstrip("/")
+        if existing_base_url.rstrip("/") == base_url.rstrip("/"):
+            return
+    config["version"] = config.get("version") or 1
+    config["tools"] = [*existing_tools, tool]
+    path = save_config_payload(config)
+    reload_registry(path)
+
+
+def _required_inputs_for_tool(tool_config) -> List[str]:
+    if not tool_config.endpoint:
+        return []
+    return [
+        p.name
+        for p in tool_config.endpoint.input_mapping.parameters
+        if p.required and p.source in ("session_file", "image_path")
+    ]
+
+
+def _runtime_parameters_for_tool(tool_config) -> List[RuntimeParameter]:
+    if not tool_config.endpoint:
+        return []
+    return [
+        RuntimeParameter(
+            name=p.param or p.name,
+            label=p.name.replace("_", " ").strip().title(),
+            required=p.required,
+            description=_parameter_description(p),
+            default=p.value,
+            choices=_parameter_choices(p),
+        )
+        for p in tool_config.endpoint.input_mapping.parameters
+        if p.source == "param"
+    ]
+
+
+def _endpoint_options_for_tool(
+    tool_name: str,
+    *,
+    selected_endpoint_id: Optional[str],
+    file_count: int,
+) -> List[EndpointOption]:
+    options: List[EndpointOption] = []
+    for candidate in list_tool_endpoints(tool_name):
+        if not candidate.endpoint or not candidate.is_runnable():
+            continue
+        if _required_file_count(candidate) > file_count:
+            continue
+        options.append(
+            EndpointOption(
+                endpoint_id=candidate.endpoint.id,
+                display_name=candidate.endpoint.display_name,
+                description=candidate.endpoint.description,
+                api_name=candidate.api_name,
+                required_inputs=_required_inputs_for_tool(candidate),
+                runtime_parameters=_runtime_parameters_for_tool(candidate),
+            )
+        )
+    if selected_endpoint_id and not any(o.endpoint_id == selected_endpoint_id for o in options):
+        selected = get_tool(tool_name, selected_endpoint_id)
+        if selected and selected.endpoint and selected.is_runnable():
+            options.insert(
+                0,
+                EndpointOption(
+                    endpoint_id=selected.endpoint.id,
+                    display_name=selected.endpoint.display_name,
+                    description=selected.endpoint.description,
+                    api_name=selected.api_name,
+                    required_inputs=_required_inputs_for_tool(selected),
+                    runtime_parameters=_runtime_parameters_for_tool(selected),
+                ),
+            )
+    return options
 
 
 def _select_endpoint_for_choice(
@@ -678,6 +904,32 @@ def _required_file_count(tool_config) -> int:
     return max(required_indices) + 1 if required_indices else 0
 
 
+def _parameter_description(param) -> Optional[str]:
+    metadata = getattr(param, "metadata", None)
+    if isinstance(metadata, dict):
+        value = metadata.get("description")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _parameter_choices(param) -> List[Any]:
+    metadata = getattr(param, "metadata", None)
+    if not isinstance(metadata, dict):
+        return []
+    raw = metadata.get("choices") or metadata.get("enum") or metadata.get("options") or []
+    if not isinstance(raw, list):
+        return []
+    choices: List[Any] = []
+    seen: set[str] = set()
+    for value in raw:
+        key = str(value)
+        if key not in seen:
+            seen.add(key)
+            choices.append(value)
+    return choices
+
+
 def _normalize_match_text(value: str) -> str:
     return " ".join((value or "").replace("_", " ").replace("-", " ").casefold().split())
 
@@ -723,7 +975,7 @@ def _execute_registered_tool(
     started = time.time()
     text = f"{tool_config.icon} Running {tool_config.display_name}...\n\n"
     images: List[str] = []
-    files: List[tuple] = []
+    files: List[Dict[str, Any]] = []
     artifact_assets: Dict[str, Asset] = {}
     try:
         # Backfill missing image path from last upload
@@ -779,10 +1031,15 @@ def _execute_registered_tool(
                     if asset:
                         artifact_assets[dp] = asset
                         files.append(
-                            (
-                                _asset_raw_url(asset),
-                                f"Download {tool_config.display_name} result",
-                            )
+                            {
+                                "path": _asset_raw_url(asset),
+                                "label": f"{tool_config.display_name} result",
+                                "asset_id": asset.asset_id,
+                                "preview_url": _asset_preview_url(asset)
+                                if asset.preview_path
+                                else None,
+                                "display_name": asset.display_name,
+                            }
                         )
             metadata = extract_metadata(result, tool_name)
             if metadata:
@@ -839,7 +1096,9 @@ __all__ = [
     "ChatRequest",
     "ChatTurnResult",
     "Clarification",
+    "EndpointOption",
     "PendingAction",
+    "RuntimeParameter",
     "Recommendation",
     "approve_pending",
     "decline_pending",

@@ -2,51 +2,542 @@
   "version": 1,
   "tools": [
     {
-      "id": "lungs_segmentation",
-      "display_name": "3D Lungs Segmentation",
-      "description": "Run 3D lungs segmentation on CT images through a Gradio Space.",
-      "icon": "L",
+      "id": "qchapp_3d_lungs_segmentation",
+      "display_name": "Qchapp 3d Lungs Segmentation",
+      "description": "Recommended MCP tool for agentic clients. Provide one `.tif` or `.tiff` 3D volume as a Gradio File input. Public `http`/`https` TIFF URLs can be passed directly; local user files should be uploaded with the Gradio `upload_file_to_gradio` helper when the MCP client provides it. The expected array layout is `(Z, Y, X)`. The tool returns a downloadable zlib-compressed uint8 TIFF mask plus JSON metadata. Mask labels are 0 = background and 1 = lung tissue. This tool is intended for research workflows and is not for clinical diagnosis without expert validation.",
+      "icon": "T",
       "enabled": true,
       "gradio_url": "https://qchapp-3d-lungs-segmentation.hf.space/",
       "auth": {
-        "token_envs": [
-          "HF_TOKEN",
-          "HUGGINGFACE_TOKEN"
-        ],
+        "token_envs": [],
         "required": false
       },
       "catalog_aliases": [
-        "lungs-segmentation"
+        "qchapp 3d lungs segmentation",
+        "qchapp_3d_lungs_segmentation",
+        "lungs segmentation",
+        "unet_lungs_segmentation",
+        "lungs-segmentation",
+        "3d-lungs-segmentation"
       ],
-      "default_endpoint": "segment",
+      "default_endpoint": "segment_lungs_3d_tiff",
       "timeout_seconds": 300.0,
       "max_download_bytes": 1073741824,
-      "notes": "The Space should return a downloadable file or a Gradio FileData URL.",
-      "metadata": {},
+      "metadata": {
+        "source": "hf_space_link",
+        "info": {
+          "named_endpoints": {
+            "/segment_lungs_3d_tiff": {
+              "parameters": [
+                {
+                  "label": "Input 3D TIF/TIFF volume",
+                  "parameter_name": "volume_tiff",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "$defs": {
+                      "FileDataMeta": {
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ],
+                        "title": "FileDataMeta",
+                        "type": "object"
+                      }
+                    },
+                    "properties": {
+                      "path": {
+                        "title": "Path",
+                        "type": "string"
+                      },
+                      "url": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Url"
+                      },
+                      "size": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Size"
+                      },
+                      "orig_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Orig Name"
+                      },
+                      "mime_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Mime Type"
+                      },
+                      "is_stream": {
+                        "default": false,
+                        "title": "Is Stream",
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "$ref": "#/$defs/FileDataMeta"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "object",
+                    "additional_description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "python_type": {
+                    "type": "filepath",
+                    "description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "component": "File",
+                  "example_input": {
+                    "path": "https://github.com/gradio-app/gradio/raw/main/test/test_files/sample_file.pdf",
+                    "meta": {
+                      "_type": "gradio.FileData"
+                    },
+                    "orig_name": "sample_file.pdf",
+                    "url": "https://github.com/gradio-app/gradio/raw/main/test/test_files/sample_file.pdf"
+                  }
+                }
+              ],
+              "returns": [
+                {
+                  "label": "Zlib-compressed uint8 lung mask TIFF",
+                  "type": {
+                    "$defs": {
+                      "FileDataMeta": {
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ],
+                        "title": "FileDataMeta",
+                        "type": "object"
+                      }
+                    },
+                    "properties": {
+                      "path": {
+                        "title": "Path",
+                        "type": "string"
+                      },
+                      "url": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Url"
+                      },
+                      "size": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Size"
+                      },
+                      "orig_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Orig Name"
+                      },
+                      "mime_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Mime Type"
+                      },
+                      "is_stream": {
+                        "default": false,
+                        "title": "Is Stream",
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "$ref": "#/$defs/FileDataMeta"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "object",
+                    "additional_description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "python_type": {
+                    "type": "filepath",
+                    "description": ""
+                  },
+                  "component": "File"
+                },
+                {
+                  "label": "Segmentation metadata",
+                  "type": {
+                    "type": {},
+                    "description": "any valid json"
+                  },
+                  "python_type": {
+                    "type": "str | float | bool | list | dict",
+                    "description": "any valid json"
+                  },
+                  "component": "Json"
+                }
+              ],
+              "show_api": true,
+              "description": "Recommended MCP tool for agentic clients. Provide one `.tif` or `.tiff` 3D volume as a Gradio File input. Public `http`/`https` TIFF URLs can be passed directly; local user files should be uploaded with the Gradio `upload_file_to_gradio` helper when the MCP client provides it. The expected array layout is `(Z, Y, X)`. The tool returns a downloadable zlib-compressed uint8 TIFF mask plus JSON metadata. Mask labels are 0 = background and 1 = lung tissue. This tool is intended for research workflows and is not for clinical diagnosis without expert validation."
+            },
+            "/segment": {
+              "parameters": [
+                {
+                  "label": "Input 3D TIF/TIFF volume",
+                  "parameter_name": "file_obj",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "$defs": {
+                      "FileDataMeta": {
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ],
+                        "title": "FileDataMeta",
+                        "type": "object"
+                      }
+                    },
+                    "properties": {
+                      "path": {
+                        "title": "Path",
+                        "type": "string"
+                      },
+                      "url": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Url"
+                      },
+                      "size": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Size"
+                      },
+                      "orig_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Orig Name"
+                      },
+                      "mime_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Mime Type"
+                      },
+                      "is_stream": {
+                        "default": false,
+                        "title": "Is Stream",
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "$ref": "#/$defs/FileDataMeta"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "object",
+                    "additional_description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "python_type": {
+                    "type": "filepath",
+                    "description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "component": "File",
+                  "example_input": {
+                    "path": "https://github.com/gradio-app/gradio/raw/main/test/test_files/sample_file.pdf",
+                    "meta": {
+                      "_type": "gradio.FileData"
+                    },
+                    "orig_name": "sample_file.pdf",
+                    "url": "https://github.com/gradio-app/gradio/raw/main/test/test_files/sample_file.pdf"
+                  }
+                }
+              ],
+              "returns": [
+                {
+                  "label": "Compressed lung mask TIF",
+                  "type": {
+                    "$defs": {
+                      "FileDataMeta": {
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ],
+                        "title": "FileDataMeta",
+                        "type": "object"
+                      }
+                    },
+                    "properties": {
+                      "path": {
+                        "title": "Path",
+                        "type": "string"
+                      },
+                      "url": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Url"
+                      },
+                      "size": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Size"
+                      },
+                      "orig_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Orig Name"
+                      },
+                      "mime_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Mime Type"
+                      },
+                      "is_stream": {
+                        "default": false,
+                        "title": "Is Stream",
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "$ref": "#/$defs/FileDataMeta"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "object",
+                    "additional_description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "python_type": {
+                    "type": "filepath",
+                    "description": ""
+                  },
+                  "component": "File"
+                }
+              ],
+              "show_api": true,
+              "description": "Legacy endpoint. Prefer `/segment_lungs_3d_tiff` for MCP clients because it returns both the downloadable mask and structured metadata. Upload a `.tif` or `.tiff` 3D volume with layout `(Z, Y, X)`. Returns a downloadable zlib-compressed uint8 TIFF mask where 1 is lung tissue and 0 is background."
+            }
+          },
+          "unnamed_endpoints": {}
+        },
+        "mcp_schema": [
+          {
+            "name": "3d_lungs_segmentation_segment_lungs_3d_tiff",
+            "description": "Recommended MCP tool for agentic clients. Provide one `.tif` or `.tiff` 3D volume as a Gradio File input. Public `http`/`https` TIFF URLs can be passed directly; local user files should be uploaded with the Gradio `upload_file_to_gradio` helper when the MCP client provides it. The expected array layout is `(Z, Y, X)`. The tool returns a downloadable zlib-compressed uint8 TIFF mask plus JSON metadata. Mask labels are 0 = background and 1 = lung tissue. This tool is intended for research workflows and is not for clinical diagnosis without expert validation. If a user passes a file as an input, use the upload_file_to_gradio tool, if present, to upload the file to the gradio app and create a Gradio File Input. Then use the returned path as the input to the tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "volume_tiff": {
+                  "required": [
+                    "path"
+                  ],
+                  "title": "FileData",
+                  "type": "string",
+                  "description": "Uploaded `.tif` or `.tiff` 3D volume provided by a Gradio File",
+                  "format": "Gradio File Input - a http or https url to a file"
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": true,
+              "mcp_type": "tool",
+              "endpoint_name": "segment_lungs_3d_tiff"
+            }
+          },
+          {
+            "name": "3d_lungs_segmentation_segment",
+            "description": "Legacy endpoint. Prefer `/segment_lungs_3d_tiff` for MCP clients because it returns both the downloadable mask and structured metadata. Upload a `.tif` or `.tiff` 3D volume with layout `(Z, Y, X)`. Returns a downloadable zlib-compressed uint8 TIFF mask where 1 is lung tissue and 0 is background. If a user passes a file as an input, use the upload_file_to_gradio tool, if present, to upload the file to the gradio app and create a Gradio File Input. Then use the returned path as the input to the tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_obj": {
+                  "required": [
+                    "path"
+                  ],
+                  "title": "FileData",
+                  "type": "string",
+                  "description": "",
+                  "format": "Gradio File Input - a http or https url to a file"
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": true,
+              "mcp_type": "tool",
+              "endpoint_name": "segment"
+            }
+          }
+        ]
+      },
       "endpoints": [
         {
-          "id": "segment",
-          "display_name": "Segment Lungs",
-          "description": "Segment lungs from an uploaded CT image or volume.",
-          "api_name": "/segment",
+          "id": "segment_lungs_3d_tiff",
+          "display_name": "3d_lungs_segmentation_segment_lungs_3d_tiff",
+          "description": "Recommended MCP tool for agentic clients. Provide one `.tif` or `.tiff` 3D volume as a Gradio File input. Public `http`/`https` TIFF URLs can be passed directly; local user files should be uploaded with the Gradio `upload_file_to_gradio` helper when the MCP client provides it. The expected array layout is `(Z, Y, X)`. The tool returns a downloadable zlib-compressed uint8 TIFF mask plus JSON metadata. Mask labels are 0 = background and 1 = lung tissue. This tool is intended for research workflows and is not for clinical diagnosis without expert validation.",
+          "api_name": "/segment_lungs_3d_tiff",
           "enabled": true,
           "catalog_aliases": [
+            "3d_lungs_segmentation_segment_lungs_3d_tiff",
+            "segment_lungs_3d_tiff",
+            "lungs segmentation",
+            "unet_lungs_segmentation",
             "lungs-segmentation",
             "3d-lungs-segmentation"
           ],
           "supported_input_types": [
             "image",
-            "file",
-            "volume"
+            "file"
           ],
           "input_mapping": {
             "call_style": "keyword",
             "parameters": [
               {
-                "name": "file_obj",
+                "name": "volume_tiff",
                 "source": "session_file",
                 "required": true,
-                "as_gradio_file": true
+                "file_index": 0,
+                "as_gradio_file": true,
+                "metadata": {
+                  "description": "Uploaded `.tif` or `.tiff` 3D volume provided by a Gradio File",
+                  "type": "string",
+                  "format": "Gradio File Input - a http or https url to a file"
+                }
               }
             ]
           },
@@ -64,59 +555,927 @@
           },
           "approval": {
             "required": true,
-            "title": "Run 3D Lungs Segmentation",
-            "message": "Run the Segment Lungs endpoint on your uploaded image?"
+            "message": "Run 3d_lungs_segmentation_segment_lungs_3d_tiff on your uploaded file?"
           },
           "demo": {
             "available": true
           },
-          "metadata": {}
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "Input 3D TIF/TIFF volume",
+                  "parameter_name": "volume_tiff",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "$defs": {
+                      "FileDataMeta": {
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ],
+                        "title": "FileDataMeta",
+                        "type": "object"
+                      }
+                    },
+                    "properties": {
+                      "path": {
+                        "title": "Path",
+                        "type": "string"
+                      },
+                      "url": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Url"
+                      },
+                      "size": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Size"
+                      },
+                      "orig_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Orig Name"
+                      },
+                      "mime_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Mime Type"
+                      },
+                      "is_stream": {
+                        "default": false,
+                        "title": "Is Stream",
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "$ref": "#/$defs/FileDataMeta"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "object",
+                    "additional_description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "python_type": {
+                    "type": "filepath",
+                    "description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "component": "File",
+                  "example_input": {
+                    "path": "https://github.com/gradio-app/gradio/raw/main/test/test_files/sample_file.pdf",
+                    "meta": {
+                      "_type": "gradio.FileData"
+                    },
+                    "orig_name": "sample_file.pdf",
+                    "url": "https://github.com/gradio-app/gradio/raw/main/test/test_files/sample_file.pdf"
+                  }
+                }
+              ],
+              "returns": [
+                {
+                  "label": "Zlib-compressed uint8 lung mask TIFF",
+                  "type": {
+                    "$defs": {
+                      "FileDataMeta": {
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ],
+                        "title": "FileDataMeta",
+                        "type": "object"
+                      }
+                    },
+                    "properties": {
+                      "path": {
+                        "title": "Path",
+                        "type": "string"
+                      },
+                      "url": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Url"
+                      },
+                      "size": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Size"
+                      },
+                      "orig_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Orig Name"
+                      },
+                      "mime_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Mime Type"
+                      },
+                      "is_stream": {
+                        "default": false,
+                        "title": "Is Stream",
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "$ref": "#/$defs/FileDataMeta"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "object",
+                    "additional_description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "python_type": {
+                    "type": "filepath",
+                    "description": ""
+                  },
+                  "component": "File"
+                },
+                {
+                  "label": "Segmentation metadata",
+                  "type": {
+                    "type": {},
+                    "description": "any valid json"
+                  },
+                  "python_type": {
+                    "type": "str | float | bool | list | dict",
+                    "description": "any valid json"
+                  },
+                  "component": "Json"
+                }
+              ],
+              "show_api": true,
+              "description": "Recommended MCP tool for agentic clients. Provide one `.tif` or `.tiff` 3D volume as a Gradio File input. Public `http`/`https` TIFF URLs can be passed directly; local user files should be uploaded with the Gradio `upload_file_to_gradio` helper when the MCP client provides it. The expected array layout is `(Z, Y, X)`. The tool returns a downloadable zlib-compressed uint8 TIFF mask plus JSON metadata. Mask labels are 0 = background and 1 = lung tissue. This tool is intended for research workflows and is not for clinical diagnosis without expert validation."
+            },
+            "mcp_tool": {
+              "name": "3d_lungs_segmentation_segment_lungs_3d_tiff",
+              "description": "Recommended MCP tool for agentic clients. Provide one `.tif` or `.tiff` 3D volume as a Gradio File input. Public `http`/`https` TIFF URLs can be passed directly; local user files should be uploaded with the Gradio `upload_file_to_gradio` helper when the MCP client provides it. The expected array layout is `(Z, Y, X)`. The tool returns a downloadable zlib-compressed uint8 TIFF mask plus JSON metadata. Mask labels are 0 = background and 1 = lung tissue. This tool is intended for research workflows and is not for clinical diagnosis without expert validation. If a user passes a file as an input, use the upload_file_to_gradio tool, if present, to upload the file to the gradio app and create a Gradio File Input. Then use the returned path as the input to the tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "volume_tiff": {
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "string",
+                    "description": "Uploaded `.tif` or `.tiff` 3D volume provided by a Gradio File",
+                    "format": "Gradio File Input - a http or https url to a file"
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": true,
+                "mcp_type": "tool",
+                "endpoint_name": "segment_lungs_3d_tiff"
+              }
+            }
+          }
+        },
+        {
+          "id": "segment",
+          "display_name": "3d_lungs_segmentation_segment",
+          "description": "Legacy endpoint. Prefer `/segment_lungs_3d_tiff` for MCP clients because it returns both the downloadable mask and structured metadata. Upload a `.tif` or `.tiff` 3D volume with layout `(Z, Y, X)`. Returns a downloadable zlib-compressed uint8 TIFF mask where 1 is lung tissue and 0 is background.",
+          "api_name": "/segment",
+          "enabled": true,
+          "catalog_aliases": [
+            "3d_lungs_segmentation_segment",
+            "segment"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_obj",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": true,
+                "metadata": {
+                  "description": "FileData",
+                  "type": "string",
+                  "format": "Gradio File Input - a http or https url to a file"
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "approval": {
+            "required": true,
+            "message": "Run 3d_lungs_segmentation_segment on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "Input 3D TIF/TIFF volume",
+                  "parameter_name": "file_obj",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "$defs": {
+                      "FileDataMeta": {
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ],
+                        "title": "FileDataMeta",
+                        "type": "object"
+                      }
+                    },
+                    "properties": {
+                      "path": {
+                        "title": "Path",
+                        "type": "string"
+                      },
+                      "url": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Url"
+                      },
+                      "size": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Size"
+                      },
+                      "orig_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Orig Name"
+                      },
+                      "mime_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Mime Type"
+                      },
+                      "is_stream": {
+                        "default": false,
+                        "title": "Is Stream",
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "$ref": "#/$defs/FileDataMeta"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "object",
+                    "additional_description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "python_type": {
+                    "type": "filepath",
+                    "description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "component": "File",
+                  "example_input": {
+                    "path": "https://github.com/gradio-app/gradio/raw/main/test/test_files/sample_file.pdf",
+                    "meta": {
+                      "_type": "gradio.FileData"
+                    },
+                    "orig_name": "sample_file.pdf",
+                    "url": "https://github.com/gradio-app/gradio/raw/main/test/test_files/sample_file.pdf"
+                  }
+                }
+              ],
+              "returns": [
+                {
+                  "label": "Compressed lung mask TIF",
+                  "type": {
+                    "$defs": {
+                      "FileDataMeta": {
+                        "properties": {
+                          "_type": {
+                            "const": "gradio.FileData",
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "_type"
+                        ],
+                        "title": "FileDataMeta",
+                        "type": "object"
+                      }
+                    },
+                    "properties": {
+                      "path": {
+                        "title": "Path",
+                        "type": "string"
+                      },
+                      "url": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Url"
+                      },
+                      "size": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Size"
+                      },
+                      "orig_name": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Orig Name"
+                      },
+                      "mime_type": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "Mime Type"
+                      },
+                      "is_stream": {
+                        "default": false,
+                        "title": "Is Stream",
+                        "type": "boolean"
+                      },
+                      "meta": {
+                        "$ref": "#/$defs/FileDataMeta"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "object",
+                    "additional_description": "The FileData class is a subclass of the GradioModel class that represents a file object within a Gradio interface. It is used to store file data and metadata when a file is uploaded.\n\nAttributes:\n    path: The server file path where the file is stored.\n    url: The normalized server URL pointing to the file.\n    size: The size of the file in bytes.\n    orig_name: The original filename before upload.\n    mime_type: The MIME type of the file.\n    is_stream: Indicates whether the file is a stream.\n    meta: Additional metadata used internally (should not be changed)."
+                  },
+                  "python_type": {
+                    "type": "filepath",
+                    "description": ""
+                  },
+                  "component": "File"
+                }
+              ],
+              "show_api": true,
+              "description": "Legacy endpoint. Prefer `/segment_lungs_3d_tiff` for MCP clients because it returns both the downloadable mask and structured metadata. Upload a `.tif` or `.tiff` 3D volume with layout `(Z, Y, X)`. Returns a downloadable zlib-compressed uint8 TIFF mask where 1 is lung tissue and 0 is background."
+            },
+            "mcp_tool": {
+              "name": "3d_lungs_segmentation_segment",
+              "description": "Legacy endpoint. Prefer `/segment_lungs_3d_tiff` for MCP clients because it returns both the downloadable mask and structured metadata. Upload a `.tif` or `.tiff` 3D volume with layout `(Z, Y, X)`. Returns a downloadable zlib-compressed uint8 TIFF mask where 1 is lung tissue and 0 is background. If a user passes a file as an input, use the upload_file_to_gradio tool, if present, to upload the file to the gradio app and create a Gradio File Input. Then use the returned path as the input to the tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_obj": {
+                    "required": [
+                      "path"
+                    ],
+                    "title": "FileData",
+                    "type": "string",
+                    "description": "",
+                    "format": "Gradio File Input - a http or https url to a file"
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": true,
+                "mcp_type": "tool",
+                "endpoint_name": "segment"
+              }
+            }
+          }
         }
       ]
     },
     {
-      "id": "pystackreg",
-      "display_name": "PyStackReg",
-      "description": "Register microscopy or image stacks with PyStackReg through a Gradio Space.",
-      "icon": "P",
+      "id": "qchapp_pystackreg_app",
+      "display_name": "Pystackreg App",
+      "description": "Align every frame in a TIFF stack to a chosen reference frame. Each frame in stack_file is registered to the selected reference frame using the chosen transformation model. The reference frame can come from the same stack or from a separate external TIFF stack.",
+      "icon": "T",
       "enabled": true,
       "gradio_url": "https://qchapp-pystackreg-app.hf.space/",
       "auth": {
-        "token_envs": [
-          "HF_TOKEN",
-          "HUGGINGFACE_TOKEN"
-        ],
+        "token_envs": [],
         "required": false
       },
       "catalog_aliases": [
-        "pystackreg",
-        "py-stack-reg",
-        "stackreg"
+        "pystackreg app",
+        "qchapp_pystackreg_app"
       ],
-      "default_endpoint": "intra_stack_align",
+      "default_endpoint": "align_stack_to_reference",
       "timeout_seconds": 300.0,
       "max_download_bytes": 1073741824,
-      "notes": "PyStackReg endpoints return registered stacks as downloadable files.",
-      "metadata": {},
+      "metadata": {
+        "source": "hf_space_link",
+        "info": {
+          "named_endpoints": {
+            "/align_stack_to_reference": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "stack_file",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "reference_index",
+                  "parameter_has_default": true,
+                  "parameter_default": 0,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 0
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "mode",
+                  "parameter_has_default": true,
+                  "parameter_default": "RIGID_BODY",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "RIGID_BODY"
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "external_reference_file",
+                  "parameter_has_default": true,
+                  "parameter_default": null,
+                  "type": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "python_type": {
+                    "type": "None | str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "5th",
+                  "parameter_name": "external_reference_index",
+                  "parameter_has_default": true,
+                  "parameter_default": 0,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Align every frame in a TIFF stack to a chosen reference frame. Each frame in stack_file is registered to the selected reference frame using the chosen transformation model. The reference frame can come from the same stack or from a separate external TIFF stack."
+            },
+            "/align_stack_to_stack": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "reference_stack_file",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "moving_stack_file",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "mode",
+                  "parameter_has_default": true,
+                  "parameter_default": "RIGID_BODY",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "RIGID_BODY"
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Align every frame in a moving TIFF stack to the first frame of a reference stack."
+            },
+            "/align_frame_to_frame": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "stack_file",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "reference_index",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "moving_index",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "mode",
+                  "parameter_has_default": true,
+                  "parameter_default": "RIGID_BODY",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "RIGID_BODY"
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Align a single moving frame to a reference frame within the same TIFF stack."
+            }
+          },
+          "unnamed_endpoints": {}
+        },
+        "mcp_schema": [
+          {
+            "name": "pystackreg_app__mcp_align_stack_to_reference",
+            "description": "Align every frame in a TIFF stack to a chosen reference frame. Each frame in stack_file is registered to the selected reference frame using the chosen transformation model. The reference frame can come from the same stack or from a separate external TIFF stack. Returns: The aligned output TIFF file.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "stack_file": {
+                  "type": "string",
+                  "description": "Path or HTTP/HTTPS URL to the input TIFF stack."
+                },
+                "reference_index": {
+                  "type": "integer",
+                  "description": "Zero-based index of the reference frame inside"
+                },
+                "mode": {
+                  "type": "string",
+                  "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                  "default": "RIGID_BODY"
+                },
+                "external_reference_file": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Optional path or URL to an external TIFF"
+                },
+                "external_reference_index": {
+                  "type": "integer",
+                  "description": "Zero-based index of the reference frame"
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "align_stack_to_reference"
+            }
+          },
+          {
+            "name": "pystackreg_app__mcp_align_stack_to_stack",
+            "description": "Align every frame in a moving TIFF stack to the first frame of a reference stack. Returns: The aligned output TIFF file.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "reference_stack_file": {
+                  "type": "string",
+                  "description": "Path or HTTP/HTTPS URL to the reference TIFF"
+                },
+                "moving_stack_file": {
+                  "type": "string",
+                  "description": "Path or HTTP/HTTPS URL to the moving TIFF stack"
+                },
+                "mode": {
+                  "type": "string",
+                  "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                  "default": "RIGID_BODY"
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "align_stack_to_stack"
+            }
+          },
+          {
+            "name": "pystackreg_app__mcp_align_frame_to_frame",
+            "description": "Align a single moving frame to a reference frame within the same TIFF stack. Returns: The aligned single-frame output TIFF file.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "stack_file": {
+                  "type": "string",
+                  "description": "Path or HTTP/HTTPS URL to the TIFF stack containing both"
+                },
+                "reference_index": {
+                  "type": "integer",
+                  "description": "Zero-based index of the reference frame."
+                },
+                "moving_index": {
+                  "type": "integer",
+                  "description": "Zero-based index of the frame to align."
+                },
+                "mode": {
+                  "type": "string",
+                  "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                  "default": "RIGID_BODY"
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "align_frame_to_frame"
+            }
+          }
+        ]
+      },
       "endpoints": [
         {
-          "id": "intra_stack_align",
-          "display_name": "Intra-stack Align",
-          "description": "Align frames within one uploaded stack, optionally using an external reference stack.",
+          "id": "align_stack_to_reference",
+          "display_name": "pystackreg_app__mcp_align_stack_to_reference",
+          "description": "Align every frame in a TIFF stack to a chosen reference frame. Each frame in stack_file is registered to the selected reference frame using the chosen transformation model. The reference frame can come from the same stack or from a separate external TIFF stack.",
           "api_name": "/intra_stack_align",
           "enabled": true,
           "catalog_aliases": [
-            "pystackreg-intra-stack",
-            "intra-stack-registration",
-            "same-stack-registration",
-            "stack-drift-correction",
-            "stabilize-stack"
+            "pystackreg_app__mcp_align_stack_to_reference",
+            "align_stack_to_reference"
           ],
           "supported_input_types": [
             "image",
-            "file",
-            "stack",
-            "tiff"
+            "file"
           ],
           "input_mapping": {
             "call_style": "positional",
@@ -124,37 +1483,80 @@
               {
                 "name": "stack_file",
                 "source": "session_file",
+                "required": true,
                 "file_index": 0,
-                "required": true,
-                "as_gradio_file": true
+                "as_gradio_file": true,
+                "metadata": {
+                  "description": "Path or HTTP/HTTPS URL to the input TIFF stack.",
+                  "type": "string",
+                  "format": null,
+                  "choices": []
+                }
               },
               {
-                "name": "reference_frame",
-                "source": "literal",
-                "value": 0,
-                "required": true,
-                "as_gradio_file": false
-              },
-              {
-                "name": "external_reference_stack",
-                "source": "session_file",
-                "file_index": 1,
+                "name": "reference_index",
+                "source": "param",
                 "required": false,
-                "as_gradio_file": true
+                "param": "reference_index",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Zero-based index of the reference frame inside",
+                  "type": "integer",
+                  "format": null,
+                  "choices": []
+                },
+                "value": 0
               },
               {
-                "name": "external_reference_frame",
-                "source": "literal",
-                "value": 0,
-                "required": true,
-                "as_gradio_file": false
+                "name": "external_reference_file",
+                "source": "param",
+                "required": false,
+                "param": "external_reference_file",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Optional path or URL to an external TIFF",
+                  "type": null,
+                  "format": null,
+                  "choices": []
+                }
               },
               {
-                "name": "transformation_mode",
-                "source": "literal",
-                "value": "RIGID_BODY",
-                "required": true,
-                "as_gradio_file": false
+                "name": "external_reference_index",
+                "source": "param",
+                "required": false,
+                "param": "external_reference_index",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Zero-based index of the reference frame",
+                  "type": "integer",
+                  "format": null,
+                  "choices": []
+                },
+                "value": 0
+              },
+              {
+                "name": "mode",
+                "source": "param",
+                "required": false,
+                "param": "mode",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                  "type": "string",
+                  "format": null,
+                  "choices": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ]
+                },
+                "value": "RIGID_BODY"
               }
             ]
           },
@@ -172,55 +1574,228 @@
           },
           "approval": {
             "required": true,
-            "title": "Run PyStackReg Intra-stack Align",
-            "message": "Run PyStackReg intra-stack alignment on your uploaded stack?"
+            "message": "Run pystackreg_app__mcp_align_stack_to_reference on your uploaded file?"
           },
           "demo": {
             "available": true
           },
-          "metadata": {}
+          "metadata": {
+            "preflight_calls": [
+              {
+                "api_name": "/lambda_3",
+                "arg_indexes": [
+                  0
+                ]
+              }
+            ],
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "stack_file",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "reference_index",
+                  "parameter_has_default": true,
+                  "parameter_default": 0,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 0
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "mode",
+                  "parameter_has_default": true,
+                  "parameter_default": "RIGID_BODY",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "RIGID_BODY"
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "external_reference_file",
+                  "parameter_has_default": true,
+                  "parameter_default": null,
+                  "type": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "python_type": {
+                    "type": "None | str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "5th",
+                  "parameter_name": "external_reference_index",
+                  "parameter_has_default": true,
+                  "parameter_default": 0,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Align every frame in a TIFF stack to a chosen reference frame. Each frame in stack_file is registered to the selected reference frame using the chosen transformation model. The reference frame can come from the same stack or from a separate external TIFF stack."
+            },
+            "mcp_tool": {
+              "name": "pystackreg_app__mcp_align_stack_to_reference",
+              "description": "Align every frame in a TIFF stack to a chosen reference frame. Each frame in stack_file is registered to the selected reference frame using the chosen transformation model. The reference frame can come from the same stack or from a separate external TIFF stack. Returns: The aligned output TIFF file.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "stack_file": {
+                    "type": "string",
+                    "description": "Path or HTTP/HTTPS URL to the input TIFF stack."
+                  },
+                  "reference_index": {
+                    "type": "integer",
+                    "description": "Zero-based index of the reference frame inside"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                    "default": "RIGID_BODY"
+                  },
+                  "external_reference_file": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "description": "Optional path or URL to an external TIFF"
+                  },
+                  "external_reference_index": {
+                    "type": "integer",
+                    "description": "Zero-based index of the reference frame"
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "align_stack_to_reference"
+              }
+            }
+          }
         },
         {
-          "id": "reference_align",
-          "display_name": "Reference Align",
-          "description": "Register a moving stack to a separate reference stack.",
+          "id": "align_stack_to_stack",
+          "display_name": "pystackreg_app__mcp_align_stack_to_stack",
+          "description": "Align every frame in a moving TIFF stack to the first frame of a reference stack.",
           "api_name": "/reference_align",
           "enabled": true,
           "catalog_aliases": [
-            "pystackreg-reference-align",
-            "reference-based-registration",
-            "register-moving-stack-to-reference",
-            "align-to-reference-stack"
+            "pystackreg_app__mcp_align_stack_to_stack",
+            "align_stack_to_stack"
           ],
           "supported_input_types": [
             "image",
-            "file",
-            "stack",
-            "tiff"
+            "file"
           ],
           "input_mapping": {
             "call_style": "positional",
             "parameters": [
               {
-                "name": "reference_stack",
+                "name": "reference_stack_file",
                 "source": "session_file",
+                "required": true,
                 "file_index": 0,
-                "required": true,
-                "as_gradio_file": true
+                "as_gradio_file": true,
+                "metadata": {
+                  "description": "Path or HTTP/HTTPS URL to the reference TIFF",
+                  "type": "string",
+                  "format": null,
+                  "choices": []
+                }
               },
               {
-                "name": "moving_stack",
+                "name": "moving_stack_file",
                 "source": "session_file",
-                "file_index": 1,
                 "required": true,
-                "as_gradio_file": true
+                "file_index": 1,
+                "as_gradio_file": true,
+                "metadata": {
+                  "description": "Path or HTTP/HTTPS URL to the moving TIFF stack",
+                  "type": "string",
+                  "format": null,
+                  "choices": []
+                }
               },
               {
-                "name": "transformation_mode",
-                "source": "literal",
-                "value": "RIGID_BODY",
-                "required": true,
-                "as_gradio_file": false
+                "name": "mode",
+                "source": "param",
+                "required": false,
+                "param": "mode",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                  "type": "string",
+                  "format": null,
+                  "choices": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ]
+                },
+                "value": "RIGID_BODY"
               }
             ]
           },
@@ -238,31 +1813,118 @@
           },
           "approval": {
             "required": true,
-            "title": "Run PyStackReg Reference Align",
-            "message": "Run PyStackReg reference-based alignment with your uploaded stacks?"
+            "message": "Run pystackreg_app__mcp_align_stack_to_stack on your uploaded file?"
           },
           "demo": {
             "available": true
           },
-          "metadata": {}
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "reference_stack_file",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "moving_stack_file",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "mode",
+                  "parameter_has_default": true,
+                  "parameter_default": "RIGID_BODY",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "RIGID_BODY"
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Align every frame in a moving TIFF stack to the first frame of a reference stack."
+            },
+            "mcp_tool": {
+              "name": "pystackreg_app__mcp_align_stack_to_stack",
+              "description": "Align every frame in a moving TIFF stack to the first frame of a reference stack. Returns: The aligned output TIFF file.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "reference_stack_file": {
+                    "type": "string",
+                    "description": "Path or HTTP/HTTPS URL to the reference TIFF"
+                  },
+                  "moving_stack_file": {
+                    "type": "string",
+                    "description": "Path or HTTP/HTTPS URL to the moving TIFF stack"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                    "default": "RIGID_BODY"
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "align_stack_to_stack"
+              }
+            }
+          }
         },
         {
-          "id": "frame_to_frame_align",
-          "display_name": "Frame-to-frame Align",
-          "description": "Register one frame in a stack to another frame from the same uploaded stack.",
+          "id": "align_frame_to_frame",
+          "display_name": "pystackreg_app__mcp_align_frame_to_frame",
+          "description": "Align a single moving frame to a reference frame within the same TIFF stack.",
           "api_name": "/frame_to_frame_align",
           "enabled": true,
           "catalog_aliases": [
-            "pystackreg-frame-to-frame",
-            "frame-to-frame-registration",
-            "register-frame-to-frame",
-            "align-two-frames"
+            "pystackreg_app__mcp_align_frame_to_frame",
+            "align_frame_to_frame"
           ],
           "supported_input_types": [
             "image",
-            "file",
-            "stack",
-            "tiff"
+            "file"
           ],
           "input_mapping": {
             "call_style": "positional",
@@ -270,30 +1932,66 @@
               {
                 "name": "stack_file",
                 "source": "session_file",
+                "required": true,
                 "file_index": 0,
-                "required": true,
-                "as_gradio_file": true
+                "as_gradio_file": true,
+                "metadata": {
+                  "description": "Path or HTTP/HTTPS URL to the TIFF stack containing both",
+                  "type": "string",
+                  "format": null,
+                  "choices": []
+                }
               },
               {
-                "name": "reference_frame",
-                "source": "literal",
-                "value": 0,
-                "required": true,
-                "as_gradio_file": false
+                "name": "reference_index",
+                "source": "param",
+                "required": false,
+                "param": "reference_index",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Zero-based index of the reference frame.",
+                  "type": "integer",
+                  "format": null,
+                  "choices": []
+                },
+                "value": 0
               },
               {
-                "name": "moving_frame",
-                "source": "literal",
-                "value": 1,
-                "required": true,
-                "as_gradio_file": false
+                "name": "moving_index",
+                "source": "param",
+                "required": false,
+                "param": "moving_index",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Zero-based index of the frame to align.",
+                  "type": "integer",
+                  "format": null,
+                  "choices": []
+                },
+                "value": 0
               },
               {
-                "name": "transformation_mode",
-                "source": "literal",
-                "value": "RIGID_BODY",
-                "required": true,
-                "as_gradio_file": false
+                "name": "mode",
+                "source": "param",
+                "required": false,
+                "param": "mode",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                  "type": "string",
+                  "format": null,
+                  "choices": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ]
+                },
+                "value": "RIGID_BODY"
               }
             ]
           },
@@ -304,20 +2002,138 @@
               "build_preview": false
             },
             "preview": {
-              "selector": "0",
+              "selector": "first",
               "materialize": true,
               "build_preview": false
             }
           },
           "approval": {
             "required": true,
-            "title": "Run PyStackReg Frame-to-frame Align",
-            "message": "Run PyStackReg frame-to-frame alignment on your uploaded stack?"
+            "message": "Run pystackreg_app__mcp_align_frame_to_frame on your uploaded file?"
           },
           "demo": {
             "available": true
           },
-          "metadata": {}
+          "metadata": {
+            "preflight_calls": [
+              {
+                "api_name": "/lambda_10",
+                "arg_indexes": [
+                  0
+                ]
+              }
+            ],
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "stack_file",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "reference_index",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "moving_index",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "mode",
+                  "parameter_has_default": true,
+                  "parameter_default": "RIGID_BODY",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "RIGID_BODY"
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Align a single moving frame to a reference frame within the same TIFF stack."
+            },
+            "mcp_tool": {
+              "name": "pystackreg_app__mcp_align_frame_to_frame",
+              "description": "Align a single moving frame to a reference frame within the same TIFF stack. Returns: The aligned single-frame output TIFF file.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "stack_file": {
+                    "type": "string",
+                    "description": "Path or HTTP/HTTPS URL to the TIFF stack containing both"
+                  },
+                  "reference_index": {
+                    "type": "integer",
+                    "description": "Zero-based index of the reference frame."
+                  },
+                  "moving_index": {
+                    "type": "integer",
+                    "description": "Zero-based index of the frame to align."
+                  },
+                  "mode": {
+                    "type": "string",
+                    "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
+                    "default": "RIGID_BODY"
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "align_frame_to_frame"
+              }
+            }
+          }
         }
       ]
     }

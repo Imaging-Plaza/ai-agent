@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Type
+from urllib.parse import urlparse, urlunparse
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError, field_validator, model_validator
 
@@ -71,6 +72,7 @@ class InputParameter(BaseModel):
     param: Optional[str] = None
     file_index: int = 0
     as_gradio_file: bool = True
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name")
     @classmethod
@@ -456,6 +458,21 @@ def resolve_catalog_alias(alias: str) -> Optional[ToolConfig]:
     return get_tool(alias)
 
 
+def resolve_runnable_url(url: str) -> Optional[ToolConfig]:
+    """Resolve a catalog runnableExample URL to a configured Gradio tool."""
+    needle = _normalize_runnable_url(url)
+    if not needle:
+        return None
+    initialize_registry()
+    with _LOCK:
+        for name, config in TOOL_REGISTRY.items():
+            if ":" in name or not config.gradio_url:
+                continue
+            if _normalize_runnable_url(config.gradio_url) == needle:
+                return config
+    return None
+
+
 def alias_is_tool_level(alias: str, tool: ToolConfig) -> bool:
     if not tool.gradio:
         return False
@@ -612,6 +629,35 @@ def _record_alias(seen: Dict[str, tuple[str, str, str]], alias: str, tool_id: st
 
 def _normalize_alias(value: str) -> str:
     return (value or "").strip().casefold()
+
+
+def _normalize_runnable_url(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = f"https://{raw}"
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        return raw.rstrip("/").casefold()
+    scheme = (parsed.scheme or "https").casefold()
+    host = (parsed.netloc or "").casefold()
+    path_parts = [p for p in parsed.path.split("/") if p]
+
+    if host == "huggingface.co":
+        if len(path_parts) >= 3 and path_parts[0] == "spaces":
+            host = f"{path_parts[1]}-{path_parts[2]}".casefold() + ".hf.space"
+            return f"https://{host}"
+        if len(path_parts) >= 2:
+            host = f"{path_parts[0]}-{path_parts[1]}".casefold() + ".hf.space"
+            return f"https://{host}"
+
+    if host.endswith(".hf.space"):
+        return f"https://{host}"
+
+    path = (parsed.path or "").rstrip("/")
+    return urlunparse((scheme, host, path, "", "", "")).casefold()
 
 
 def _registry_key(tool_id: str, endpoint_id: str) -> str:
