@@ -47,8 +47,13 @@ def login(body: LoginRequest, response: Response) -> LoginResponse:
             key=AUTH_COOKIE_NAME,
             value=make_cookie_value(expected_pw),
             httponly=True,
-            samesite="lax",
-            secure=False,  # tunnel terminates TLS; cookie travels over plain HTTP internally
+            # HF Spaces render the app inside a cross-site iframe on
+            # huggingface.co, so the auth cookie must be SameSite=None to be
+            # sent with /api/* requests; that in turn requires Secure=True.
+            # The browser always sees HTTPS (HF proxy / Cloudflare tunnel both
+            # terminate TLS), so Secure works for every deployment.
+            samesite="none",
+            secure=True,
             max_age=60 * 60 * 24 * 7,
             path="/",
         )
