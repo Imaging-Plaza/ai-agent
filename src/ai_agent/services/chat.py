@@ -495,6 +495,8 @@ def _shape_agent_result(
             enriched["demo_link"] = demo_link
         if doc_runnable_links:
             enriched["demo_links"] = doc_runnable_links
+        if doc is not None:
+            enriched["catalog_context"] = _catalog_context_for_import(doc)
         enriched_choices.append(enriched)
         recommendations.append(
             Recommendation(
@@ -585,6 +587,33 @@ def _runnable_links_for_doc(doc: Optional[SoftwareDoc]) -> List[str]:
     return links
 
 
+def _catalog_context_for_import(doc: SoftwareDoc) -> Dict[str, Any]:
+    payload = doc.model_dump(mode="python", exclude_none=True)
+    return {
+        key: value
+        for key, value in payload.items()
+        if key
+        in {
+            "name",
+            "url",
+            "repo_url",
+            "description",
+            "documentation",
+            "category",
+            "tasks",
+            "modality",
+            "keywords",
+            "dims",
+            "anatomy",
+            "software_requirements",
+            "plugin_of",
+            "runnable_example",
+            "has_executable_notebook",
+        }
+        and value not in (None, "", [], {})
+    }
+
+
 def _clear_pending(session: Session) -> None:
     session.pending_demo_tool = None
     session.pending_demo_url = None
@@ -603,7 +632,10 @@ def _select_workflow_pending_action(
     request_text: str,
     effective_paths: List[str],
 ) -> Optional[PendingAction]:
-    plan = maybe_plan_workflow(request_text, effective_paths)
+    input_paths = list(effective_paths) or session.last_asset_paths()
+    if not input_paths:
+        return None
+    plan = maybe_plan_workflow(request_text, input_paths)
     if plan is None:
         return None
     session.pending_tool_approval = None
@@ -611,7 +643,7 @@ def _select_workflow_pending_action(
     session.pending_tool_params = {}
     session.pending_workflow_approval = plan.id
     session.pending_workflow_plan = plan.to_dict()
-    first_path = effective_paths[0] if effective_paths else None
+    first_path = input_paths[0]
     steps = [
         WorkflowStepPreview(
             id=step.id,
@@ -654,7 +686,11 @@ def _select_pending_action(
             if isinstance(link, str) and link.strip()
         ]
         if not tool_config:
-            tool_config, matched_link = _resolve_or_import_runnable_tool(runnable_links)
+            catalog_context = choice.get("catalog_context")
+            tool_config, matched_link = _resolve_or_import_runnable_tool(
+                runnable_links,
+                catalog_context=catalog_context if isinstance(catalog_context, dict) else None,
+            )
             if tool_config and matched_link:
                 matched_alias = matched_link
             endpoint_selection_alias = tool_config.name if tool_config else alias
@@ -718,6 +754,7 @@ def _select_pending_action(
 
 def _resolve_or_import_runnable_tool(
     runnable_links: List[str],
+    catalog_context: Optional[Dict[str, Any]] = None,
 ) -> tuple[Optional[Any], Optional[str]]:
     for link in runnable_links:
         tool_config = resolve_runnable_url(link)
@@ -731,7 +768,7 @@ def _resolve_or_import_runnable_tool(
         except RegistryValidationError:
             continue
         try:
-            _import_gradio_space_link(link)
+            _import_gradio_space_link(link, catalog_context=catalog_context)
         except RegistryValidationError as exc:
             log.info("Could not auto-import catalog runnable Space %s: %s", link, exc)
             continue
@@ -744,9 +781,12 @@ def _resolve_or_import_runnable_tool(
     return None, None
 
 
-def _import_gradio_space_link(link: str) -> None:
+def _import_gradio_space_link(
+    link: str,
+    catalog_context: Optional[Dict[str, Any]] = None,
+) -> None:
     base_url, _, _ = normalize_space_url(link)
-    tool = build_tool_config_from_space_url(link)
+    tool = build_tool_config_from_space_url(link, catalog_context=catalog_context)
     config = active_config_json()
     existing_tools = list(config.get("tools") or [])
     for item in existing_tools:
@@ -1097,6 +1137,8 @@ def _execute_pending_workflow(
         return ChatTurnResult(status="error", text=text, error="no_pending_workflow")
 
     plan = PlannedWorkflow.from_dict(session.pending_workflow_plan)
+    if not plan.input_paths:
+        plan.input_paths = session.last_asset_paths()
     _apply_workflow_params(plan, params or {})
     result = execute_workflow(session, plan)
     _clear_pending(session)

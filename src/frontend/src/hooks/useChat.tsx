@@ -371,9 +371,9 @@ export function useChat() {
     setBusy(false);
   }, []);
 
-  const reset = useCallback((seedTurns: Turn[] = []) => {
+  const reset = useCallback((seedTurns: Turn[] = [], seedSessionId: string | null = null) => {
     setTurns(seedTurns);
-    setSessionId(null);
+    setSessionId(seedSessionId);
     setBusy(false);
     abortRef.current?.abort();
     abortRef.current = null;

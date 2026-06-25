@@ -494,6 +494,77 @@ def test_build_tool_config_from_space_url_fetches_info_and_mcp_schema(monkeypatc
     ]
 
 
+def test_build_tool_config_from_space_url_uses_catalog_context_for_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def __init__(self, payload: dict) -> None:
+            self.payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return self.payload
+
+    info = {
+        "title": "Generic Runner",
+        "named_endpoints": {
+            "/run": {
+                "parameters": [
+                    {"parameter_name": "file", "component": "File"},
+                ],
+                "returns": [{"component": "File"}],
+            }
+        },
+    }
+    schema = {
+        "tools": [
+            {
+                "name": "run",
+                "description": "Run the app",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["file"],
+                    "properties": {"file": {"type": "string"}},
+                },
+            }
+        ]
+    }
+    catalog_context = {
+        "name": "Stack registration",
+        "description": "Align a TIFF image stack to a reference frame and output a registered volume.",
+        "tasks": ["registration", "drift correction"],
+        "keywords": ["format:tif", "3D"],
+        "dims": [3],
+    }
+
+    def fake_get(url: str, timeout: float):
+        if url.endswith("/gradio_api/info"):
+            return FakeResponse(info)
+        if url.endswith("/gradio_api/mcp/schema"):
+            return FakeResponse(schema)
+        raise AssertionError(url)
+
+    monkeypatch.setattr("ai_agent.agent.tools.mcp.gradio_importer.requests.get", fake_get)
+
+    tool = build_tool_config_from_space_url(
+        "example-stackreg.hf.space",
+        catalog_context=catalog_context,
+    )
+
+    endpoint = tool["endpoints"][0]
+    assert endpoint["contracts"]["inputs"][0]["artifact_type"] == "image.volume.3d"
+    assert endpoint["contracts"]["inputs"][0]["formats"] == ["tif", "tiff"]
+    assert endpoint["contracts"]["outputs"][0]["name"] == "aligned_image"
+    assert endpoint["contracts"]["outputs"][0]["semantic_roles"] == [
+        "align",
+        "aligned",
+        "registered",
+    ]
+    assert tool["metadata"]["catalog_context"]["description"].startswith("Align a TIFF")
+
+
 def test_build_tool_config_from_space_url_accepts_top_level_mcp_tool_list(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeResponse:
         def __init__(self, payload: dict | list) -> None:

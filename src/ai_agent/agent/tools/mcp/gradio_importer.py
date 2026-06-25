@@ -12,12 +12,16 @@ _HF_SPACE_HOST_RE = re.compile(r"^(?P<slug>[a-z0-9][a-z0-9-]*)\.hf\.space$", re.
 _SAFE_ID_RE = re.compile(r"[^a-z0-9]+")
 
 
-def build_tool_config_from_space_url(space_url: str, timeout: float = 30.0) -> Dict[str, Any]:
+def build_tool_config_from_space_url(
+    space_url: str,
+    timeout: float = 30.0,
+    catalog_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Fetch Gradio metadata and convert it into one registry tool entry."""
     base_url, tool_id, display_name = normalize_space_url(space_url)
     info = _fetch_json(f"{base_url}/gradio_api/info", timeout)
     mcp_schema = _fetch_json(f"{base_url}/gradio_api/mcp/schema", timeout)
-    tool = _build_tool(base_url, tool_id, display_name, info, mcp_schema)
+    tool = _build_tool(base_url, tool_id, display_name, info, mcp_schema, catalog_context or {})
 
     # Validate the single generated entry before returning it to the API layer.
     validate_config_payload({"version": 1, "tools": [tool]})
@@ -70,8 +74,9 @@ def _build_tool(
     display_name: str,
     info: Dict[str, Any],
     mcp_schema: Any,
+    catalog_context: Dict[str, Any],
 ) -> Dict[str, Any]:
-    endpoints = _build_endpoints(info, mcp_schema)
+    endpoints = _build_endpoints(info, mcp_schema, catalog_context)
     if not endpoints:
         raise RegistryValidationError("No callable Gradio endpoints were found for this Space")
     description = _first_text(
@@ -79,6 +84,14 @@ def _build_tool(
         info.get("title"),
         _first_text(*(endpoint.get("description") for endpoint in endpoints)),
     )
+    metadata = {
+        "source": "hf_space_link",
+        "info": _compact_metadata(info),
+        "mcp_schema": _compact_metadata(mcp_schema),
+    }
+    if catalog_context:
+        metadata["catalog_context"] = _compact_metadata(catalog_context)
+
     return {
         "id": tool_id,
         "display_name": _first_text(info.get("title"), display_name) or display_name,
@@ -89,15 +102,15 @@ def _build_tool(
         "catalog_aliases": _space_aliases(display_name, tool_id),
         "default_endpoint": endpoints[0]["id"],
         "endpoints": endpoints,
-        "metadata": {
-            "source": "hf_space_link",
-            "info": _compact_metadata(info),
-            "mcp_schema": _compact_metadata(mcp_schema),
-        },
+        "metadata": metadata,
     }
 
 
-def _build_endpoints(info: Dict[str, Any], mcp_schema: Any) -> List[Dict[str, Any]]:
+def _build_endpoints(
+    info: Dict[str, Any],
+    mcp_schema: Any,
+    catalog_context: Dict[str, Any],
+) -> List[Dict[str, Any]]:
     info_endpoints = _info_endpoints(info)
     schema_tools = _schema_tools(mcp_schema)
     if not info_endpoints and schema_tools:
@@ -128,6 +141,7 @@ def _build_endpoints(info: Dict[str, Any], mcp_schema: Any) -> List[Dict[str, An
             meta=meta,
             schema_tool=schema_tool,
             parameters=parameters,
+            catalog_context=catalog_context,
         )
         endpoint: Dict[str, Any] = {
             "id": endpoint_id,
@@ -256,12 +270,21 @@ def _contracts_for_endpoint(
     meta: Dict[str, Any],
     schema_tool: Optional[Dict[str, Any]],
     parameters: List[Dict[str, Any]],
+    catalog_context: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
     file_param = next((param for param in parameters if param.get("source") == "session_file"), None)
     if not file_param:
         return None
 
-    text = _contract_text(endpoint_id, display_name, description, meta, schema_tool, file_param)
+    text = _contract_text(
+        endpoint_id,
+        display_name,
+        description,
+        meta,
+        schema_tool,
+        file_param,
+        catalog_context,
+    )
     input_formats = _infer_formats(text)
     output_formats = _infer_output_formats(text, input_formats)
     input_type = _infer_artifact_type(text, default="image.volume.3d" if _looks_like_stack_text(text) else "file")
@@ -298,6 +321,7 @@ def _contract_text(
     meta: Dict[str, Any],
     schema_tool: Optional[Dict[str, Any]],
     file_param: Dict[str, Any],
+    catalog_context: Dict[str, Any],
 ) -> str:
     parts: List[str] = [
         endpoint_id,
@@ -308,6 +332,7 @@ def _contract_text(
     ]
     if schema_tool:
         parts.extend([str(schema_tool.get("name") or ""), str(schema_tool.get("description") or "")])
+    parts.append(_catalog_context_text(catalog_context))
     returns = meta.get("returns") or meta.get("outputs") or []
     if isinstance(returns, list):
         for item in returns:
@@ -315,6 +340,53 @@ def _contract_text(
                 parts.extend(str(item.get(key) or "") for key in ("label", "description", "component", "python_type"))
                 parts.append(str(item.get("type") or ""))
     return " ".join(parts).casefold()
+
+
+def _catalog_context_text(context: Dict[str, Any]) -> str:
+    if not isinstance(context, dict) or not context:
+        return ""
+
+    interesting_keys = (
+        "name",
+        "description",
+        "documentation",
+        "category",
+        "tasks",
+        "feature",
+        "modality",
+        "keyword",
+        "dims",
+        "dimension",
+        "anatomy",
+        "format",
+        "input",
+        "output",
+        "supporting",
+    )
+    parts: List[str] = []
+
+    def visit(value: Any, *, key: str = "", depth: int = 0) -> None:
+        if depth > 3 or len(parts) > 80:
+            return
+        key_matches = any(token in key.casefold() for token in interesting_keys)
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                child_key_text = str(child_key)
+                if key_matches or any(token in child_key_text.casefold() for token in interesting_keys):
+                    parts.append(child_key_text)
+                    visit(child_value, key=child_key_text, depth=depth + 1)
+            return
+        if isinstance(value, list):
+            for item in value[:20]:
+                visit(item, key=key, depth=depth + 1)
+            return
+        if key_matches and value is not None:
+            text = str(value).strip()
+            if text:
+                parts.append(text)
+
+    visit(context)
+    return " ".join(parts)
 
 
 def _infer_formats(text: str) -> List[str]:

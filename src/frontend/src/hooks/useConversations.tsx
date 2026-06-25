@@ -27,8 +27,8 @@ export type StoredConversation = {
   createdAt: number;
   updatedAt: number;
   turns: Turn[];
-  /** Last known server session id — informational; we always start a fresh
-   * server session on resume because the original is likely TTL'd. */
+  /** Last known server session id. It may still be live after route changes;
+   * if it expired, the backend will create a fresh session on the next turn. */
   serverSessionId: string | null;
 };
 

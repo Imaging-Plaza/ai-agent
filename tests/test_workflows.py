@@ -17,8 +17,8 @@ for p in (ROOT, PKG_ROOT):
 
 from ai_agent.agent.tools.mcp import get_tool, reload_registry, validate_config_payload
 from ai_agent.agent.tools.mcp.registry import GRADIO_TOOLS_CONFIG_ENV, GenericGradioOutput
-from ai_agent.services.chat import approve_pending, _shape_agent_result
-from ai_agent.services.sessions import Session
+from ai_agent.services.chat import approve_pending, _select_workflow_pending_action, _shape_agent_result
+from ai_agent.services.sessions import Asset, Session
 from ai_agent.services.workflow_executor import execute_workflow
 from ai_agent.services.workflow_planner import maybe_plan_workflow
 
@@ -199,6 +199,28 @@ def test_chat_prefers_valid_workflow_over_format_clarification(workflow_registry
     assert result.pending_action.workflow_steps[0].runtime_parameters[0].name == "mode"
 
 
+def test_workflow_pending_action_requires_or_recovers_input_paths(workflow_registry) -> None:
+    session = Session(session_id="session-1")
+
+    assert _select_workflow_pending_action(
+        session,
+        "align this stack then segment the lungs",
+        [],
+    ) is None
+
+    session.assets["asset-source"] = Asset(asset_id="asset-source", path="scan.tif")
+    session.last_asset_ids = ["asset-source"]
+    pending = _select_workflow_pending_action(
+        session,
+        "align this stack then segment the lungs",
+        [],
+    )
+
+    assert pending is not None
+    assert pending.type == "workflow_approval"
+    assert session.pending_workflow_plan["input_paths"] == ["scan.tif"]
+
+
 def test_workflow_executor_passes_artifact_between_steps(
     workflow_registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -298,3 +320,48 @@ def test_approve_pending_executes_workflow(
     assert "Workflow completed" in result.text
     assert seen_params == [{"mode": "TRANSLATION"}]
     assert session.pending_workflow_approval is None
+
+
+def test_approve_pending_workflow_backfills_missing_plan_input_from_session(
+    workflow_registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "scan.tif"
+    aligned = tmp_path / "aligned.tif"
+    mask = tmp_path / "mask.tif"
+    for path in (source, aligned, mask):
+        path.write_bytes(path.stem.encode())
+    plan = maybe_plan_workflow("align this stack then segment the lungs", [str(source)])
+    assert plan is not None
+    plan.input_paths = []
+
+    def fake_ingest(session: Session, paths: list[str]):
+        from ai_agent.services.files import FileIngestResult
+        from ai_agent.services.sessions import Asset
+
+        assets = [Asset(asset_id=f"asset-{Path(path).stem}", path=path) for path in paths]
+        for asset in assets:
+            session.assets[asset.asset_id] = asset
+        return FileIngestResult(assets=assets, validation_errors=[])
+
+    monkeypatch.setattr("ai_agent.services.workflow_executor.ingest_files", fake_ingest)
+    seen_inputs: list[list[str]] = []
+
+    def align_executor(inp):
+        seen_inputs.append(list(inp.image_paths))
+        return GenericGradioOutput(success=True, result_origin=str(aligned))
+
+    get_tool("stack_aligner", "align_stack").executor = align_executor
+    get_tool("lung_segmenter", "segment_lungs").executor = lambda inp: GenericGradioOutput(
+        success=True, result_origin=str(mask)
+    )
+
+    session = Session(session_id="session-1")
+    session.assets["asset-source"] = Asset(asset_id="asset-source", path=str(source))
+    session.last_asset_ids = ["asset-source"]
+    session.pending_workflow_approval = plan.id
+    session.pending_workflow_plan = plan.to_dict()
+
+    result = approve_pending(session)
+
+    assert result.status == "tool_executed"
+    assert seen_inputs == [[str(source)]]

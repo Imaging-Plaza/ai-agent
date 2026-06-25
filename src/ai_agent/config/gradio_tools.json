@@ -565,7 +565,9 @@
                 "semantic_roles": [
                   "raw",
                   "aligned"
-                ]
+                ],
+                "required": true,
+                "metadata": {}
               }
             ],
             "outputs": [
@@ -580,7 +582,9 @@
                   "mask",
                   "segmentation",
                   "lung"
-                ]
+                ],
+                "required": true,
+                "metadata": {}
               }
             ]
           },
@@ -878,6 +882,10 @@
               "materialize": true,
               "build_preview": true
             }
+          },
+          "contracts": {
+            "inputs": [],
+            "outputs": []
           },
           "approval": {
             "required": true,
@@ -1181,10 +1189,16 @@
                   "parameter_has_default": true,
                   "parameter_default": "RIGID_BODY",
                   "type": {
-                    "type": "string"
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "Literal['TRANSLATION', 'RIGID_BODY', 'SCALED_ROTATION', 'AFFINE', 'BILINEAR']",
                     "description": ""
                   },
                   "component": "Api",
@@ -1350,10 +1364,16 @@
                   "parameter_has_default": true,
                   "parameter_default": "RIGID_BODY",
                   "type": {
-                    "type": "string"
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "Literal['TRANSLATION', 'RIGID_BODY', 'SCALED_ROTATION', 'AFFINE', 'BILINEAR']",
                     "description": ""
                   },
                   "component": "Api",
@@ -1497,10 +1517,16 @@
                   "parameter_has_default": true,
                   "parameter_default": "RIGID_BODY",
                   "type": {
-                    "type": "string"
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "Literal['TRANSLATION', 'RIGID_BODY', 'SCALED_ROTATION', 'AFFINE', 'BILINEAR']",
                     "description": ""
                   },
                   "component": "Api",
@@ -1610,7 +1636,13 @@
                   "description": "Zero-based index of the reference frame inside"
                 },
                 "mode": {
-                  "type": "string",
+                  "enum": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ],
                   "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
                   "default": "RIGID_BODY"
                 },
@@ -1652,7 +1684,13 @@
                   "description": "Path or HTTP/HTTPS URL to the moving TIFF stack"
                 },
                 "mode": {
-                  "type": "string",
+                  "enum": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ],
                   "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
                   "default": "RIGID_BODY"
                 }
@@ -1683,7 +1721,13 @@
                   "description": "Zero-based index of the frame to align."
                 },
                 "mode": {
-                  "type": "string",
+                  "enum": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ],
                   "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
                   "default": "RIGID_BODY"
                 }
@@ -1718,7 +1762,7 @@
               {
                 "name": "stack_file",
                 "source": "session_file",
-                "required": false,
+                "required": true,
                 "file_index": 0,
                 "as_gradio_file": false,
                 "metadata": {
@@ -1733,6 +1777,7 @@
                 "name": "reference_index",
                 "source": "param",
                 "required": false,
+                "value": 0,
                 "param": "reference_index",
                 "file_index": 0,
                 "as_gradio_file": false,
@@ -1754,9 +1799,15 @@
                 "as_gradio_file": false,
                 "metadata": {
                   "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
-                  "type": "string",
+                  "type": null,
                   "format": null,
-                  "choices": [],
+                  "choices": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ],
                   "upload_to_gradio_path": false
                 }
               },
@@ -1779,6 +1830,7 @@
                 "name": "external_reference_index",
                 "source": "param",
                 "required": false,
+                "value": 0,
                 "param": "external_reference_index",
                 "file_index": 0,
                 "as_gradio_file": false,
@@ -1815,9 +1867,10 @@
                 ],
                 "semantic_roles": [
                   "raw",
-                  "unaligned",
-                  "drift"
-                ]
+                  "reference"
+                ],
+                "required": true,
+                "metadata": {}
               }
             ],
             "outputs": [
@@ -1829,9 +1882,12 @@
                   "tiff"
                 ],
                 "semantic_roles": [
+                  "align",
                   "aligned",
                   "registered"
-                ]
+                ],
+                "required": true,
+                "metadata": {}
               }
             ]
           },
@@ -1881,10 +1937,16 @@
                   "parameter_has_default": true,
                   "parameter_default": "RIGID_BODY",
                   "type": {
-                    "type": "string"
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "Literal['TRANSLATION', 'RIGID_BODY', 'SCALED_ROTATION', 'AFFINE', 'BILINEAR']",
                     "description": ""
                   },
                   "component": "Api",
@@ -2027,7 +2089,13 @@
                     "description": "Zero-based index of the reference frame inside"
                   },
                   "mode": {
-                    "type": "string",
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ],
                     "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
                     "default": "RIGID_BODY"
                   },
@@ -2076,7 +2144,7 @@
               {
                 "name": "reference_stack_file",
                 "source": "session_file",
-                "required": false,
+                "required": true,
                 "file_index": 0,
                 "as_gradio_file": false,
                 "metadata": {
@@ -2090,7 +2158,7 @@
               {
                 "name": "moving_stack_file",
                 "source": "param",
-                "required": false,
+                "required": true,
                 "param": "moving_stack_file",
                 "file_index": 0,
                 "as_gradio_file": false,
@@ -2112,9 +2180,15 @@
                 "as_gradio_file": false,
                 "metadata": {
                   "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
-                  "type": "string",
+                  "type": null,
                   "format": null,
-                  "choices": [],
+                  "choices": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ],
                   "upload_to_gradio_path": false
                 }
               }
@@ -2131,6 +2205,42 @@
               "materialize": true,
               "build_preview": true
             }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "reference_stack_file",
+                "artifact_type": "image.volume.3d",
+                "formats": [
+                  "tif",
+                  "tiff"
+                ],
+                "semantic_roles": [
+                  "raw",
+                  "moving",
+                  "reference"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "aligned_stack",
+                "artifact_type": "image.volume.3d",
+                "formats": [
+                  "tif",
+                  "tiff"
+                ],
+                "semantic_roles": [
+                  "align",
+                  "aligned",
+                  "registered"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
           },
           "approval": {
             "required": true,
@@ -2178,10 +2288,16 @@
                   "parameter_has_default": true,
                   "parameter_default": "RIGID_BODY",
                   "type": {
-                    "type": "string"
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "Literal['TRANSLATION', 'RIGID_BODY', 'SCALED_ROTATION', 'AFFINE', 'BILINEAR']",
                     "description": ""
                   },
                   "component": "Api",
@@ -2287,7 +2403,13 @@
                     "description": "Path or HTTP/HTTPS URL to the moving TIFF stack"
                   },
                   "mode": {
-                    "type": "string",
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ],
                     "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
                     "default": "RIGID_BODY"
                   }
@@ -2321,7 +2443,7 @@
               {
                 "name": "stack_file",
                 "source": "session_file",
-                "required": false,
+                "required": true,
                 "file_index": 0,
                 "as_gradio_file": false,
                 "metadata": {
@@ -2335,7 +2457,7 @@
               {
                 "name": "reference_index",
                 "source": "param",
-                "required": false,
+                "required": true,
                 "param": "reference_index",
                 "file_index": 0,
                 "as_gradio_file": false,
@@ -2350,7 +2472,7 @@
               {
                 "name": "moving_index",
                 "source": "param",
-                "required": false,
+                "required": true,
                 "param": "moving_index",
                 "file_index": 0,
                 "as_gradio_file": false,
@@ -2372,9 +2494,15 @@
                 "as_gradio_file": false,
                 "metadata": {
                   "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
-                  "type": "string",
+                  "type": null,
                   "format": null,
-                  "choices": [],
+                  "choices": [
+                    "TRANSLATION",
+                    "RIGID_BODY",
+                    "SCALED_ROTATION",
+                    "AFFINE",
+                    "BILINEAR"
+                  ],
                   "upload_to_gradio_path": false
                 }
               }
@@ -2391,6 +2519,42 @@
               "materialize": true,
               "build_preview": true
             }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "stack_file",
+                "artifact_type": "image.volume.3d",
+                "formats": [
+                  "tif",
+                  "tiff"
+                ],
+                "semantic_roles": [
+                  "raw",
+                  "moving",
+                  "reference"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "aligned_image",
+                "artifact_type": "image.volume.3d",
+                "formats": [
+                  "tif",
+                  "tiff"
+                ],
+                "semantic_roles": [
+                  "align",
+                  "aligned",
+                  "registered"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
           },
           "approval": {
             "required": true,
@@ -2453,10 +2617,16 @@
                   "parameter_has_default": true,
                   "parameter_default": "RIGID_BODY",
                   "type": {
-                    "type": "string"
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ]
                   },
                   "python_type": {
-                    "type": "str",
+                    "type": "Literal['TRANSLATION', 'RIGID_BODY', 'SCALED_ROTATION', 'AFFINE', 'BILINEAR']",
                     "description": ""
                   },
                   "component": "Api",
@@ -2566,7 +2736,13 @@
                     "description": "Zero-based index of the frame to align."
                   },
                   "mode": {
-                    "type": "string",
+                    "enum": [
+                      "TRANSLATION",
+                      "RIGID_BODY",
+                      "SCALED_ROTATION",
+                      "AFFINE",
+                      "BILINEAR"
+                    ],
                     "description": "Transformation model. One of: TRANSLATION, RIGID_BODY,",
                     "default": "RIGID_BODY"
                   }

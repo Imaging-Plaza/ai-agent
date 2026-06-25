@@ -88,6 +88,22 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.turns, chat.sessionId]);
 
+  // ChatPage unmounts when navigating to /tools. Restore the active browser
+  // conversation, including its live server session id, when the user comes
+  // back so uploaded assets remain addressable.
+  useEffect(() => {
+    if (!activeConv || chat.turns.length > 0) return;
+    chat.reset(activeConv.turns, activeConv.serverSessionId);
+    pendingHistoryRef.current = activeConv.serverSessionId
+      ? null
+      : turnsToHistory(activeConv.turns);
+    setRestoredWithAttachments(
+      !activeConv.serverSessionId && conversationHadAttachments(activeConv.turns)
+    );
+    setExamplesDismissed(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConv?.id]);
+
   const onNewChat = useCallback(() => {
     chat.reset();
     conv.setActiveId(null);
@@ -98,10 +114,12 @@ export default function ChatPage() {
 
   const onPickConversation = useCallback(
     (c: StoredConversation) => {
-      chat.reset(c.turns);
+      chat.reset(c.turns, c.serverSessionId);
       conv.setActiveId(c.id);
-      pendingHistoryRef.current = turnsToHistory(c.turns);
-      setRestoredWithAttachments(conversationHadAttachments(c.turns));
+      pendingHistoryRef.current = c.serverSessionId ? null : turnsToHistory(c.turns);
+      setRestoredWithAttachments(
+        !c.serverSessionId && conversationHadAttachments(c.turns)
+      );
       setExamplesDismissed(true);
     },
     [chat, conv]
