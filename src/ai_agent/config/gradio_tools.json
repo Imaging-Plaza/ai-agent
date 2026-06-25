@@ -553,6 +553,37 @@
               "build_preview": true
             }
           },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "volume_tiff",
+                "artifact_type": "image.volume.3d",
+                "formats": [
+                  "tif",
+                  "tiff"
+                ],
+                "semantic_roles": [
+                  "raw",
+                  "aligned"
+                ]
+              }
+            ],
+            "outputs": [
+              {
+                "name": "lung_mask",
+                "artifact_type": "mask.volume.3d",
+                "formats": [
+                  "tif",
+                  "tiff"
+                ],
+                "semantic_roles": [
+                  "mask",
+                  "segmentation",
+                  "lung"
+                ]
+              }
+            ]
+          },
           "approval": {
             "required": true,
             "message": "Run 3d_lungs_segmentation_segment_lungs_3d_tiff on your uploaded file?"
@@ -1772,6 +1803,37 @@
               "materialize": true,
               "build_preview": true
             }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "stack_file",
+                "artifact_type": "image.volume.3d",
+                "formats": [
+                  "tif",
+                  "tiff"
+                ],
+                "semantic_roles": [
+                  "raw",
+                  "unaligned",
+                  "drift"
+                ]
+              }
+            ],
+            "outputs": [
+              {
+                "name": "aligned_stack",
+                "artifact_type": "image.volume.3d",
+                "formats": [
+                  "tif",
+                  "tiff"
+                ],
+                "semantic_roles": [
+                  "aligned",
+                  "registered"
+                ]
+              }
+            ]
           },
           "approval": {
             "required": true,

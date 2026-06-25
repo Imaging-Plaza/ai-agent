@@ -69,6 +69,8 @@ def _mirror_session(session: Session, state_dict: dict) -> ChatState:
     state_dict["pending_recommendation_rank"] = session.pending_recommendation_rank
     state_dict["pending_catalog_alias"] = session.pending_catalog_alias
     state_dict["pending_tool_params"] = dict(session.pending_tool_params)
+    state_dict["pending_workflow_approval"] = session.pending_workflow_approval
+    state_dict["pending_workflow_plan"] = dict(session.pending_workflow_plan)
     state_dict["last_files"] = session.last_asset_paths()
     state_dict["last_preview_path"] = (
         session.last_preview().preview_path if session.last_preview() else None
@@ -124,6 +126,20 @@ def _result_to_message(
             parts.append(
                 "_Press the **'🚀 Run Demo'** button to run the demo, or "
                 "continue with another request._"
+            )
+
+        if pa.type == "workflow_approval":
+            parts.append(f"\n**Ready to run {pa.display_name or 'this tool chain'}?**\n")
+            if pa.image_name:
+                parts.append(f"**Input:** {pa.image_name}\n")
+            for i, step in enumerate(pa.workflow_steps, 1):
+                parts.append(
+                    f"{i}. **{step.endpoint_display_name}** "
+                    f"({step.input_name} -> {step.output_name})\n"
+                )
+            parts.append(
+                "_Press the **Run Tool** button below to execute the chain, "
+                "or ask about other tools in the chat instead._"
             )
 
     reply.text = "\n".join(parts)
@@ -184,7 +200,7 @@ def execute_tool_with_approval(
 
     # Override params if the caller provided fresh ones (e.g., image_path
     # backfilled from a fresh upload). This keeps the historic behaviour.
-    if tool_params:
+    if tool_params and session.pending_tool_approval:
         merged = dict(session.pending_tool_params)
         for k, v in tool_params.items():
             if v not in (None, ""):

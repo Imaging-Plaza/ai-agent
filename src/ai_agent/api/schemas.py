@@ -79,7 +79,7 @@ class RecommendationOut(BaseModel):
 
 
 class PendingActionOut(BaseModel):
-    type: Literal["demo_confirm", "tool_approval"]
+    type: Literal["demo_confirm", "tool_approval", "workflow_approval"]
     tool_name: str
     display_name: Optional[str] = None
     icon: Optional[str] = None
@@ -95,6 +95,19 @@ class PendingActionOut(BaseModel):
     required_inputs: List[str] = Field(default_factory=list)
     runtime_parameters: List[Dict[str, Any]] = Field(default_factory=list)
     endpoint_options: List[Dict[str, Any]] = Field(default_factory=list)
+    workflow_steps: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class WorkflowStepOut(BaseModel):
+    id: str
+    tool_name: str
+    endpoint_id: str
+    display_name: str
+    endpoint_display_name: str
+    input_name: str
+    output_name: str
+    operation: str
+    runtime_parameters: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ApprovePendingBody(BaseModel):

@@ -57,6 +57,8 @@ class ChatState:
     pending_recommendation_rank: Optional[int] = None
     pending_catalog_alias: Optional[str] = None
     pending_tool_params: Dict[str, Any] = field(default_factory=dict)  # Tool parameters
+    pending_workflow_approval: Optional[str] = None
+    pending_workflow_plan: Dict[str, Any] = field(default_factory=dict)
     agent_result: Optional[Dict[str, Any]] = (
         None  # Cached agent result before tool execution
     )
@@ -79,6 +81,8 @@ class ChatState:
             "pending_recommendation_rank": self.pending_recommendation_rank,
             "pending_catalog_alias": self.pending_catalog_alias,
             "pending_tool_params": self.pending_tool_params,
+            "pending_workflow_approval": self.pending_workflow_approval,
+            "pending_workflow_plan": self.pending_workflow_plan,
             "agent_result": self.agent_result,
         }
 
@@ -103,6 +107,8 @@ class ChatState:
             pending_recommendation_rank=d.get("pending_recommendation_rank"),
             pending_catalog_alias=d.get("pending_catalog_alias"),
             pending_tool_params=d.get("pending_tool_params", {}),
+            pending_workflow_approval=d.get("pending_workflow_approval"),
+            pending_workflow_plan=d.get("pending_workflow_plan", {}),
             agent_result=d.get("agent_result"),
         )
 

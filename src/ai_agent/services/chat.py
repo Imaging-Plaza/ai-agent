@@ -53,6 +53,8 @@ from ai_agent.utils.utils import _best_runnable_link, _is_affirmative
 
 from .files import asset_paths, ingest_files
 from .sessions import Asset, Session
+from .workflow_executor import execute_workflow
+from .workflow_planner import PlannedWorkflow, maybe_plan_workflow
 
 log = logging.getLogger("services.chat")
 
@@ -96,6 +98,19 @@ class EndpointOption:
 
 
 @dataclass
+class WorkflowStepPreview:
+    id: str
+    tool_name: str
+    endpoint_id: str
+    display_name: str
+    endpoint_display_name: str
+    input_name: str
+    output_name: str
+    operation: str
+    runtime_parameters: List[RuntimeParameter] = field(default_factory=list)
+
+
+@dataclass
 class PendingAction:
     """A turn that ends asking the user to confirm something.
 
@@ -104,7 +119,7 @@ class PendingAction:
     flow.
     """
 
-    type: Literal["demo_confirm", "tool_approval"]
+    type: Literal["demo_confirm", "tool_approval", "workflow_approval"]
     tool_name: str
     display_name: Optional[str] = None
     icon: Optional[str] = None
@@ -120,6 +135,7 @@ class PendingAction:
     required_inputs: List[str] = field(default_factory=list)
     runtime_parameters: List[RuntimeParameter] = field(default_factory=list)
     endpoint_options: List[EndpointOption] = field(default_factory=list)
+    workflow_steps: List[WorkflowStepPreview] = field(default_factory=list)
 
 
 @dataclass
@@ -297,11 +313,14 @@ def approve_pending(
     Calls the registered tool with the previously-captured parameters, then
     clears the pending state.
     """
+    if session.pending_workflow_approval:
+        return _execute_pending_workflow(session, params)
+
     tool_name = session.pending_tool_approval
     if not tool_name:
         return ChatTurnResult(
             status="error",
-            text="There is no pending tool approval to confirm.",
+            text="There is no pending tool or workflow approval to confirm.",
             error="no_pending_action",
         )
     tool_params = dict(session.pending_tool_params)
@@ -399,6 +418,25 @@ def _shape_agent_result(
 
     status = legacy["conversation"]["status"]
     if status == "needs_clarification":
+        workflow_action = _select_workflow_pending_action(
+            session, request_text, effective_paths
+        )
+        if workflow_action:
+            text = "I can run this tool chain:\n"
+            for i, step in enumerate(workflow_action.workflow_steps, 1):
+                text += (
+                    f"\n{i}. {step.endpoint_display_name} "
+                    f"({step.input_name} -> {step.output_name})"
+                )
+            session.conversation_history.append(f"Assistant: {text}")
+            return ChatTurnResult(
+                status="pending_action",
+                text=text,
+                tool_traces=tool_traces,
+                pending_action=workflow_action,
+                usage=usage_payload,
+            )
+
         question = legacy["conversation"]["question"]
         context = legacy["conversation"].get("context")
         options = legacy["conversation"].get("options", []) or []
@@ -479,6 +517,17 @@ def _shape_agent_result(
     pending_action = _select_pending_action(
         session, enriched_choices, effective_paths, request_text
     )
+    workflow_action = _select_workflow_pending_action(
+        session, request_text, effective_paths
+    )
+    if workflow_action:
+        pending_action = workflow_action
+        text += "\n\nI can run this tool chain:\n"
+        for i, step in enumerate(workflow_action.workflow_steps, 1):
+            text += (
+                f"\n{i}. {step.endpoint_display_name} "
+                f"({step.input_name} -> {step.output_name})"
+            )
     if pending_action and pending_action.recommendation_rank and pending_action.recommendation_rank > 1:
         text += (
             f"\n\nA runnable demo is available for rank {pending_action.recommendation_rank}, "
@@ -545,6 +594,46 @@ def _clear_pending(session: Session) -> None:
     session.pending_recommendation_rank = None
     session.pending_catalog_alias = None
     session.pending_tool_params = {}
+    session.pending_workflow_approval = None
+    session.pending_workflow_plan = {}
+
+
+def _select_workflow_pending_action(
+    session: Session,
+    request_text: str,
+    effective_paths: List[str],
+) -> Optional[PendingAction]:
+    plan = maybe_plan_workflow(request_text, effective_paths)
+    if plan is None:
+        return None
+    session.pending_tool_approval = None
+    session.pending_tool_endpoint = None
+    session.pending_tool_params = {}
+    session.pending_workflow_approval = plan.id
+    session.pending_workflow_plan = plan.to_dict()
+    first_path = effective_paths[0] if effective_paths else None
+    steps = [
+        WorkflowStepPreview(
+            id=step.id,
+            tool_name=step.tool_name,
+            endpoint_id=step.endpoint_id,
+            display_name=step.display_name,
+            endpoint_display_name=step.endpoint_display_name,
+            input_name=step.input_name,
+            output_name=step.output_name,
+            operation=step.operation,
+            runtime_parameters=_runtime_parameters_for_workflow_step(step),
+        )
+        for step in plan.steps
+    ]
+    return PendingAction(
+        type="workflow_approval",
+        tool_name=plan.id,
+        display_name=plan.display_name,
+        image_name=os.path.basename(first_path) if first_path else None,
+        prompt=plan.prompt,
+        workflow_steps=steps,
+    )
 
 
 def _select_pending_action(
@@ -684,7 +773,8 @@ def _required_inputs_for_tool(tool_config) -> List[str]:
     return [
         p.name
         for p in tool_config.endpoint.input_mapping.parameters
-        if p.required and p.source in ("session_file", "image_path")
+        if (p.required or _upstream_requires_parameter(tool_config, p.name))
+        and p.source in ("session_file", "image_path")
     ]
 
 
@@ -703,6 +793,26 @@ def _runtime_parameters_for_tool(tool_config) -> List[RuntimeParameter]:
         for p in tool_config.endpoint.input_mapping.parameters
         if p.source == "param"
     ]
+
+
+def _runtime_parameters_for_workflow_step(step) -> List[RuntimeParameter]:
+    tool_config = get_tool(step.tool_name, step.endpoint_id)
+    if not tool_config:
+        return []
+    return _runtime_parameters_for_tool(tool_config)
+
+
+def _apply_workflow_params(plan: PlannedWorkflow, params: Dict[str, Any]) -> None:
+    raw_steps = params.get("workflow_steps") or params.get("steps") or {}
+    if not isinstance(raw_steps, dict):
+        return
+    for index, step in enumerate(plan.steps, 1):
+        values = raw_steps.get(step.id)
+        if values is None:
+            values = raw_steps.get(str(index))
+        if not isinstance(values, dict):
+            continue
+        step.params.update(values)
 
 
 def _endpoint_options_for_tool(
@@ -899,7 +1009,8 @@ def _required_file_count(tool_config) -> int:
     required_indices = [
         p.file_index
         for p in endpoint.input_mapping.parameters
-        if p.required and p.source in ("session_file", "image_path")
+        if (p.required or _upstream_requires_parameter(tool_config, p.name))
+        and p.source in ("session_file", "image_path")
     ]
     return max(required_indices) + 1 if required_indices else 0
 
@@ -930,6 +1041,21 @@ def _parameter_choices(param) -> List[Any]:
     return choices
 
 
+def _upstream_requires_parameter(tool_config, param_name: str) -> bool:
+    endpoint = getattr(tool_config, "endpoint", None)
+    metadata = getattr(endpoint, "metadata", {}) if endpoint else {}
+    gradio_info = metadata.get("gradio_info") if isinstance(metadata, dict) else None
+    if not isinstance(gradio_info, dict):
+        return False
+    for item in gradio_info.get("parameters") or []:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("parameter_name") or item.get("name") or item.get("label")
+        if name == param_name and item.get("parameter_has_default") is False:
+            return True
+    return False
+
+
 def _normalize_match_text(value: str) -> str:
     return " ".join((value or "").replace("_", " ").replace("-", " ").casefold().split())
 
@@ -958,6 +1084,31 @@ def _execute_pending_demo(session: Session, attached_ids: List[str]) -> ChatTurn
     text = "No configured runnable Gradio endpoint is pending."
     session.conversation_history.append(f"Assistant: {text}")
     return ChatTurnResult(status="ok", text=text)
+
+
+def _execute_pending_workflow(
+    session: Session,
+    params: Optional[Dict[str, Any]] = None,
+) -> ChatTurnResult:
+    if not session.pending_workflow_plan:
+        _clear_pending(session)
+        text = "No configured workflow is pending."
+        session.conversation_history.append(f"Assistant: {text}")
+        return ChatTurnResult(status="error", text=text, error="no_pending_workflow")
+
+    plan = PlannedWorkflow.from_dict(session.pending_workflow_plan)
+    _apply_workflow_params(plan, params or {})
+    result = execute_workflow(session, plan)
+    _clear_pending(session)
+    session.conversation_history.append(f"Assistant: {result.text}")
+    return ChatTurnResult(
+        status="tool_executed" if result.success else "error",
+        text=result.text,
+        tool_traces=result.traces,
+        images=result.images,
+        files=result.files,
+        error=result.error,
+    )
 
 
 def _execute_registered_tool(
@@ -1099,6 +1250,7 @@ __all__ = [
     "EndpointOption",
     "PendingAction",
     "RuntimeParameter",
+    "WorkflowStepPreview",
     "Recommendation",
     "approve_pending",
     "decline_pending",

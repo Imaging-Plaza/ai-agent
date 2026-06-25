@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Dropdown controls for runtime tool parameters that declare `metadata.choices`, including PyStackReg transformation modes.
 - Request-aware endpoint selection for multi-endpoint Gradio tools, plus a configured PyStackReg tool with intra-stack, stack-to-stack reference, and frame-to-frame alignment endpoints.
 - Endpoint selection in the Run Tool approval panel so users can switch between runnable endpoints from the same Gradio Space before execution.
+- Optional endpoint input/output contracts and a generic linear workflow planner/executor for chaining compatible runnable tools while preserving single-tool recommendations.
 
 ### Fixed
 - Recommendation demo offers now scan ranked recommendations for the first runnable configured endpoint and avoid creating stale pending actions when no endpoint is runnable.

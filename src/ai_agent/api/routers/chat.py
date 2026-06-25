@@ -142,6 +142,23 @@ def _stream_result(
                         }
                         for option in pa.endpoint_options
                     ],
+                    "workflow_steps": [
+                        {
+                            "id": step.id,
+                            "tool_name": step.tool_name,
+                            "endpoint_id": step.endpoint_id,
+                            "display_name": step.display_name,
+                            "endpoint_display_name": step.endpoint_display_name,
+                            "input_name": step.input_name,
+                            "output_name": step.output_name,
+                            "operation": step.operation,
+                            "runtime_parameters": [
+                                _runtime_parameter_payload(p)
+                                for p in step.runtime_parameters
+                            ],
+                        }
+                        for step in pa.workflow_steps
+                    ],
                 },
             )
 

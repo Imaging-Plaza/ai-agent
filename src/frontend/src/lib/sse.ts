@@ -27,7 +27,7 @@ export type ChatEvent =
   | {
       event: "pending_action";
       data: {
-        type: "demo_confirm" | "tool_approval";
+        type: "demo_confirm" | "tool_approval" | "workflow_approval";
         tool_name: string;
         display_name?: string | null;
         icon?: string | null;
@@ -55,6 +55,24 @@ export type ChatEvent =
           description?: string | null;
           api_name?: string | null;
           required_inputs?: string[];
+          runtime_parameters?: {
+            name: string;
+            label: string;
+            required: boolean;
+            description?: string | null;
+            default?: unknown;
+            choices?: unknown[];
+          }[];
+        }[];
+        workflow_steps?: {
+          id: string;
+          tool_name: string;
+          endpoint_id: string;
+          display_name: string;
+          endpoint_display_name: string;
+          input_name: string;
+          output_name: string;
+          operation: string;
           runtime_parameters?: {
             name: string;
             label: string;

@@ -121,33 +121,44 @@ def _build_endpoints(info: Dict[str, Any], mcp_schema: Any) -> List[Dict[str, An
             schema_tool.get("description") if schema_tool else None,
         )
         parameters = _parameters_for_endpoint(meta, schema_tool)
+        contracts = _contracts_for_endpoint(
+            endpoint_id=endpoint_id,
+            display_name=display_name,
+            description=description,
+            meta=meta,
+            schema_tool=schema_tool,
+            parameters=parameters,
+        )
+        endpoint: Dict[str, Any] = {
+            "id": endpoint_id,
+            "display_name": display_name,
+            "description": description,
+            "api_name": api_name if api_name.startswith("/") else f"/{api_name}",
+            "enabled": True,
+            "catalog_aliases": _unique_text([display_name, endpoint_id]),
+            "supported_input_types": ["image", "file"],
+            "input_mapping": {
+                "call_style": "keyword",
+                "parameters": parameters,
+            },
+            "output_mapping": {
+                "original": {"selector": "first", "materialize": True},
+                "preview": {"selector": "first", "materialize": True, "build_preview": True},
+            },
+            "approval": {
+                "required": True,
+                "message": f"Run {display_name} on your uploaded file?",
+            },
+            "demo": {"available": True},
+            "metadata": {
+                "gradio_info": _compact_metadata(meta),
+                "mcp_tool": _compact_metadata(schema_tool or {}),
+            },
+        }
+        if contracts:
+            endpoint["contracts"] = contracts
         endpoints.append(
-            {
-                "id": endpoint_id,
-                "display_name": display_name,
-                "description": description,
-                "api_name": api_name if api_name.startswith("/") else f"/{api_name}",
-                "enabled": True,
-                "catalog_aliases": _unique_text([display_name, endpoint_id]),
-                "supported_input_types": ["image", "file"],
-                "input_mapping": {
-                    "call_style": "keyword",
-                    "parameters": parameters,
-                },
-                "output_mapping": {
-                    "original": {"selector": "first", "materialize": True},
-                    "preview": {"selector": "first", "materialize": True, "build_preview": True},
-                },
-                "approval": {
-                    "required": True,
-                    "message": f"Run {display_name} on your uploaded file?",
-                },
-                "demo": {"available": True},
-                "metadata": {
-                    "gradio_info": _compact_metadata(meta),
-                    "mcp_tool": _compact_metadata(schema_tool or {}),
-                },
-            }
+            endpoint
         )
     return endpoints
 
@@ -199,7 +210,7 @@ def _match_schema_tool(api_name: str, tools: List[Dict[str, Any]]) -> Optional[D
 def _parameters_for_endpoint(meta: Dict[str, Any], schema_tool: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     schema_params = _schema_parameters(schema_tool or {})
     info_params = _info_parameters(meta)
-    params = schema_params or info_params
+    params = _merge_schema_and_info_parameters(schema_params, info_params)
     if not params:
         return [{"name": "file", "source": "session_file", "required": True, "as_gradio_file": True}]
 
@@ -237,6 +248,195 @@ def _parameters_for_endpoint(meta: Dict[str, Any], schema_tool: Optional[Dict[st
     return mapped
 
 
+def _contracts_for_endpoint(
+    *,
+    endpoint_id: str,
+    display_name: str,
+    description: Optional[str],
+    meta: Dict[str, Any],
+    schema_tool: Optional[Dict[str, Any]],
+    parameters: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    file_param = next((param for param in parameters if param.get("source") == "session_file"), None)
+    if not file_param:
+        return None
+
+    text = _contract_text(endpoint_id, display_name, description, meta, schema_tool, file_param)
+    input_formats = _infer_formats(text)
+    output_formats = _infer_output_formats(text, input_formats)
+    input_type = _infer_artifact_type(text, default="image.volume.3d" if _looks_like_stack_text(text) else "file")
+    operation = _infer_operation(text)
+    output_type = _infer_output_artifact_type(operation, text, input_type)
+    output_roles = _infer_output_roles(operation, text)
+    input_roles = _infer_input_roles(operation, text)
+    output_name = _infer_output_name(operation, endpoint_id)
+
+    return {
+        "inputs": [
+            {
+                "name": str(file_param.get("name") or "input_file"),
+                "artifact_type": input_type,
+                "formats": input_formats,
+                "semantic_roles": input_roles,
+            }
+        ],
+        "outputs": [
+            {
+                "name": output_name,
+                "artifact_type": output_type,
+                "formats": output_formats,
+                "semantic_roles": output_roles,
+            }
+        ],
+    }
+
+
+def _contract_text(
+    endpoint_id: str,
+    display_name: str,
+    description: Optional[str],
+    meta: Dict[str, Any],
+    schema_tool: Optional[Dict[str, Any]],
+    file_param: Dict[str, Any],
+) -> str:
+    parts: List[str] = [
+        endpoint_id,
+        display_name,
+        description or "",
+        str(file_param.get("name") or ""),
+        str(file_param.get("metadata", {}).get("description") if isinstance(file_param.get("metadata"), dict) else ""),
+    ]
+    if schema_tool:
+        parts.extend([str(schema_tool.get("name") or ""), str(schema_tool.get("description") or "")])
+    returns = meta.get("returns") or meta.get("outputs") or []
+    if isinstance(returns, list):
+        for item in returns:
+            if isinstance(item, dict):
+                parts.extend(str(item.get(key) or "") for key in ("label", "description", "component", "python_type"))
+                parts.append(str(item.get("type") or ""))
+    return " ".join(parts).casefold()
+
+
+def _infer_formats(text: str) -> List[str]:
+    found: List[str] = []
+    for needle, values in (
+        ("tiff", ["tif", "tiff"]),
+        ("tif", ["tif", "tiff"]),
+        ("nifti", ["nii", "nii.gz"]),
+        ("nii", ["nii", "nii.gz"]),
+        ("dicom", ["dicom", "dcm"]),
+        ("dcm", ["dicom", "dcm"]),
+        ("png", ["png"]),
+        ("jpeg", ["jpg", "jpeg"]),
+        ("jpg", ["jpg", "jpeg"]),
+    ):
+        if needle in text:
+            found.extend(values)
+    return _unique_text(found)
+
+
+def _infer_output_formats(text: str, input_formats: List[str]) -> List[str]:
+    output_formats = _infer_formats(text)
+    if output_formats:
+        return output_formats
+    return input_formats
+
+
+def _infer_artifact_type(text: str, *, default: str) -> str:
+    if "mask" in text or "segmentation" in text:
+        return "image.volume.3d" if _looks_like_stack_text(text) else "image"
+    if _looks_like_stack_text(text):
+        return "image.volume.3d"
+    if "image" in text:
+        return "image"
+    return default
+
+
+def _infer_output_artifact_type(operation: str, text: str, input_type: str) -> str:
+    if operation == "segment":
+        return "mask.volume.3d" if _looks_like_stack_text(text) or "volume" in input_type else "mask"
+    if operation in {"align", "denoise", "convert"}:
+        return input_type
+    if operation == "quantify":
+        return "table"
+    return input_type
+
+
+def _infer_operation(text: str) -> str:
+    if any(token in text for token in ("segment", "segmentation", "mask", "label")):
+        return "segment"
+    if any(token in text for token in ("align", "register", "registration", "drift", "reference")):
+        return "align"
+    if any(token in text for token in ("denoise", "restore", "deblur")):
+        return "denoise"
+    if any(token in text for token in ("convert", "export", "format")):
+        return "convert"
+    if any(token in text for token in ("measure", "quantif", "count")):
+        return "quantify"
+    return "process"
+
+
+def _infer_input_roles(operation: str, text: str) -> List[str]:
+    roles = ["raw"]
+    if operation == "segment":
+        roles.append("aligned")
+    if "moving" in text:
+        roles.append("moving")
+    if "reference" in text:
+        roles.append("reference")
+    return _unique_text(roles)
+
+
+def _infer_output_roles(operation: str, text: str) -> List[str]:
+    roles = [operation]
+    if operation == "align":
+        roles.extend(["aligned", "registered"])
+    elif operation == "segment":
+        roles.extend(["mask", "segmentation"])
+    if "lung" in text:
+        roles.append("lung")
+    return _unique_text(roles)
+
+
+def _infer_output_name(operation: str, endpoint_id: str) -> str:
+    if operation == "align":
+        return "aligned_stack" if "stack" in endpoint_id else "aligned_image"
+    if operation == "segment":
+        return "lung_mask" if "lung" in endpoint_id else "mask"
+    return f"{operation}_output"
+
+
+def _looks_like_stack_text(text: str) -> bool:
+    return any(token in text for token in ("stack", "volume", "3d", "z, y, x", "zyx"))
+
+
+def _merge_schema_and_info_parameters(
+    schema_params: List[Dict[str, Any]],
+    info_params: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not schema_params:
+        return info_params
+    if not info_params:
+        return schema_params
+
+    info_by_name = {_slug_id(str(param.get("name") or "")): param for param in info_params}
+    merged: List[Dict[str, Any]] = []
+    for index, param in enumerate(schema_params):
+        info = info_by_name.get(_slug_id(str(param.get("name") or "")))
+        if info is None and index < len(info_params):
+            info = info_params[index]
+        item = dict(param)
+        if info is not None:
+            if info.get("required") is not None:
+                item["required"] = bool(info.get("required"))
+            if "default" not in item or item.get("default") is None:
+                item["default"] = info.get("default")
+            if not item.get("description"):
+                item["description"] = info.get("description")
+        merged.append(item)
+    return merged
+
+
 def _schema_parameters(schema_tool: Dict[str, Any]) -> List[Dict[str, Any]]:
     input_schema = schema_tool.get("inputSchema") or schema_tool.get("input_schema") or {}
     properties = input_schema.get("properties") if isinstance(input_schema, dict) else None
@@ -268,7 +468,7 @@ def _info_parameters(meta: Dict[str, Any]) -> List[Dict[str, Any]]:
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             continue
-        label = item.get("label") or item.get("name") or item.get("parameter_name") or f"input_{index + 1}"
+        label = item.get("parameter_name") or item.get("name") or item.get("label") or f"input_{index + 1}"
         component = item.get("component") or item.get("component_type") or item.get("type")
         has_default = bool(item.get("parameter_has_default", False))
         params.append(

@@ -1343,6 +1343,25 @@ a:hover {
   color: var(--text-soft);
   position: relative;
 }
+.workflow-steps {
+  margin: 0;
+  padding-left: 24px;
+  display: grid;
+  gap: 8px;
+  position: relative;
+}
+.workflow-steps li::marker {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+.workflow-step-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-strong);
+}
+.workflow-step-params {
+  margin-top: 7px;
+}
 .pending-panel .actions {
   display: flex;
   gap: 8px;

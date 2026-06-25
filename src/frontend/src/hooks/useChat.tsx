@@ -37,8 +37,20 @@ export type EndpointOption = {
   runtime_parameters?: RuntimeParameter[];
 };
 
+export type WorkflowStep = {
+  id: string;
+  tool_name: string;
+  endpoint_id: string;
+  display_name: string;
+  endpoint_display_name: string;
+  input_name: string;
+  output_name: string;
+  operation: string;
+  runtime_parameters?: RuntimeParameter[];
+};
+
 export type PendingAction = {
-  type: "demo_confirm" | "tool_approval";
+  type: "demo_confirm" | "tool_approval" | "workflow_approval";
   tool_name: string;
   display_name?: string | null;
   icon?: string | null;
@@ -54,6 +66,7 @@ export type PendingAction = {
   required_inputs?: string[];
   runtime_parameters?: RuntimeParameter[];
   endpoint_options?: EndpointOption[];
+  workflow_steps?: WorkflowStep[];
 };
 
 export type AssistantTurn = {

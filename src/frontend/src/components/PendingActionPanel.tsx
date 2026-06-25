@@ -39,6 +39,17 @@ export default function PendingActionPanel({
   useEffect(() => {
     setValues(initialValues);
   }, [initialValues]);
+  const workflowSteps = pending.workflow_steps || [];
+  const initialWorkflowValues = useMemo(
+    () => workflowInitialValues(workflowSteps),
+    [workflowSteps]
+  );
+  const [workflowValues, setWorkflowValues] = useState<Record<string, string>>(
+    initialWorkflowValues
+  );
+  useEffect(() => {
+    setWorkflowValues(initialWorkflowValues);
+  }, [initialWorkflowValues]);
 
   function submitTool(event: React.FormEvent) {
     event.preventDefault();
@@ -48,6 +59,101 @@ export default function PendingActionPanel({
       if (raw.trim() !== "") params[param.name] = coerceValue(raw);
     }
     onApprove(params, selectedEndpointId);
+  }
+
+  if (pending.type === "workflow_approval") {
+    function submitWorkflow(event: React.FormEvent) {
+      event.preventDefault();
+      const workflowSteps: Record<string, Record<string, unknown>> = {};
+      for (const step of pending.workflow_steps || []) {
+        const params: Record<string, unknown> = {};
+        for (const param of step.runtime_parameters || []) {
+          const key = workflowFieldKey(step.id, param.name);
+          const raw = workflowValues[key] ?? "";
+          if (raw.trim() !== "") params[param.name] = coerceValue(raw);
+        }
+        if (Object.keys(params).length > 0) workflowSteps[step.id] = params;
+      }
+      onApprove({ workflow_steps: workflowSteps });
+    }
+
+    return (
+      <form className="pending-panel" onSubmit={submitWorkflow}>
+        <div className="prompt">{pending.prompt || `run ${workflowSteps.length}-step tool chain?`}</div>
+        {pending.image_name && (
+          <div className="detail">input: {pending.image_name}</div>
+        )}
+        {workflowSteps.length > 0 && (
+          <ol className="workflow-steps">
+            {workflowSteps.map((step, index) => (
+              <li key={step.id || `${step.tool_name}-${step.endpoint_id}`}>
+                <div className="workflow-step-title">
+                  step {index + 1}: {step.endpoint_display_name || step.display_name}
+                </div>
+                <div className="detail">
+                  {step.input_name} → {step.output_name}
+                </div>
+                {(step.runtime_parameters || []).length > 0 && (
+                  <div className="pending-params workflow-step-params">
+                    {(step.runtime_parameters || []).map((param) => {
+                      const key = workflowFieldKey(step.id, param.name);
+                      return (
+                        <label key={key}>
+                          <span>
+                            {param.label || param.name}
+                            {param.required ? "" : " (optional)"}
+                          </span>
+                          {(param.choices || []).length > 0 ? (
+                            <select
+                              value={workflowValues[key] ?? ""}
+                              onChange={(event) =>
+                                setWorkflowValues((current) => ({
+                                  ...current,
+                                  [key]: event.target.value,
+                                }))
+                              }
+                              required={param.required}
+                              disabled={busy}
+                            >
+                              {(param.choices || []).map((choice) => (
+                                <option key={String(choice)} value={String(choice)}>
+                                  {String(choice)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              value={workflowValues[key] ?? ""}
+                              onChange={(event) =>
+                                setWorkflowValues((current) => ({
+                                  ...current,
+                                  [key]: event.target.value,
+                                }))
+                              }
+                              placeholder={param.description || param.name}
+                              required={param.required}
+                              disabled={busy}
+                            />
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+        <div className="actions">
+          <button className="btn-approve" type="submit" disabled={busy}>
+            run chain
+          </button>
+          <button className="btn-decline" type="button" onClick={onDecline} disabled={busy}>
+            cancel
+          </button>
+        </div>
+      </form>
+    );
   }
 
   if (pending.type === "tool_approval") {
@@ -171,4 +277,21 @@ function coerceValue(value: string): unknown {
   const numeric = Number(trimmed);
   if (trimmed !== "" && !Number.isNaN(numeric)) return numeric;
   return value;
+}
+
+function workflowInitialValues(
+  steps: NonNullable<PendingAction["workflow_steps"]>
+): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const step of steps) {
+    for (const param of step.runtime_parameters || []) {
+      values[workflowFieldKey(step.id, param.name)] =
+        param.default == null ? "" : String(param.default);
+    }
+  }
+  return values;
+}
+
+function workflowFieldKey(stepId: string, paramName: string): string {
+  return `${stepId}.${paramName}`;
 }

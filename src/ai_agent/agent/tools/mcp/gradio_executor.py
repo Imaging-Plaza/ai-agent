@@ -126,7 +126,7 @@ def _build_inputs(tool, inp: GenericGradioInput, client: Optional[Client] = None
         if param.source in ("session_file", "image_path"):
             image_paths = inp.image_paths or ([inp.image_path] if inp.image_path else [])
             value = image_paths[param.file_index] if param.file_index < len(image_paths) else None
-            if param.required and not value:
+            if (param.required or _upstream_requires_value(tool, param.name)) and not value:
                 raise ValueError(f"Missing required input {param.name!r}: no uploaded file is available")
             if value and param.as_gradio_file:
                 if not os.path.exists(value):
@@ -180,6 +180,23 @@ def _run_preflight_calls(tool, client: Client, args: list[Any], kwargs: Dict[str
                 call_kwargs[name] = kwargs[name]
         if call_args or call_kwargs:
             client.predict(*call_args, api_name=api_name, **call_kwargs)
+
+
+def _upstream_requires_value(tool, param_name: str) -> bool:
+    endpoint = getattr(tool, "endpoint", None)
+    metadata = getattr(endpoint, "metadata", {}) if endpoint else {}
+    gradio_info = metadata.get("gradio_info") if isinstance(metadata, dict) else None
+    if not isinstance(gradio_info, dict):
+        return False
+    for item in gradio_info.get("parameters") or []:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("parameter_name") or item.get("name") or item.get("label")
+        if name != param_name:
+            continue
+        if item.get("parameter_has_default") is False:
+            return True
+    return False
 
 
 def _upload_as_gradio_path(param) -> bool:

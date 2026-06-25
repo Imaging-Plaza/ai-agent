@@ -74,6 +74,9 @@ class Session:
     pending_recommendation_rank: Optional[int] = None
     pending_catalog_alias: Optional[str] = None
     pending_tool_params: Dict[str, Any] = field(default_factory=dict)
+    pending_workflow_approval: Optional[str] = None
+    pending_workflow_plan: Dict[str, Any] = field(default_factory=dict)
+    workflow_runs: List[Dict[str, Any]] = field(default_factory=list)
 
     def touch(self) -> None:
         self.last_seen = time.time()

@@ -420,7 +420,10 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 )
 
                 # Determine button visibility and label using registry
-                box_visible = new_state.pending_tool_approval is not None
+                box_visible = (
+                    new_state.pending_tool_approval is not None
+                    or new_state.pending_workflow_approval is not None
+                )
                 if box_visible and new_state.pending_tool_approval:
                     from ai_agent.agent.tools.mcp import (
                         get_tool_display_name,
@@ -432,6 +435,8 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                     )
                     icon = get_tool_icon(new_state.pending_tool_approval)
                     button_label = f"{icon} Run {display_name}"
+                elif box_visible and new_state.pending_workflow_approval:
+                    button_label = "Run Tool Chain"
                 else:
                     button_label = "🚀 Run Tool"
 
@@ -486,7 +491,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
 
             state = ChatState.from_dict(state_dict)
 
-            if not state.pending_tool_approval:
+            if not state.pending_tool_approval and not state.pending_workflow_approval:
                 return history, state_dict, None, gr.update(visible=False), gr.update()
 
             # Execute the tool

@@ -122,6 +122,39 @@ class OutputMapping(BaseModel):
     compute_time: Optional[str] = None
 
 
+class ArtifactContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    artifact_type: str = "file"
+    formats: List[str] = Field(default_factory=list)
+    semantic_roles: List[str] = Field(default_factory=list)
+    required: bool = True
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("name", "artifact_type")
+    @classmethod
+    def _required_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("contract text fields cannot be empty")
+        return value.strip()
+
+    @field_validator("formats", "semantic_roles")
+    @classmethod
+    def _normalize_tokens(cls, values: List[str]) -> List[str]:
+        cleaned = [_normalize_contract_token(v) for v in values]
+        if any(not v for v in cleaned):
+            raise ValueError("contract token lists cannot contain empty values")
+        return list(dict.fromkeys(cleaned))
+
+
+class ToolContracts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inputs: List[ArtifactContract] = Field(default_factory=list)
+    outputs: List[ArtifactContract] = Field(default_factory=list)
+
+
 class ApprovalConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -148,6 +181,7 @@ class GradioEndpointConfig(BaseModel):
     supported_input_types: List[str] = Field(default_factory=lambda: ["image", "file"])
     input_mapping: InputMapping
     output_mapping: OutputMapping = Field(default_factory=OutputMapping)
+    contracts: ToolContracts = Field(default_factory=ToolContracts)
     approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
     demo: DemoConfig = Field(default_factory=DemoConfig)
     timeout_seconds: Optional[float] = None
@@ -629,6 +663,10 @@ def _record_alias(seen: Dict[str, tuple[str, str, str]], alias: str, tool_id: st
 
 def _normalize_alias(value: str) -> str:
     return (value or "").strip().casefold()
+
+
+def _normalize_contract_token(value: str) -> str:
+    return (value or "").strip().replace("_", "-").casefold()
 
 
 def _normalize_runnable_url(value: str) -> str:

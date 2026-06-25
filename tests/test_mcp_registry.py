@@ -486,6 +486,12 @@ def test_build_tool_config_from_space_url_fetches_info_and_mcp_schema(monkeypatc
         "AFFINE",
     ]
     assert endpoint["input_mapping"]["parameters"][2]["value"] == "RIGID_BODY"
+    assert endpoint["contracts"]["inputs"][0]["name"] == "scan_file"
+    assert endpoint["contracts"]["outputs"][0]["semantic_roles"] == [
+        "segment",
+        "mask",
+        "segmentation",
+    ]
 
 
 def test_build_tool_config_from_space_url_accepts_top_level_mcp_tool_list(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -546,5 +552,91 @@ def test_build_tool_config_from_space_url_accepts_top_level_mcp_tool_list(monkey
     assert endpoint["description"] == "Recommended MCP tool for agentic clients."
     assert endpoint["input_mapping"]["parameters"][0]["name"] == "volume_tiff"
     assert endpoint["input_mapping"]["parameters"][0]["source"] == "session_file"
+    assert endpoint["input_mapping"]["parameters"][0]["required"] is True
     assert endpoint["input_mapping"]["parameters"][0]["as_gradio_file"] is True
     assert endpoint["input_mapping"]["parameters"][0]["metadata"]["upload_to_gradio_path"] is False
+    assert endpoint["contracts"]["inputs"][0]["formats"] == ["tif", "tiff"]
+    assert endpoint["contracts"]["outputs"][0]["artifact_type"] == "mask.volume.3d"
+
+
+def test_build_tool_config_from_space_url_infers_pystackreg_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def __init__(self, payload: dict | list) -> None:
+            self.payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict | list:
+            return self.payload
+
+    info = {
+        "named_endpoints": {
+            "/align_stack_to_reference": {
+                "description": "Align every frame in a TIFF stack to a chosen reference frame.",
+                "parameters": [
+                    {
+                        "label": "1st",
+                        "parameter_name": "stack_file",
+                        "parameter_has_default": False,
+                        "parameter_default": None,
+                        "type": {"type": "string"},
+                    },
+                    {
+                        "label": "2nd",
+                        "parameter_name": "reference_index",
+                        "parameter_has_default": True,
+                        "parameter_default": 0,
+                        "type": {"type": "integer"},
+                    },
+                ],
+                "returns": [{"label": "Aligned output TIFF file", "component": "Api"}],
+            }
+        }
+    }
+    schema = [
+        {
+            "name": "pystackreg_app__mcp_align_stack_to_reference",
+            "description": "Align every frame in stack_file. Returns: The aligned output TIFF file.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "stack_file": {
+                        "type": "string",
+                        "description": "Path or HTTP/HTTPS URL to the input TIFF stack.",
+                    },
+                    "reference_index": {
+                        "type": "integer",
+                        "description": "Zero-based index of the reference frame.",
+                        "default": 0,
+                    },
+                },
+            },
+            "meta": {"endpoint_name": "align_stack_to_reference"},
+        }
+    ]
+
+    def fake_get(url: str, timeout: float):
+        if url.endswith("/gradio_api/info"):
+            return FakeResponse(info)
+        if url.endswith("/gradio_api/mcp/schema"):
+            return FakeResponse(schema)
+        raise AssertionError(url)
+
+    monkeypatch.setattr("ai_agent.agent.tools.mcp.gradio_importer.requests.get", fake_get)
+
+    tool = build_tool_config_from_space_url("qchapp-pystackreg-app.hf.space")
+    endpoint = tool["endpoints"][0]
+
+    assert endpoint["input_mapping"]["parameters"][0]["name"] == "stack_file"
+    assert endpoint["input_mapping"]["parameters"][0]["required"] is True
+    assert endpoint["input_mapping"]["parameters"][0]["source"] == "session_file"
+    assert endpoint["contracts"]["inputs"][0]["artifact_type"] == "image.volume.3d"
+    assert endpoint["contracts"]["outputs"][0]["name"] == "aligned_stack"
+    assert endpoint["contracts"]["outputs"][0]["semantic_roles"] == [
+        "align",
+        "aligned",
+        "registered",
+    ]
