@@ -1,560 +1,368 @@
-# AI Imaging Agent (Imaging Plaza)
+# AI Imaging Agent
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-An intelligent RAG + AI agent system that helps users discover the right imaging software for their images and tasks. Upload an image, describe what you want to do, and get ranked tool recommendations with links to runnable demos.
+AI Imaging Agent, also called Imaging Plaza, is a RAG plus agent system for finding and running imaging software. A user can upload images or scientific/medical files, describe a task, receive ranked software recommendations from a catalog, and optionally execute configured Gradio demos on the uploaded data.
 
-## ✨ Key Features
+The current application has two UI surfaces:
 
-- **🤖 Conversational AI Agent**: Natural language interaction with multi-turn context
-- **🔍 Smart Retrieval**: BGE-M3 embeddings + FAISS + CrossEncoder reranking
-- **👁️ Vision-Aware Selection**: VLM-based tool selection considering both image content and metadata
-- **🏥 Medical Imaging Focus**: Specialized support for CT, MRI, DICOM, NIfTI, and other medical formats
-- **🎯 Format-Aware Matching**: IO compatibility scoring based on file formats and dimensions
-- **🚀 Demo Integration**: Direct execution of Gradio Space demos on your images
-- **📊 Rich UI**: Chat interface with image previews, file management, and execution traces
+- A React single-page app backed by FastAPI, started with `ai_agent serve`.
+- A legacy Gradio chat UI, started with `ai_agent chat`.
 
-<p align="center">
-    <img src="https://github.com/Imaging-Plaza/ai-agent/blob/develop/assets/example.gif?raw=true" height="700">
-</p>
+## What It Does
 
----
+- Recommends imaging tools from a catalog using semantic retrieval and reranking.
+- Uses an agent/VLM step to reason over the user request, image preview, metadata, and retrieved candidates.
+- Supports multi-turn chat, file uploads, conversation history, model selection, and streamed FastAPI chat events.
+- Handles common image, medical, scientific, video, audio, and PDF uploads.
+- Can import runnable Hugging Face Gradio Spaces from links and map catalog recommendations to executable endpoints.
+- Can ask for user approval and runtime parameters before executing a configured tool.
+- Can run simple compatible tool chains when configured endpoint contracts allow it.
 
-## 🚀 Quick Start
+## Repository Layout
 
-### Prerequisites
+```text
+src/ai_agent/
+  agent/        PydanticAI agent, prompts-to-tools orchestration, MCP-style tools
+  api/          FastAPI server, routers, schemas, shared pipeline dependencies
+  catalog/      GraphDB catalog sync and FAISS index refresh
+  config/       Packaged default Gradio tool registry
+  core/         Shared pipeline registry
+  generator/    Selection prompts and structured recommendation schemas
+  retriever/    Embeddings, FAISS index, reranker, SoftwareDoc catalog model
+  services/     Transport-independent chat, sessions, files, workflows
+  ui/           Legacy Gradio interface
+  utils/        Config, validation, image IO, previews, metadata, cache, cleanup
 
-- Python 3.10–3.12
-- OpenAI API key (or compatible API endpoint)
-- Internet connection for model calls
+src/frontend/   React/Vite frontend for the FastAPI app
+tests/          Pytest suite
+docs/           MkDocs documentation
+data/           Sample catalog/query assets
+tools/          Container and deployment helpers
+```
 
-### Installation
+## Requirements
+
+- Python 3.10 or newer.
+- Node.js 20 or newer for the React frontend.
+- An API key for the configured agent model.
+- An API key for the configured remote embedder/reranker, unless using local retrieval models.
+
+The repository is configured for editable Python installs through `pyproject.toml`.
+
+## Install
+
+Recommended inside the dev container:
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd ai-agent
+uv venv
+uv pip install -e .
+uv pip install -e ".[dev]"
+```
 
-# Create virtual environment
+Local pip alternative:
+
+```bash
 python -m venv .venv
-
-# Activate virtual environment
-# On Linux/macOS:
 source .venv/bin/activate
-# On Windows:
-.venv\Scripts\activate
-
-# Install the package
-pip install --upgrade pip
-pip install -e .
-
-# For development (includes test dependencies)
-pip install -e ".[dev]"
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
-### Configuration
+On Windows PowerShell, activate a local environment with:
 
-Create a `.env` file at the repository root:
-
-```dotenv
-# Required: OpenAI API key
-OPENAI_API_KEY=sk-xxxx
-
-# Optional: GitHub token for repo info tool
-GITHUB_TOKEN=ghp_xxxx
-
-# Optional: Alternative model providers (EPFL, etc.)
-EPFL_API_KEY=sk-xxxx
-EPFL_API_KEY_EMBEDDER=sk-xxxx
-
-# Software catalog path
-SOFTWARE_CATALOG=dataset/catalog.jsonl
-
-# Pipeline configuration
-TOP_K=8                # Number of candidates to retrieve
-NUM_CHOICES=3          # Number of tools to recommend
-AGENT_OUTPUT_RETRIES=3 # Structured output validation retries
-EMBED_CATALOG_ON_START=1  # Pre-embed catalog if FAISS is empty
-
-# Logging configuration
-LOGLEVEL_CONSOLE=WARNING
-LOGLEVEL_FILE=INFO
-FILE_LOG=1
-LOG_DIR=logs
-LOG_PROMPTS=0         # Set to 1 to save prompt snapshots for debugging
-
-# Custom config path
-CONFIG_PATH=config.yaml
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
 ```
 
+Install frontend dependencies when working on the React app:
 
+```bash
+cd src/frontend
+npm install
+```
 
-### Configured Gradio Tools
+## Configuration
 
-Runnable Gradio integrations are loaded from `src/ai_agent/config/gradio_tools.json`. Set `AI_AGENT_GRADIO_TOOLS_CONFIG=/path/to/gradio_tools.json` to use a writable deployment-specific file. The configuration models Gradio applications separately from their callable endpoints, so one Gradio app can expose multiple catalog-matched operations without adding Python modules.
+Runtime configuration is loaded from environment variables and `config.yaml`.
 
-In the React app, open `/tools` to add a tool link from a Hugging Face Space such as `user-tool.hf.space`, `huggingface.co/user/tool`, or `huggingface.co/spaces/user/tool`. The app fetches Gradio `/gradio_api/info` and `/gradio_api/mcp/schema` metadata to register descriptions, endpoints, and parameters without exposing the underlying JSON editor.
-
-### Model Configuration
-
-The agent model can be configured via `config.yaml`:
+The checked-in `config.yaml` currently uses EPFL's OpenAI-compatible endpoint for the default agent model:
 
 ```yaml
-# AI Agent Model Configuration
-
-# Default/fallback model (used for CLI and initial startup)
 agent_model:
-  name: "gpt-5.1"
-  base_url: null                        # null for default OpenAI endpoint
-  api_key_env: "OPENAI_API_KEY"
+  name: "openai/gpt-oss-120b"
+  base_url: "https://inference-rcp.epfl.ch/v1"
+  api_key_env: "EPFL_API_KEY"
+```
 
-# Available models for UI dropdown
-available_models:
-  - display_name: "gpt-4o-mini"
-    name: "gpt-4o-mini"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
-  
-  - display_name: "gpt-4o"
-    name: "gpt-4o"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
-  
-  - display_name: "gpt-5-mini"
-    name: "gpt-5-mini"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
+It also exposes OpenAI models in the frontend model picker and configures remote EPFL retrieval services:
 
-  - display_name: "gpt-5.1"
-    name: "gpt-5.1"
-    base_url: null
-    provider: "OpenAI"
-    api_key_env: "OPENAI_API_KEY"
-
+```yaml
 retrieval:
   embedder:
-    backend: "remote"   # "remote" or "local"
+    backend: "remote"
     model_name: "Qwen/Qwen3-Embedding-8B"
-    base_url: "https://inference-rcp.epfl.ch/v1"
     api_key_env: "EPFL_API_KEY_EMBEDDER"
-    timeout_s: 20
-    # local example:
-    # backend: "local"
-    # model_name: "BAAI/bge-m3"
-    # device: "cpu" # optional
-
   reranker:
-    backend: "remote"   # "remote" or "local"
+    backend: "remote"
     model_name: "BAAI/bge-reranker-v2-m3"
-    base_url: "https://inference-rcp.epfl.ch/v1"
     api_key_env: "EPFL_API_KEY_EMBEDDER"
-    timeout_s: 20
-    # local example:
-    # backend: "local"
-    # model_name: "BAAI/bge-reranker-v2-m3"
-    # device: "cpu" # optional
 ```
 
-### Running the App
-
-```bash
-# Start the chat interface
-ai_agent chat
-
-# Open your browser to:
-# http://127.0.0.1:7860
-```
-
-Try uploading a cat image and asking:
-> "I want to segment the cat from this image"
-
----
-
-## 💬 Usage
-
-### Chat Interface
-
-The chat interface provides a natural conversation flow:
-
-1. **Upload Files**: Drop images (PNG, JPG, TIFF, DICOM, NIfTI, etc.) or other supported files
-2. **Describe Your Task**: Use natural language like "segment the lungs" or "register brain MRI"
-3. **Review Recommendations**: Get ranked tool suggestions with accuracy scores and explanations
-4. **Run Demos**: Click "Run demo" to execute tools directly on your uploaded images
-5. **Iterate**: Ask for alternatives, refine your query, or upload different files
-
-### Supported File Formats
-
-**Images:**
-- Standard: PNG, JPG, JPEG, WEBP, BMP, GIF
-- Medical: DICOM (.dcm), NIfTI (.nii, .nii.gz), TIFF stacks
-- Scientific: Multi-page TIFF, TIFF with metadata
-
-**Other Files:**
-- Data: CSV, JSON, XML
-- Media: MP3, MP4
-
-### Example Queries
-
-- "Segment the lungs from this CT scan"
-- "Register these two brain MRI images"
-- "Extract text from this medical report image"
-- "Classify what organ is shown in this ultrasound"
-- "Detect tumors in this MRI scan"
-- "I need to analyze DICOM files, what tools are available?"
-
-### Understanding Results
-
-Each recommendation includes:
-- **Rank**: Priority order (1 = best match)
-- **Accuracy Score**: Confidence level (0-100%)
-- **Explanation**: Why this tool matches your request
-- **Metadata**: Supported modalities, dimensions, formats, license
-- **Demo Link**: Direct link to runnable example
-
----
-
-## 🏗️ Architecture
-
-### Pipeline Overview
-
-The system follows a two-stage architecture:
-
-```
-User Input (Image + Text Query)
-        ↓
-┌───────────────────────────────┐
-│   RETRIEVAL STAGE             │
-│  - BGE-M3 Embeddings          │
-│  - FAISS Vector Search        │
-│  - CrossEncoder Reranking     │
-│  - Format Token Matching      │
-└───────────────────────────────┘
-        ↓ Top-K Candidates
-┌───────────────────────────────┐
-│   AGENT SELECTION             │
-│  - Pydantic AI Agent          │
-│  - OpenAI VLM                 │
-│  - Image + Metadata Analysis  │
-│  - Multi-Tool Reasoning       │
-└───────────────────────────────┘
-        ↓
-   Ranked Recommendations
-```
-
-### Retrieval Stage
-
-**No LLM calls** - purely text-based search:
-
-1. **Query Construction**: User task + format tokens from uploaded files
-2. **Embedding**: BGE-M3 model generates query embedding
-3. **Vector Search**: FAISS retrieves top candidates
-4. **Reranking**: CrossEncoder refines results for precision
-5. **Retry Broadening**: If too few hits, retry with a shorter/broader query
-
-### Agent Selection Stage
-
-**Single VLM call** - multimodal reasoning:
-
-1. **Input Preparation**:
-   - Text: User query + candidate table + file metadata
-   - Image: PNG preview (converted from any format)
-   - Context: Original file format, dimensions, modality
-
-2. **Agent Tools**:
-   - `search_tools`: Search catalog with query
-   - `search_alternative`: Find alternatives (iterative)
-  - `repo_info`: Fetch GitHub documentation via DeepWiki MCP
-
-3. **Output**: Ranked tool selections with accuracy scores and explanations
-
-### Key Components
-
-- **`api/pipeline.py`**: RAG retrieval orchestrator
-- **`agent/agent.py`**: Pydantic AI agent with tool definitions
-- **`retriever/`**: Embedding, FAISS indexing, reranking
-- **`generator/`**: Prompts and schema for tool selection
-- **`ui/`**: Gradio chat interface components
-- **`utils/`**: Image processing, metadata extraction, file validation
-- **`catalog/`**: Catalog syncing from GraphDB (optional)
-
----
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `OPENAI_API_KEY` | OpenAI API key | - | ✅ |
-| `EPFL_API_KEY_EMBEDDER` | API key for remote embedder and reranker endpoints | - | ✅ (when `retrieval.embedder.backend: remote` and/or `retrieval.reranker.backend: remote`) |
-| `GITHUB_TOKEN` | GitHub token for repo info | - | ❌ |
-| `SOFTWARE_CATALOG` | Path to catalog JSONL | `dataset/catalog.jsonl` | ✅ |
-| `TOP_K` | Retrieval candidates count | `8` | ❌ |
-| `NUM_CHOICES` | Tools to recommend | `3` | ❌ |
-| `AGENT_OUTPUT_RETRIES` | Structured output validation retries | `3` | ❌ |
-| `EMBED_CATALOG_ON_START` | Pre-embed catalog on startup when FAISS is empty | `1` | ❌ |
-| `LOGLEVEL_CONSOLE` | Console log level | `WARNING` | ❌ |
-| `LOGLEVEL_FILE` | File log level | `INFO` | ❌ |
-| `FILE_LOG` | Enable file logging | `1` | ❌ |
-| `LOG_DIR` | Log directory | `logs` | ❌ |
-| `LOG_PROMPTS` | Save prompt snapshots | `0` | ❌ |
-| `CONFIG_PATH` | Model config file | `config.yaml` | ✅ |
-
-### GraphDB Catalog Sync (Optional)
-
-For automatic catalog syncing from a GraphDB instance:
+Create a local `.env` file or export equivalent variables. Do not commit secrets.
 
 ```dotenv
-GRAPHDB_URL=https://your-graphdb.example.com
-GRAPHDB_GRAPH=your-graph-name
-GRAPHDB_USER=username
-GRAPHDB_PASSWORD=password
-GRAPHDB_QUERY_FILE=/path/to/query.rq
-SYNC_EVERY_HOURS=24  # Auto-refresh interval (0 to disable)
+# Agent/model access
+EPFL_API_KEY=...
+EPFL_API_KEY_EMBEDDER=...
+OPENAI_API_KEY=...
+CONFIG_PATH=config.yaml
+
+# Catalog and index
+SOFTWARE_CATALOG=dataset/catalog.jsonl
+RAG_INDEX_DIR=artifacts/rag_index
+EMBED_CATALOG_ON_START=1
+TOP_K=8
+NUM_CHOICES=3
+
+# FastAPI / frontend
+HOST=0.0.0.0
+PORT=8000
+APP_PASSWORD=
+DEV_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+
+# Gradio tool registry
+AI_AGENT_GRADIO_TOOLS_CONFIG=src/ai_agent/config/gradio_tools.json
+
+# Logging and cleanup
+FILE_LOG=1
+LOG_DIR=logs
+LOGLEVEL_CONSOLE=WARNING
+LOGLEVEL_FILE=INFO
+LOG_PROMPTS=0
+CACHE_DB_PATH=
+CLEANUP_INTERVAL_SECONDS=7200
+LOG_RETENTION_DAYS=7
+```
+
+If `APP_PASSWORD` is unset, FastAPI auth is disabled for local development. If it is set, the frontend login page stores an HTTP-only cookie after successful login.
+
+## Run The App
+
+### React plus FastAPI development mode
+
+Start the backend:
+
+```bash
+ai_agent serve
+```
+
+By default this serves FastAPI on `http://localhost:8000` and exposes API docs at `http://localhost:8000/api/docs`.
+
+Start the frontend in a second terminal:
+
+```bash
+cd src/frontend
+npm run dev
+```
+
+Open `http://localhost:5173`. Vite proxies `/api/*` to the backend.
+
+### Production-style local run
+
+Build the frontend and let FastAPI serve the compiled bundle:
+
+```bash
+cd src/frontend
+npm run build
+cd ../..
+PORT=7860 ai_agent serve
+```
+
+Open `http://localhost:7860`.
+
+### Legacy Gradio UI
+
+```bash
+ai_agent chat
+```
+
+This launches the older Gradio interface. It shares the same pipeline and catalog index code but is not the primary React/FastAPI surface.
+
+## CLI
+
+The installed package provides both `ai_agent` and `ai-agent` entry points.
+
+```bash
+ai_agent serve   # Start FastAPI backend; serves React dist if it exists
+ai_agent chat    # Start legacy Gradio chat UI
+ai_agent sync    # Sync catalog from GraphDB and update the FAISS index
+```
+
+`ai_agent sync` expects GraphDB-related configuration when pulling a remote catalog:
+
+```dotenv
+GRAPHDB_URL=https://...
+GRAPHDB_GRAPH=https://...
+GRAPHDB_QUERY_FILE=src/ai_agent/queries/get_relevant_software.rq
+GRAPHDB_USER=
+GRAPHDB_PASSWORD=
 OUTPUT_JSONLD=dataset/catalog.jsonld
 OUTPUT_JSONL=dataset/catalog.jsonl
+SYNC_EVERY_HOURS=0
+SYNC_SKIP_IF_FRESH_SECONDS=0
+SYNC_FORCE=0
 ```
 
-Run manual sync:
-```bash
-ai_agent sync
+## Catalog And Retrieval
+
+The recommender reads software records as JSONL or a JSON array. The default path is `dataset/catalog.jsonl`, configurable with `SOFTWARE_CATALOG`.
+
+Each record is parsed into `SoftwareDoc`, which tolerates extra catalog fields and normalizes common schema.org-style names such as:
+
+- `name`
+- `description`
+- `applicationCategory`
+- `featureList`
+- `imagingModality`
+- `keywords`
+- `dims`
+- `anatomy`
+- `supportingData`
+- `runnableExample`
+- `hasExecutableNotebook`
+- `codeRepository`
+- `license`
+
+Retrieval works in stages:
+
+1. The user message is stripped of control tags such as `[EXCLUDE:tool1|tool2]`.
+2. Uploaded files contribute metadata hints, including format tokens such as `format:dicom`, `format:nifti`, or `format:tiff`.
+3. The query is embedded and searched against a FAISS index.
+4. A CrossEncoder-style reranker sorts the candidate pool.
+5. The agent receives the request, image preview bytes when available, metadata, conversation history, and retrieved candidates.
+
+If the FAISS index is empty and `EMBED_CATALOG_ON_START=1`, startup tries to embed the configured catalog into `artifacts/rag_index`.
+
+## Supported Uploads
+
+The file validator accepts:
+
+- Images: `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`, `.webp`, `.bmp`, `.gif`
+- Medical/scientific: `.dcm`, `.nii`, `.nii.gz`, DICOM directories, ZIP archives containing DICOM files
+- Video: `.mp4`, `.mov`, `.webm`, `.mkv`
+- Audio: `.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`
+- Documents: `.pdf`
+
+Image previews and metadata are generated for agent reasoning where possible. If a preview cannot be built, the system falls back to text and metadata paths instead of failing the whole turn.
+
+## Runnable Gradio Tools
+
+Configured runnable tools live in `src/ai_agent/config/gradio_tools.json` by default. Override the path with:
+
+```dotenv
+AI_AGENT_GRADIO_TOOLS_CONFIG=/path/to/gradio_tools.json
 ```
 
----
+The registry models Gradio applications separately from callable endpoints, so one Hugging Face Space can expose multiple operations. Tool and endpoint entries can define:
 
-## 📋 Catalog Format
+- catalog aliases used to match recommendations
+- Gradio API endpoint names
+- input mappings from session files, descriptions, literal values, or runtime parameters
+- output selectors for previews, downloads, metadata, success, and errors
+- approval settings
+- optional input/output contracts for workflow planning
 
-The catalog is a JSONL file where each line is a `SoftwareDoc` following schema.org SoftwareSourceCode structure.
+In the React app, open `/tools` to add a Hugging Face Space link such as:
 
-### Minimal Example
-
-```json
-{
-  "name": "3d-lungs-segmentation",
-  "description": "3D lung segmentation from CT; returns a mask/overlay.",
-  
-  "applicationCategory": ["Medical Imaging"],
-  "featureList": ["segmentation"],
-  "imagingModality": ["CT"],
-  "dims": [3],
-  "anatomy": ["lung"],
-  "keywords": ["mask", "overlay", "lung segmentation", "CT"],
-  
-  "programmingLanguage": "Python",
-  "requiresGPU": false,
-  "isAccessibleForFree": true,
-  "license": "Apache-2.0",
-  
-  "supportingData": [
-    {
-      "datasetFormat": "TIFF",
-      "bodySite": "lung",
-      "imagingModality": "CT",
-      "hasDimensionality": 3
-    },
-    {
-      "datasetFormat": "DICOM",
-      "bodySite": "lung",
-      "imagingModality": "CT",
-      "hasDimensionality": 3
-    }
-  ],
-  
-  "runnableExample": [
-    {
-      "hostType": "gradio",
-      "url": "https://huggingface.co/spaces/qchapp/3d-lungs-segmentation",
-      "name": "HF Space"
-    }
-  ]
-}
+```text
+user-tool.hf.space
+huggingface.co/user/tool
+huggingface.co/spaces/user/tool
 ```
 
-### Key Fields
+The backend reads the Space metadata from Gradio's `/gradio_api/info` and `/gradio_api/mcp/schema` endpoints, saves the generated registry entry, and reloads the tool registry.
 
-- **name**: Unique identifier for the tool
-- **description**: Clear explanation of what the tool does
-- **featureList**: Operations (e.g., segmentation, registration, classification)
-- **imagingModality**: Medical imaging types (CT, MRI, XR, US, PET)
-- **dims**: Supported dimensions (2D, 3D, 4D)
-- **anatomy**: Body parts/organs
-- **supportingData**: Format compatibility information (critical for matching)
-- **runnableExample**: Links to live demos (HuggingFace Spaces, notebooks, web apps)
+## API Surface
 
----
+FastAPI mounts application routes under `/api/*`.
 
-## 🔧 Development
+- `GET /api/healthz`
+- `GET /api/models`
+- `POST /api/chat`
+- `POST /api/chat/{session_id}/approve`
+- `POST /api/chat/{session_id}/decline`
+- `POST /api/files`
+- `GET /api/files/preview/{asset_id}`
+- `GET /api/files/asset/{asset_id}/raw`
+- `GET /api/files/asset/{asset_id}/view`
+- `GET /api/files/asset/{asset_id}/volume`
+- `GET/POST /api/gradio-tools...`
+- `GET/POST /api/auth...`
 
-### Project Structure
+Chat responses are streamed as server-sent events. Events include `session`, `status`, `text`, `recommendation`, `tool_trace`, `pending_action`, `clarification`, `images`, `files`, `usage`, `error`, and `done`.
 
-```
-ai-agent/
-├── src/ai_agent/
-│   ├── agent/              # Pydantic AI agent and tools
-│   │   ├── agent.py        # Agent definition
-│   │   ├── models.py       # Agent state models
-│   │   ├── tools/          # Agent tool implementations
-│   │   │   ├── search_tool.py
-│   │   │   ├── search_alternative_tool.py
-│   │   │   ├── gradio_space_tool.py
-│   │   │   ├── repo_info_tool.py
-│   │   │   └── deepwiki_tool.py
-│   │   └── utils.py
-│   ├── api/                # Pipeline orchestration
-│   │   └── pipeline.py     # RAGImagingPipeline
-│   ├── retriever/          # Retrieval components
-│   │   ├── text_embedder.py
-│   │   ├── vector_index.py
-│   │   ├── reranker.py
-│   │   └── software_doc.py
-│   ├── generator/          # Agent prompts and schemas
-│   │   ├── prompts.py
-│   │   └── schema.py
-│   ├── ui/                 # Gradio interface
-│   │   ├── app.py
-│   │   ├── handlers.py
-│   │   ├── components.py
-│   │   ├── formatters.py
-│   │   ├── state.py
-│   │   └── visualizations.py
-│   ├── utils/              # Shared utilities
-│   │   ├── config.py       # Configuration management
-│   │   ├── file_validator.py
-│   │   ├── image_meta.py   # Metadata extraction
-│   │   ├── image_io.py
-│   │   ├── previews.py
-│   │   └── tags.py
-│   ├── catalog/            # Catalog syncing
-│   │   └── sync.py
-│   └── cli.py              # CLI entry point
-├── tests/                  # Test suite
-│   ├── test_retrieval_pipeline.py
-│   ├── test_repo_summary.py
-│   └── data/
-├── artifacts/              # Generated artifacts
-│   └── rag_index/          # FAISS index
-├── dataset/                # Catalog data
-│   └── catalog.jsonl
-├── logs/                   # Application logs
-├── config.yaml             # Model configuration
-├── pyproject.toml          # Project metadata & dependencies
-├── Dockerfile              # Production Docker image
-├── tools/image/Dockerfile  # Development Docker image
-└── justfile                # Task runner commands
-```
+## Development
 
-### Local Development
+Run tests:
 
 ```bash
-# Install in development mode
-pip install -e ".[dev]"
-
-# Run tests
 pytest tests/
 ```
 
-### Testing
-
-Run the test suite:
+Run frontend checks:
 
 ```bash
-# All tests
-pytest tests/
-
-# Specific test file
-pytest tests/test_retrieval_pipeline.py
-
-# With verbose output
-pytest -v tests/
-
-# With coverage
-pytest --cov=ai_agent tests/
+cd src/frontend
+npm run lint
+npm run build
 ```
 
-### Logging & Debugging
-
-**Console Logs**: Set `LOGLEVEL_CONSOLE=DEBUG` for verbose output
-
-**File Logs**: Automatically saved to `logs/app_YYYYMMDD.log` (rotates daily)
-
-**Prompt Snapshots**: Enable `LOG_PROMPTS=1` to save:
-- `logs/vlm_selector_YYYYMMDD_HHMMSS.txt` - System/user prompts
-
----
-
-## 📚 API & CLI Reference
-
-### CLI Commands
+Run Python formatting/linting tools when relevant:
 
 ```bash
-# Launch chat interface
-ai_agent chat
-
-# Sync catalog from GraphDB
-ai_agent sync
+ruff check src tests
+black --check src tests
+mypy src
 ```
 
-## 🗺️ Maintainer Guide
+The repository currently contains a `justfile`, but its `serve` tasks still refer to the removed `ai_agent ui` command. Use the real CLI modes above.
 
-For full project documentation with detailed folder responsibilities, environment defaults, and improvement guidelines, see [docs/guide.md](docs/guide.md).
+## Docker
 
----
+The root `Dockerfile` builds the React frontend, installs the Python package, and starts:
 
-## 📝 Changelog
+```bash
+ai_agent serve
+```
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+Build and run manually:
 
-### Recent Highlights
+```bash
+docker build -t ai-agent:dev .
+docker run --env-file .env -p 7860:7860 ai-agent:dev
+```
 
-**[1.0.0]**
-- ✨ New chat-based interface (`ai_agent chat`) with rich media and tool integration  
-- 🛠️ Fully agent-based architecture replacing legacy pipelines  
-- 🔍 Smarter retrieval with automatic retry  
-- 🔗 DeepWiki MCP integration for fast GitHub repository documentation access  
-- 🔧 YAML configuration (`config.yaml`) for flexible model and backend setup  
-- 🎨 Redesigned UI with Imaging Plaza branding and improved UX  
-- ⚡ Performance improvements (pre-embedding, caching, faster startup)  
-- 🧹 Major cleanup: removed deprecated code paths, legacy UI, and outdated tests  
+`docker-compose.yml` runs the app on port `7860` inside the container and includes a Cloudflare tunnel sidecar.
 
-**[0.1.3] - 2025-10-22**
-- Gradio space runner tool
-- Repository info tool
-- UI fixes and polish
+## Documentation
 
----
+Additional documentation lives under `docs/`:
 
-## 📄 License
+- `docs/guide.md` for contributor-oriented repository guidance
+- `docs/architecture/overview.md` for architecture notes
+- `docs/getting-started/` for setup and configuration pages
+- `docs/user-guide/` for user workflows
+- `docs/reference/` for CLI and environment reference
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Some docs may lag behind the current React/FastAPI implementation; when behavior conflicts, prefer the executable code in `src/ai_agent/` and the CLI in `src/ai_agent/cli.py`.
 
----
+## License
 
-## 🙏 Credits & Acknowledgments
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
 
-**Developed by**: Imaging Plaza Team
+## Medical Disclaimer
 
-**Technologies:**
-- [Pydantic AI](https://github.com/pydantic/pydantic-ai) - AI agent framework
-- [OpenAI](https://openai.com) - GPT vision model
-- [FAISS](https://github.com/facebookresearch/faiss) - Vector search
-- [BGE-M3](https://huggingface.co/BAAI/bge-m3) - Multilingual embeddings
-- [Gradio](https://gradio.app) - Interactive web UI
-- [DeepWiki](https://deepwiki.com) - GitHub repository documentation
-
-**Medical Imaging Formats:**
-- [pydicom](https://github.com/pydicom/pydicom) - DICOM support
-- [nibabel](https://nipy.org/nibabel/) - NIfTI support
-
----
-
-## 📮 Support
-
-For issues, questions, or contributions, please contact the Imaging Plaza team.
-
----
-
-**🏥 Medical Disclaimer**: This software is a tool recommendation system, not a diagnostic tool. Always consult qualified medical professionals for clinical decisions.
+AI Imaging Agent recommends software tools. It is not a diagnostic system and should not be used as a substitute for qualified medical judgment.
