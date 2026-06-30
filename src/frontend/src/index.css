@@ -3770,6 +3770,13 @@ a:hover {
   border-color: var(--accent);
 }
 
+.tools-link-error {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .tools-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

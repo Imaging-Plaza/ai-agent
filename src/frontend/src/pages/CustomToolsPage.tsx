@@ -20,6 +20,7 @@ export default function CustomToolsPage() {
   const [busy, setBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [spaceUrl, setSpaceUrl] = useState("");
+  const [linkError, setLinkError] = useState("");
 
   const tools = useMemo(() => (Array.isArray(config?.tools) ? config.tools : []), [config]);
 
@@ -44,6 +45,7 @@ export default function CustomToolsPage() {
 
   function openAddForm() {
     setSpaceUrl("");
+    setLinkError("");
     setShowForm(true);
     setErrors([]);
   }
@@ -51,14 +53,20 @@ export default function CustomToolsPage() {
   async function importToolLink(event: React.FormEvent) {
     event.preventDefault();
     if (!spaceUrl.trim()) {
-      setErrors(["Enter a Hugging Face Space URL."]);
+      setLinkError("Enter a Hugging Face Space URL.");
       return;
     }
     setBusy(true);
     setErrors([]);
+    setLinkError("");
     setStatus("fetching tool metadata...");
     try {
       const result = await api.importGradioToolLink(spaceUrl.trim());
+      if (result.errors?.length) {
+        setLinkError(result.errors[0]);
+        setStatus("add tool link skipped");
+        return;
+      }
       setStatus(result.ok && result.reloaded ? "tool link added and reloaded" : "tool link saved, restart required");
       setShowForm(false);
       setSpaceUrl("");
@@ -146,11 +154,15 @@ export default function CustomToolsPage() {
               <span>HF Space URL</span>
               <input
                 value={spaceUrl}
-                onChange={(event) => setSpaceUrl(event.target.value)}
+                onChange={(event) => {
+                  setSpaceUrl(event.target.value);
+                  setLinkError("");
+                }}
                 placeholder="user-tool.hf.space or huggingface.co/user/tool"
                 autoFocus
                 required
               />
+              {linkError && <small className="tools-link-error">{linkError}</small>}
             </label>
             <div className="modal-actions tools-form-actions">
               <button type="button" onClick={() => setShowForm(false)}>cancel</button>

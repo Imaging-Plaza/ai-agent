@@ -31,6 +31,9 @@ All notable changes to this project will be documented in this file.
 - Tool result files now keep registered asset metadata so downloadable outputs can open in the same viewer used for uploaded files.
 - Successful Gradio endpoints that return inaccessible server-local output paths now explain that the Space must expose the file through a File/FileData output or `allowed_paths`.
 - PyStackReg execution now calls the Space's file-returning UI endpoints for configured runnable actions so successful runs register real TIFF outputs and previews instead of private `/tmp/psr_cache` paths.
+- Custom Gradio tool imports no longer fail when common endpoint aliases such as `process` collide; ambiguous aliases are ignored while namespaced endpoint aliases remain runnable.
+- Catalog-to-Gradio matching now prefers catalog `runnableExample` Hugging Face Space links over fragile name aliases.
+- Hugging Face Space imports now skip existing configured Spaces by normalized URL, preventing duplicate tools across `huggingface.co/spaces/...` and `*.hf.space` link forms.
 
 ### Changed
 - The React `/tools` page no longer exposes JSON editing/import/export controls to users; custom tools are added through the HF Space link workflow.

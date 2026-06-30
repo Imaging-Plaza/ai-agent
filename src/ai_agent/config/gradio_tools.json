@@ -2757,6 +2757,3676 @@
           }
         }
       ]
+    },
+    {
+      "id": "katospiegel_stardist_app",
+      "display_name": "Stardist App",
+      "description": "Input: a single 2D fluorescence/nuclei IMAGE (PNG/JPG/TIFF), read as grayscale. Detect nuclei as star-convex polygons (StarDist) and return a colour instance-overlay PNG. engine: 'fast' (classical Otsu+watershed re-expressed as star-convex polygons) or 'stardist' (real pretrained StarDist2D network).",
+      "icon": "T",
+      "enabled": true,
+      "gradio_url": "https://katospiegel-stardist-app.hf.space/",
+      "auth": {
+        "token_envs": [],
+        "required": false
+      },
+      "catalog_aliases": [
+        "stardist app",
+        "katospiegel_stardist_app"
+      ],
+      "default_endpoint": "process",
+      "timeout_seconds": 300.0,
+      "max_download_bytes": 1073741824,
+      "metadata": {
+        "source": "hf_space_link",
+        "info": {
+          "named_endpoints": {
+            "/process": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single 2D fluorescence/nuclei IMAGE (PNG/JPG/TIFF), read as grayscale. Detect nuclei as star-convex polygons (StarDist) and return a colour instance-overlay PNG. engine: 'fast' (classical Otsu+watershed re-expressed as star-convex polygons) or 'stardist' (real pretrained StarDist2D network)."
+            },
+            "/analyze": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a 2D nuclei image). Return the detection report as JSON: engine, model, number of objects, mean area, detection F1 (IoU-matched vs the baked ground-truth labels), and per-object star-convex polygon summaries."
+            }
+          },
+          "unnamed_endpoints": {}
+        },
+        "mcp_schema": [
+          {
+            "name": "stardist_app_process_api",
+            "description": "Input: a single 2D fluorescence/nuclei IMAGE (PNG/JPG/TIFF), read as grayscale. Detect nuclei as star-convex polygons (StarDist) and return a colour instance-overlay PNG. engine: 'fast' (classical Otsu+watershed re-expressed as star-convex polygons) or 'stardist' (real pretrained StarDist2D network).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "process"
+            }
+          },
+          {
+            "name": "stardist_app_analyze_api",
+            "description": "Same input as `process` (a 2D nuclei image). Return the detection report as JSON: engine, model, number of objects, mean area, detection F1 (IoU-matched vs the baked ground-truth labels), and per-object star-convex polygon summaries.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "analyze"
+            }
+          }
+        ]
+      },
+      "endpoints": [
+        {
+          "id": "process",
+          "display_name": "stardist_app_process_api",
+          "description": "Input: a single 2D fluorescence/nuclei IMAGE (PNG/JPG/TIFF), read as grayscale. Detect nuclei as star-convex polygons (StarDist) and return a colour instance-overlay PNG. engine: 'fast' (classical Otsu+watershed re-expressed as star-convex polygons) or 'stardist' (real pretrained StarDist2D network).",
+          "api_name": "/process",
+          "enabled": true,
+          "catalog_aliases": [
+            "stardist_app_process_api",
+            "process"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "raw"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "process_output",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "process"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run stardist_app_process_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single 2D fluorescence/nuclei IMAGE (PNG/JPG/TIFF), read as grayscale. Detect nuclei as star-convex polygons (StarDist) and return a colour instance-overlay PNG. engine: 'fast' (classical Otsu+watershed re-expressed as star-convex polygons) or 'stardist' (real pretrained StarDist2D network)."
+            },
+            "mcp_tool": {
+              "name": "stardist_app_process_api",
+              "description": "Input: a single 2D fluorescence/nuclei IMAGE (PNG/JPG/TIFF), read as grayscale. Detect nuclei as star-convex polygons (StarDist) and return a colour instance-overlay PNG. engine: 'fast' (classical Otsu+watershed re-expressed as star-convex polygons) or 'stardist' (real pretrained StarDist2D network).",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "process"
+              }
+            }
+          }
+        },
+        {
+          "id": "analyze",
+          "display_name": "stardist_app_analyze_api",
+          "description": "Same input as `process` (a 2D nuclei image). Return the detection report as JSON: engine, model, number of objects, mean area, detection F1 (IoU-matched vs the baked ground-truth labels), and per-object star-convex polygon summaries.",
+          "api_name": "/analyze",
+          "enabled": true,
+          "catalog_aliases": [
+            "stardist_app_analyze_api",
+            "analyze"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "raw",
+                  "aligned"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "mask",
+                "artifact_type": "mask",
+                "formats": [],
+                "semantic_roles": [
+                  "segment",
+                  "mask",
+                  "segmentation"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run stardist_app_analyze_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a 2D nuclei image). Return the detection report as JSON: engine, model, number of objects, mean area, detection F1 (IoU-matched vs the baked ground-truth labels), and per-object star-convex polygon summaries."
+            },
+            "mcp_tool": {
+              "name": "stardist_app_analyze_api",
+              "description": "Same input as `process` (a 2D nuclei image). Return the detection report as JSON: engine, model, number of objects, mean area, detection F1 (IoU-matched vs the baked ground-truth labels), and per-object star-convex polygon summaries.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "analyze"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "katospiegel_cellpose_app",
+      "display_name": "Cellpose App",
+      "description": "Input: a single 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale. Segment cells/nuclei in an image (URL, file, or bytes) and return a colored instance-overlay PNG. engine: 'fast' or 'cellpose'.",
+      "icon": "T",
+      "enabled": true,
+      "gradio_url": "https://katospiegel-cellpose-app.hf.space/",
+      "auth": {
+        "token_envs": [],
+        "required": false
+      },
+      "catalog_aliases": [
+        "cellpose app",
+        "katospiegel_cellpose_app"
+      ],
+      "default_endpoint": "process",
+      "timeout_seconds": 300.0,
+      "max_download_bytes": 1073741824,
+      "metadata": {
+        "source": "hf_space_link",
+        "info": {
+          "named_endpoints": {
+            "/process": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "diameter",
+                  "parameter_has_default": true,
+                  "parameter_default": 0.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 0.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale. Segment cells/nuclei in an image (URL, file, or bytes) and return a colored instance-overlay PNG. engine: 'fast' or 'cellpose'."
+            },
+            "/analyze": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "diameter",
+                  "parameter_has_default": true,
+                  "parameter_default": 0.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 0.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a 2D microscopy image). Return the segmentation report (cell count, mean area, F1 vs GT) as JSON."
+            }
+          },
+          "unnamed_endpoints": {}
+        },
+        "mcp_schema": [
+          {
+            "name": "cellpose_app_process_api",
+            "description": "Input: a single 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale. Segment cells/nuclei in an image (URL, file, or bytes) and return a colored instance-overlay PNG. engine: 'fast' or 'cellpose'.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                },
+                "diameter": {
+                  "type": "number",
+                  "description": ""
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "process"
+            }
+          },
+          {
+            "name": "cellpose_app_analyze_api",
+            "description": "Same input as `process` (a 2D microscopy image). Return the segmentation report (cell count, mean area, F1 vs GT) as JSON.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                },
+                "diameter": {
+                  "type": "number",
+                  "description": ""
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "analyze"
+            }
+          }
+        ]
+      },
+      "endpoints": [
+        {
+          "id": "process",
+          "display_name": "cellpose_app_process_api",
+          "description": "Input: a single 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale. Segment cells/nuclei in an image (URL, file, or bytes) and return a colored instance-overlay PNG. engine: 'fast' or 'cellpose'.",
+          "api_name": "/process",
+          "enabled": true,
+          "catalog_aliases": [
+            "cellpose_app_process_api",
+            "katospiegel_cellpose_app_process"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "diameter",
+                "source": "param",
+                "required": false,
+                "value": 0.0,
+                "param": "diameter",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "raw",
+                  "aligned"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "mask",
+                "artifact_type": "mask",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "segment",
+                  "mask",
+                  "segmentation"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run cellpose_app_process_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "diameter",
+                  "parameter_has_default": true,
+                  "parameter_default": 0.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 0.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale. Segment cells/nuclei in an image (URL, file, or bytes) and return a colored instance-overlay PNG. engine: 'fast' or 'cellpose'."
+            },
+            "mcp_tool": {
+              "name": "cellpose_app_process_api",
+              "description": "Input: a single 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale. Segment cells/nuclei in an image (URL, file, or bytes) and return a colored instance-overlay PNG. engine: 'fast' or 'cellpose'.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  },
+                  "diameter": {
+                    "type": "number",
+                    "description": ""
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "process"
+              }
+            }
+          }
+        },
+        {
+          "id": "analyze",
+          "display_name": "cellpose_app_analyze_api",
+          "description": "Same input as `process` (a 2D microscopy image). Return the segmentation report (cell count, mean area, F1 vs GT) as JSON.",
+          "api_name": "/analyze",
+          "enabled": true,
+          "catalog_aliases": [
+            "cellpose_app_analyze_api",
+            "katospiegel_cellpose_app_analyze"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "diameter",
+                "source": "param",
+                "required": false,
+                "value": 0.0,
+                "param": "diameter",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "raw",
+                  "aligned"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "mask",
+                "artifact_type": "mask",
+                "formats": [],
+                "semantic_roles": [
+                  "segment",
+                  "mask",
+                  "segmentation"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run cellpose_app_analyze_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "diameter",
+                  "parameter_has_default": true,
+                  "parameter_default": 0.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 0.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a 2D microscopy image). Return the segmentation report (cell count, mean area, F1 vs GT) as JSON."
+            },
+            "mcp_tool": {
+              "name": "cellpose_app_analyze_api",
+              "description": "Same input as `process` (a 2D microscopy image). Return the segmentation report (cell count, mean area, F1 vs GT) as JSON.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  },
+                  "diameter": {
+                    "type": "number",
+                    "description": ""
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "analyze"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "katospiegel_denoise_app",
+      "display_name": "Denoise App",
+      "description": "Input: a single noisy 2D IMAGE (PNG/JPG/TIFF), read as grayscale. Denoise an image (URL, file, or bytes) and return a noisy/denoised/clean summary PNG. engine: 'nlm' | 'tv' | 'wavelet' | 'deep'.",
+      "icon": "T",
+      "enabled": true,
+      "gradio_url": "https://katospiegel-denoise-app.hf.space/",
+      "auth": {
+        "token_envs": [],
+        "required": false
+      },
+      "catalog_aliases": [
+        "denoise app",
+        "katospiegel_denoise_app"
+      ],
+      "default_endpoint": "process",
+      "timeout_seconds": 300.0,
+      "max_download_bytes": 1073741824,
+      "metadata": {
+        "source": "hf_space_link",
+        "info": {
+          "named_endpoints": {
+            "/process": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "nlm",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "nlm"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "strength",
+                  "parameter_has_default": true,
+                  "parameter_default": 1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 1.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single noisy 2D IMAGE (PNG/JPG/TIFF), read as grayscale. Denoise an image (URL, file, or bytes) and return a noisy/denoised/clean summary PNG. engine: 'nlm' | 'tv' | 'wavelet' | 'deep'."
+            },
+            "/analyze": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "nlm",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "nlm"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "strength",
+                  "parameter_has_default": true,
+                  "parameter_default": 1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 1.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a noisy 2D image). Return the denoising report (engine, PSNR/SSIM noisy vs denoised) as JSON."
+            }
+          },
+          "unnamed_endpoints": {}
+        },
+        "mcp_schema": [
+          {
+            "name": "denoise_app_process_api",
+            "description": "Input: a single noisy 2D IMAGE (PNG/JPG/TIFF), read as grayscale. Denoise an image (URL, file, or bytes) and return a noisy/denoised/clean summary PNG. engine: 'nlm' | 'tv' | 'wavelet' | 'deep'.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "nlm"
+                },
+                "strength": {
+                  "type": "number",
+                  "description": "",
+                  "default": 1.0
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "process"
+            }
+          },
+          {
+            "name": "denoise_app_analyze_api",
+            "description": "Same input as `process` (a noisy 2D image). Return the denoising report (engine, PSNR/SSIM noisy vs denoised) as JSON.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "nlm"
+                },
+                "strength": {
+                  "type": "number",
+                  "description": "",
+                  "default": 1.0
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "analyze"
+            }
+          }
+        ]
+      },
+      "endpoints": [
+        {
+          "id": "process",
+          "display_name": "denoise_app_process_api",
+          "description": "Input: a single noisy 2D IMAGE (PNG/JPG/TIFF), read as grayscale. Denoise an image (URL, file, or bytes) and return a noisy/denoised/clean summary PNG. engine: 'nlm' | 'tv' | 'wavelet' | 'deep'.",
+          "api_name": "/process",
+          "enabled": true,
+          "catalog_aliases": [
+            "denoise_app_process_api",
+            "katospiegel_denoise_app_process"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "nlm",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "strength",
+                "source": "param",
+                "required": false,
+                "value": 1.0,
+                "param": "strength",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "raw"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "denoise_output",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "denoise"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run denoise_app_process_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "nlm",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "nlm"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "strength",
+                  "parameter_has_default": true,
+                  "parameter_default": 1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 1.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single noisy 2D IMAGE (PNG/JPG/TIFF), read as grayscale. Denoise an image (URL, file, or bytes) and return a noisy/denoised/clean summary PNG. engine: 'nlm' | 'tv' | 'wavelet' | 'deep'."
+            },
+            "mcp_tool": {
+              "name": "denoise_app_process_api",
+              "description": "Input: a single noisy 2D IMAGE (PNG/JPG/TIFF), read as grayscale. Denoise an image (URL, file, or bytes) and return a noisy/denoised/clean summary PNG. engine: 'nlm' | 'tv' | 'wavelet' | 'deep'.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "nlm"
+                  },
+                  "strength": {
+                    "type": "number",
+                    "description": "",
+                    "default": 1.0
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "process"
+              }
+            }
+          }
+        },
+        {
+          "id": "analyze",
+          "display_name": "denoise_app_analyze_api",
+          "description": "Same input as `process` (a noisy 2D image). Return the denoising report (engine, PSNR/SSIM noisy vs denoised) as JSON.",
+          "api_name": "/analyze",
+          "enabled": true,
+          "catalog_aliases": [
+            "denoise_app_analyze_api",
+            "katospiegel_denoise_app_analyze"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "nlm",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "strength",
+                "source": "param",
+                "required": false,
+                "value": 1.0,
+                "param": "strength",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "raw"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "denoise_output",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "denoise"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run denoise_app_analyze_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "nlm",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "nlm"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "strength",
+                  "parameter_has_default": true,
+                  "parameter_default": 1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 1.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a noisy 2D image). Return the denoising report (engine, PSNR/SSIM noisy vs denoised) as JSON."
+            },
+            "mcp_tool": {
+              "name": "denoise_app_analyze_api",
+              "description": "Same input as `process` (a noisy 2D image). Return the denoising report (engine, PSNR/SSIM noisy vs denoised) as JSON.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "nlm"
+                  },
+                  "strength": {
+                    "type": "number",
+                    "description": "",
+                    "default": 1.0
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "analyze"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "katospiegel_csbdeep_app",
+      "display_name": "Csbdeep App",
+      "description": "Input: a single degraded 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale (low SNR + blur). Restore it toward the high-quality image (content-aware restoration, CARE-style) and return a degraded\u00b7restored\u00b7clean summary PNG. engine: 'fast' (Richardson-Lucy deconvolution + wavelet denoising) or 'care' (real csbdeep CARE net); psf_sigma (assumed blur); strength (denoising).",
+      "icon": "T",
+      "enabled": true,
+      "gradio_url": "https://katospiegel-csbdeep-app.hf.space/",
+      "auth": {
+        "token_envs": [],
+        "required": false
+      },
+      "catalog_aliases": [
+        "csbdeep app",
+        "katospiegel_csbdeep_app"
+      ],
+      "default_endpoint": "process",
+      "timeout_seconds": 300.0,
+      "max_download_bytes": 1073741824,
+      "metadata": {
+        "source": "hf_space_link",
+        "info": {
+          "named_endpoints": {
+            "/process": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "psf_sigma",
+                  "parameter_has_default": true,
+                  "parameter_default": 2.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 2.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "strength",
+                  "parameter_has_default": true,
+                  "parameter_default": 1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 1.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single degraded 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale (low SNR + blur). Restore it toward the high-quality image (content-aware restoration, CARE-style) and return a degraded\u00b7restored\u00b7clean summary PNG. engine: 'fast' (Richardson-Lucy deconvolution + wavelet denoising) or 'care' (real csbdeep CARE net); psf_sigma (assumed blur); strength (denoising)."
+            },
+            "/analyze": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "psf_sigma",
+                  "parameter_has_default": true,
+                  "parameter_default": 2.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 2.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "strength",
+                  "parameter_has_default": true,
+                  "parameter_default": 1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 1.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a degraded 2D image). Return the restoration report as JSON: engine, model, and PSNR/SSIM for the degraded input and the restored result vs the clean ground truth."
+            }
+          },
+          "unnamed_endpoints": {}
+        },
+        "mcp_schema": [
+          {
+            "name": "csbdeep_app_process_api",
+            "description": "Input: a single degraded 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale (low SNR + blur). Restore it toward the high-quality image (content-aware restoration, CARE-style) and return a degraded\u00b7restored\u00b7clean summary PNG. engine: 'fast' (Richardson-Lucy deconvolution + wavelet denoising) or 'care' (real csbdeep CARE net); psf_sigma (assumed blur); strength (denoising).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                },
+                "psf_sigma": {
+                  "type": "number",
+                  "description": "",
+                  "default": 2.0
+                },
+                "strength": {
+                  "type": "number",
+                  "description": "",
+                  "default": 1.0
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "process"
+            }
+          },
+          {
+            "name": "csbdeep_app_analyze_api",
+            "description": "Same input as `process` (a degraded 2D image). Return the restoration report as JSON: engine, model, and PSNR/SSIM for the degraded input and the restored result vs the clean ground truth.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                },
+                "psf_sigma": {
+                  "type": "number",
+                  "description": "",
+                  "default": 2.0
+                },
+                "strength": {
+                  "type": "number",
+                  "description": "",
+                  "default": 1.0
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "analyze"
+            }
+          }
+        ]
+      },
+      "endpoints": [
+        {
+          "id": "process",
+          "display_name": "csbdeep_app_process_api",
+          "description": "Input: a single degraded 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale (low SNR + blur). Restore it toward the high-quality image (content-aware restoration, CARE-style) and return a degraded\u00b7restored\u00b7clean summary PNG. engine: 'fast' (Richardson-Lucy deconvolution + wavelet denoising) or 'care' (real csbdeep CARE net); psf_sigma (assumed blur); strength (denoising).",
+          "api_name": "/process",
+          "enabled": true,
+          "catalog_aliases": [
+            "csbdeep_app_process_api",
+            "katospiegel_csbdeep_app_process"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "psf_sigma",
+                "source": "param",
+                "required": false,
+                "value": 2.0,
+                "param": "psf_sigma",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "strength",
+                "source": "param",
+                "required": false,
+                "value": 1.0,
+                "param": "strength",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "4th",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "raw"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "denoise_output",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "denoise"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run csbdeep_app_process_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "psf_sigma",
+                  "parameter_has_default": true,
+                  "parameter_default": 2.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 2.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "strength",
+                  "parameter_has_default": true,
+                  "parameter_default": 1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 1.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single degraded 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale (low SNR + blur). Restore it toward the high-quality image (content-aware restoration, CARE-style) and return a degraded\u00b7restored\u00b7clean summary PNG. engine: 'fast' (Richardson-Lucy deconvolution + wavelet denoising) or 'care' (real csbdeep CARE net); psf_sigma (assumed blur); strength (denoising)."
+            },
+            "mcp_tool": {
+              "name": "csbdeep_app_process_api",
+              "description": "Input: a single degraded 2D microscopy IMAGE (PNG/JPG/TIFF), read as grayscale (low SNR + blur). Restore it toward the high-quality image (content-aware restoration, CARE-style) and return a degraded\u00b7restored\u00b7clean summary PNG. engine: 'fast' (Richardson-Lucy deconvolution + wavelet denoising) or 'care' (real csbdeep CARE net); psf_sigma (assumed blur); strength (denoising).",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  },
+                  "psf_sigma": {
+                    "type": "number",
+                    "description": "",
+                    "default": 2.0
+                  },
+                  "strength": {
+                    "type": "number",
+                    "description": "",
+                    "default": 1.0
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "process"
+              }
+            }
+          }
+        },
+        {
+          "id": "analyze",
+          "display_name": "csbdeep_app_analyze_api",
+          "description": "Same input as `process` (a degraded 2D image). Return the restoration report as JSON: engine, model, and PSNR/SSIM for the degraded input and the restored result vs the clean ground truth.",
+          "api_name": "/analyze",
+          "enabled": true,
+          "catalog_aliases": [
+            "csbdeep_app_analyze_api",
+            "katospiegel_csbdeep_app_analyze"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "psf_sigma",
+                "source": "param",
+                "required": false,
+                "value": 2.0,
+                "param": "psf_sigma",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "strength",
+                "source": "param",
+                "required": false,
+                "value": 1.0,
+                "param": "strength",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "4th",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "raw"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "denoise_output",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "denoise"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run csbdeep_app_analyze_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "psf_sigma",
+                  "parameter_has_default": true,
+                  "parameter_default": 2.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 2.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "strength",
+                  "parameter_has_default": true,
+                  "parameter_default": 1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 1.0
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a degraded 2D image). Return the restoration report as JSON: engine, model, and PSNR/SSIM for the degraded input and the restored result vs the clean ground truth."
+            },
+            "mcp_tool": {
+              "name": "csbdeep_app_analyze_api",
+              "description": "Same input as `process` (a degraded 2D image). Return the restoration report as JSON: engine, model, and PSNR/SSIM for the degraded input and the restored result vs the clean ground truth.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  },
+                  "psf_sigma": {
+                    "type": "number",
+                    "description": "",
+                    "default": 2.0
+                  },
+                  "strength": {
+                    "type": "number",
+                    "description": "",
+                    "default": 1.0
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "analyze"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "katospiegel_pyrvision_app",
+      "display_name": "Pyrvision App",
+      "description": "Input: a single camera-trap IMAGE (PNG/JPG/TIFF/BMP/WEBP) OR a VIDEO (MP4/MOV/AVI/MKV/WEBM), colour or grayscale/IR. Detect wildlife (Pyrenees mammals) and return a summary image (the annotated frame, or a montage of sampled annotated frames for video). Routes by colorspace (grey\u2192BW, colour\u2192COLOR) like PyrVision. engine: 'fast' (saliency) or 'pyrvision' (real YOLO); conf<0 = auto (0.6 BW / 0.8 COLOR); max_frames samples a video.",
+      "icon": "T",
+      "enabled": true,
+      "gradio_url": "https://katospiegel-pyrvision-app.hf.space/",
+      "auth": {
+        "token_envs": [],
+        "required": false
+      },
+      "catalog_aliases": [
+        "pyrvision app",
+        "katospiegel_pyrvision_app"
+      ],
+      "default_endpoint": "process",
+      "timeout_seconds": 300.0,
+      "max_download_bytes": 1073741824,
+      "metadata": {
+        "source": "hf_space_link",
+        "info": {
+          "named_endpoints": {
+            "/process": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "conf",
+                  "parameter_has_default": true,
+                  "parameter_default": -1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": -1.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "draw_boxes",
+                  "parameter_has_default": true,
+                  "parameter_default": true,
+                  "type": {
+                    "type": "boolean"
+                  },
+                  "python_type": {
+                    "type": "bool",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": true
+                },
+                {
+                  "label": "5th",
+                  "parameter_name": "max_frames",
+                  "parameter_has_default": true,
+                  "parameter_default": 16,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 16
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single camera-trap IMAGE (PNG/JPG/TIFF/BMP/WEBP) OR a VIDEO (MP4/MOV/AVI/MKV/WEBM), colour or grayscale/IR. Detect wildlife (Pyrenees mammals) and return a summary image (the annotated frame, or a montage of sampled annotated frames for video). Routes by colorspace (grey\u2192BW, colour\u2192COLOR) like PyrVision. engine: 'fast' (saliency) or 'pyrvision' (real YOLO); conf<0 = auto (0.6 BW / 0.8 COLOR); max_frames samples a video."
+            },
+            "/analyze": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "conf",
+                  "parameter_has_default": true,
+                  "parameter_default": -1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": -1.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "max_frames",
+                  "parameter_has_default": true,
+                  "parameter_default": 16,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 16
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a camera-trap image or video). Return the detection report as JSON \u2014 for an image: colorspace route + per-detection boxes/scores; for a video: per-species summary (frames seen, max conf) and a per-frame timeline. Empty = PyrVision's 'nuls' case."
+            },
+            "/export": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "conf",
+                  "parameter_has_default": true,
+                  "parameter_default": -1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": -1.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "max_frames",
+                  "parameter_has_default": true,
+                  "parameter_default": 16,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 16
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a camera-trap image or video). Return a downloadable results bundle (.zip): the annotated image (or montage + annotated clip for video), detections.csv, YOLO-format label files under labels/, report.json, and the species catalog. PyrVision-style export."
+            }
+          },
+          "unnamed_endpoints": {}
+        },
+        "mcp_schema": [
+          {
+            "name": "pyrvision_app_process_api",
+            "description": "Input: a single camera-trap IMAGE (PNG/JPG/TIFF/BMP/WEBP) OR a VIDEO (MP4/MOV/AVI/MKV/WEBM), colour or grayscale/IR. Detect wildlife (Pyrenees mammals) and return a summary image (the annotated frame, or a montage of sampled annotated frames for video). Routes by colorspace (grey\u2192BW, colour\u2192COLOR) like PyrVision. engine: 'fast' (saliency) or 'pyrvision' (real YOLO); conf<0 = auto (0.6 BW / 0.8 COLOR); max_frames samples a video.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                },
+                "conf": {
+                  "type": "number",
+                  "description": "",
+                  "default": -1.0
+                },
+                "draw_boxes": {
+                  "type": "boolean",
+                  "description": "",
+                  "default": true
+                },
+                "max_frames": {
+                  "type": "integer",
+                  "description": "",
+                  "default": 16
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "process"
+            }
+          },
+          {
+            "name": "pyrvision_app_analyze_api",
+            "description": "Same input as `process` (a camera-trap image or video). Return the detection report as JSON \u2014 for an image: colorspace route + per-detection boxes/scores; for a video: per-species summary (frames seen, max conf) and a per-frame timeline. Empty = PyrVision's 'nuls' case.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                },
+                "conf": {
+                  "type": "number",
+                  "description": "",
+                  "default": -1.0
+                },
+                "max_frames": {
+                  "type": "integer",
+                  "description": "",
+                  "default": 16
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "analyze"
+            }
+          },
+          {
+            "name": "pyrvision_app_export_api",
+            "description": "Same input as `process` (a camera-trap image or video). Return a downloadable results bundle (.zip): the annotated image (or montage + annotated clip for video), detections.csv, YOLO-format label files under labels/, report.json, and the species catalog. PyrVision-style export.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "file_url": {
+                  "type": "string",
+                  "description": ""
+                },
+                "engine": {
+                  "type": "string",
+                  "description": "",
+                  "default": "fast"
+                },
+                "conf": {
+                  "type": "number",
+                  "description": "",
+                  "default": -1.0
+                },
+                "max_frames": {
+                  "type": "integer",
+                  "description": "",
+                  "default": 16
+                }
+              }
+            },
+            "meta": {
+              "file_data_present": false,
+              "mcp_type": "tool",
+              "endpoint_name": "export"
+            }
+          }
+        ]
+      },
+      "endpoints": [
+        {
+          "id": "process",
+          "display_name": "pyrvision_app_process_api",
+          "description": "Input: a single camera-trap IMAGE (PNG/JPG/TIFF/BMP/WEBP) OR a VIDEO (MP4/MOV/AVI/MKV/WEBM), colour or grayscale/IR. Detect wildlife (Pyrenees mammals) and return a summary image (the annotated frame, or a montage of sampled annotated frames for video). Routes by colorspace (grey\u2192BW, colour\u2192COLOR) like PyrVision. engine: 'fast' (saliency) or 'pyrvision' (real YOLO); conf<0 = auto (0.6 BW / 0.8 COLOR); max_frames samples a video.",
+          "api_name": "/process",
+          "enabled": true,
+          "catalog_aliases": [
+            "pyrvision_app_process_api",
+            "katospiegel_pyrvision_app_process"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "conf",
+                "source": "param",
+                "required": false,
+                "value": -1.0,
+                "param": "conf",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "draw_boxes",
+                "source": "param",
+                "required": false,
+                "value": true,
+                "param": "draw_boxes",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "4th",
+                  "type": "boolean",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "max_frames",
+                "source": "param",
+                "required": false,
+                "value": 16,
+                "param": "max_frames",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "5th",
+                  "type": "integer",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "raw"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "process_output",
+                "artifact_type": "image",
+                "formats": [
+                  "tif",
+                  "tiff",
+                  "png",
+                  "jpg",
+                  "jpeg"
+                ],
+                "semantic_roles": [
+                  "process"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run pyrvision_app_process_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "conf",
+                  "parameter_has_default": true,
+                  "parameter_default": -1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": -1.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "draw_boxes",
+                  "parameter_has_default": true,
+                  "parameter_default": true,
+                  "type": {
+                    "type": "boolean"
+                  },
+                  "python_type": {
+                    "type": "bool",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": true
+                },
+                {
+                  "label": "5th",
+                  "parameter_name": "max_frames",
+                  "parameter_has_default": true,
+                  "parameter_default": 16,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 16
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Input: a single camera-trap IMAGE (PNG/JPG/TIFF/BMP/WEBP) OR a VIDEO (MP4/MOV/AVI/MKV/WEBM), colour or grayscale/IR. Detect wildlife (Pyrenees mammals) and return a summary image (the annotated frame, or a montage of sampled annotated frames for video). Routes by colorspace (grey\u2192BW, colour\u2192COLOR) like PyrVision. engine: 'fast' (saliency) or 'pyrvision' (real YOLO); conf<0 = auto (0.6 BW / 0.8 COLOR); max_frames samples a video."
+            },
+            "mcp_tool": {
+              "name": "pyrvision_app_process_api",
+              "description": "Input: a single camera-trap IMAGE (PNG/JPG/TIFF/BMP/WEBP) OR a VIDEO (MP4/MOV/AVI/MKV/WEBM), colour or grayscale/IR. Detect wildlife (Pyrenees mammals) and return a summary image (the annotated frame, or a montage of sampled annotated frames for video). Routes by colorspace (grey\u2192BW, colour\u2192COLOR) like PyrVision. engine: 'fast' (saliency) or 'pyrvision' (real YOLO); conf<0 = auto (0.6 BW / 0.8 COLOR); max_frames samples a video.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  },
+                  "conf": {
+                    "type": "number",
+                    "description": "",
+                    "default": -1.0
+                  },
+                  "draw_boxes": {
+                    "type": "boolean",
+                    "description": "",
+                    "default": true
+                  },
+                  "max_frames": {
+                    "type": "integer",
+                    "description": "",
+                    "default": 16
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "process"
+              }
+            }
+          }
+        },
+        {
+          "id": "analyze",
+          "display_name": "pyrvision_app_analyze_api",
+          "description": "Same input as `process` (a camera-trap image or video). Return the detection report as JSON \u2014 for an image: colorspace route + per-detection boxes/scores; for a video: per-species summary (frames seen, max conf) and a per-frame timeline. Empty = PyrVision's 'nuls' case.",
+          "api_name": "/analyze",
+          "enabled": true,
+          "catalog_aliases": [
+            "pyrvision_app_analyze_api",
+            "katospiegel_pyrvision_app_analyze"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "conf",
+                "source": "param",
+                "required": false,
+                "value": -1.0,
+                "param": "conf",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "max_frames",
+                "source": "param",
+                "required": false,
+                "value": 16,
+                "param": "max_frames",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "4th",
+                  "type": "integer",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "raw"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "process_output",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "process"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run pyrvision_app_analyze_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "conf",
+                  "parameter_has_default": true,
+                  "parameter_default": -1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": -1.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "max_frames",
+                  "parameter_has_default": true,
+                  "parameter_default": 16,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 16
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a camera-trap image or video). Return the detection report as JSON \u2014 for an image: colorspace route + per-detection boxes/scores; for a video: per-species summary (frames seen, max conf) and a per-frame timeline. Empty = PyrVision's 'nuls' case."
+            },
+            "mcp_tool": {
+              "name": "pyrvision_app_analyze_api",
+              "description": "Same input as `process` (a camera-trap image or video). Return the detection report as JSON \u2014 for an image: colorspace route + per-detection boxes/scores; for a video: per-species summary (frames seen, max conf) and a per-frame timeline. Empty = PyrVision's 'nuls' case.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  },
+                  "conf": {
+                    "type": "number",
+                    "description": "",
+                    "default": -1.0
+                  },
+                  "max_frames": {
+                    "type": "integer",
+                    "description": "",
+                    "default": 16
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "analyze"
+              }
+            }
+          }
+        },
+        {
+          "id": "export",
+          "display_name": "pyrvision_app_export_api",
+          "description": "Same input as `process` (a camera-trap image or video). Return a downloadable results bundle (.zip): the annotated image (or montage + annotated clip for video), detections.csv, YOLO-format label files under labels/, report.json, and the species catalog. PyrVision-style export.",
+          "api_name": "/export",
+          "enabled": true,
+          "catalog_aliases": [
+            "pyrvision_app_export_api",
+            "katospiegel_pyrvision_app_export"
+          ],
+          "supported_input_types": [
+            "image",
+            "file"
+          ],
+          "input_mapping": {
+            "call_style": "keyword",
+            "parameters": [
+              {
+                "name": "file_url",
+                "source": "session_file",
+                "required": true,
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "1st",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": true
+                }
+              },
+              {
+                "name": "engine",
+                "source": "param",
+                "required": false,
+                "value": "fast",
+                "param": "engine",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "2nd",
+                  "type": "string",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "conf",
+                "source": "param",
+                "required": false,
+                "value": -1.0,
+                "param": "conf",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "3rd",
+                  "type": "number",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              },
+              {
+                "name": "max_frames",
+                "source": "param",
+                "required": false,
+                "value": 16,
+                "param": "max_frames",
+                "file_index": 0,
+                "as_gradio_file": false,
+                "metadata": {
+                  "description": "4th",
+                  "type": "integer",
+                  "format": null,
+                  "choices": [],
+                  "upload_to_gradio_path": false
+                }
+              }
+            ]
+          },
+          "output_mapping": {
+            "original": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": false
+            },
+            "preview": {
+              "selector": "first",
+              "materialize": true,
+              "build_preview": true
+            }
+          },
+          "contracts": {
+            "inputs": [
+              {
+                "name": "file_url",
+                "artifact_type": "image",
+                "formats": [],
+                "semantic_roles": [
+                  "raw",
+                  "aligned"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ],
+            "outputs": [
+              {
+                "name": "mask",
+                "artifact_type": "mask",
+                "formats": [],
+                "semantic_roles": [
+                  "segment",
+                  "mask",
+                  "segmentation"
+                ],
+                "required": true,
+                "metadata": {}
+              }
+            ]
+          },
+          "approval": {
+            "required": true,
+            "message": "Run pyrvision_app_export_api on your uploaded file?"
+          },
+          "demo": {
+            "available": true
+          },
+          "metadata": {
+            "gradio_info": {
+              "parameters": [
+                {
+                  "label": "1st",
+                  "parameter_name": "file_url",
+                  "parameter_has_default": false,
+                  "parameter_default": null,
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "..."
+                },
+                {
+                  "label": "2nd",
+                  "parameter_name": "engine",
+                  "parameter_has_default": true,
+                  "parameter_default": "fast",
+                  "type": {
+                    "type": "string"
+                  },
+                  "python_type": {
+                    "type": "str",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": "fast"
+                },
+                {
+                  "label": "3rd",
+                  "parameter_name": "conf",
+                  "parameter_has_default": true,
+                  "parameter_default": -1.0,
+                  "type": {
+                    "type": "number"
+                  },
+                  "python_type": {
+                    "type": "float",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": -1.0
+                },
+                {
+                  "label": "4th",
+                  "parameter_name": "max_frames",
+                  "parameter_has_default": true,
+                  "parameter_default": 16,
+                  "type": {
+                    "type": "integer"
+                  },
+                  "python_type": {
+                    "type": "int",
+                    "description": ""
+                  },
+                  "component": "Api",
+                  "example_input": 16
+                }
+              ],
+              "returns": [
+                {
+                  "label": "1st",
+                  "type": {},
+                  "python_type": {
+                    "type": "Any",
+                    "description": ""
+                  },
+                  "component": "Api"
+                }
+              ],
+              "show_api": true,
+              "description": "Same input as `process` (a camera-trap image or video). Return a downloadable results bundle (.zip): the annotated image (or montage + annotated clip for video), detections.csv, YOLO-format label files under labels/, report.json, and the species catalog. PyrVision-style export."
+            },
+            "mcp_tool": {
+              "name": "pyrvision_app_export_api",
+              "description": "Same input as `process` (a camera-trap image or video). Return a downloadable results bundle (.zip): the annotated image (or montage + annotated clip for video), detections.csv, YOLO-format label files under labels/, report.json, and the species catalog. PyrVision-style export.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "file_url": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "engine": {
+                    "type": "string",
+                    "description": "",
+                    "default": "fast"
+                  },
+                  "conf": {
+                    "type": "number",
+                    "description": "",
+                    "default": -1.0
+                  },
+                  "max_frames": {
+                    "type": "integer",
+                    "description": "",
+                    "default": 16
+                  }
+                }
+              },
+              "meta": {
+                "file_data_present": false,
+                "mcp_type": "tool",
+                "endpoint_name": "export"
+              }
+            }
+          }
+        }
+      ]
     }
   ]
 }

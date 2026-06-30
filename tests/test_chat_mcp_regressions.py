@@ -26,6 +26,7 @@ from ai_agent.agent.tools.mcp.registry import (
 )
 from ai_agent.generator.schema import Conversation, ConversationStatus, ToolChoice
 from ai_agent.retriever.software_doc import SoftwareDoc
+from ai_agent.api.routers import gradio_tools as gradio_tools_router
 from ai_agent.services import chat as chat_service
 from ai_agent.services.chat import ChatRequest, approve_pending, decline_pending, process_turn
 from ai_agent.services.sessions import Asset, Session
@@ -321,6 +322,87 @@ def test_catalog_bridge_uses_normalized_doc_name_and_all_runnable_links(
     assert result.recommendations[0].demo_url == "https://github.com/glichtner/pystackreg/"
 
 
+@pytest.mark.parametrize(
+    "runnable_url",
+    [
+        "https://huggingface.co/spaces/right/tool",
+        "https://right-tool.hf.space/",
+    ],
+)
+def test_catalog_bridge_prefers_hf_space_link_over_name_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runnable_url: str
+) -> None:
+    payload = {
+        "version": 1,
+        "tools": [
+            {
+                "id": "alias_matched_tool",
+                "display_name": "Alias Matched Tool",
+                "enabled": True,
+                "gradio_url": "https://wrong-tool.hf.space/",
+                "catalog_aliases": ["shared-catalog-name"],
+                "default_endpoint": "run",
+                "endpoints": [
+                    {
+                        "id": "run",
+                        "display_name": "Run Wrong Tool",
+                        "api_name": "/run",
+                        "input_mapping": {
+                            "parameters": [{"name": "image", "source": "session_file", "required": True}]
+                        },
+                    }
+                ],
+            },
+            {
+                "id": "space_matched_tool",
+                "display_name": "Space Matched Tool",
+                "enabled": True,
+                "gradio_url": "https://right-tool.hf.space/",
+                "catalog_aliases": [],
+                "default_endpoint": "run",
+                "endpoints": [
+                    {
+                        "id": "run",
+                        "display_name": "Run Right Tool",
+                        "api_name": "/run",
+                        "input_mapping": {
+                            "parameters": [{"name": "image", "source": "session_file", "required": True}]
+                        },
+                    }
+                ],
+            },
+        ],
+    }
+    config_path = tmp_path / "gradio_tools.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv(GRADIO_TOOLS_CONFIG_ENV, str(config_path))
+    reload_registry(config_path)
+    session = _asset_session(tmp_path)
+
+    def fake_run_agent(*args, **kwargs):
+        return _agent_result("shared-catalog-name")
+
+    monkeypatch.setattr(chat_service, "run_agent", fake_run_agent)
+
+    result = process_turn(
+        session,
+        ChatRequest(message="Run the catalog-matched Space", asset_ids=["asset-1"]),
+        doc_index={
+            "shared-catalog-name": SoftwareDoc(
+                name="shared-catalog-name",
+                runnableExample=[runnable_url],
+            )
+        },
+    )
+
+    assert result.status == "pending_action"
+    assert result.pending_action is not None
+    assert result.pending_action.tool_name == "space_matched_tool"
+    assert result.pending_action.matched_alias == runnable_url
+    monkeypatch.delenv(GRADIO_TOOLS_CONFIG_ENV, raising=False)
+    reload_registry()
+
+
 def test_catalog_bridge_auto_imports_hf_space_when_not_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -333,7 +415,7 @@ def test_catalog_bridge_auto_imports_hf_space_when_not_configured(
     def fake_run_agent(*args, **kwargs):
         return _agent_result("pystackreg")
 
-    def fake_build_tool_config_from_space_url(url: str):
+    def fake_build_tool_config_from_space_url(url: str, catalog_context=None):
         assert url == "https://huggingface.co/spaces/qchapp/pystackreg-app"
         return {
             "id": "qchapp_pystackreg_app",
@@ -394,6 +476,100 @@ def test_catalog_bridge_auto_imports_hf_space_when_not_configured(
     assert result.pending_action.matched_alias == "https://huggingface.co/spaces/qchapp/pystackreg-app"
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert [tool["id"] for tool in saved["tools"]] == ["qchapp_pystackreg_app"]
+    monkeypatch.delenv(GRADIO_TOOLS_CONFIG_ENV, raising=False)
+    reload_registry()
+
+
+def test_catalog_bridge_does_not_auto_import_duplicate_space_url_variant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = {
+        "version": 1,
+        "tools": [
+            {
+                "id": "qchapp_pystackreg_app",
+                "display_name": "PyStackReg",
+                "enabled": True,
+                "gradio_url": "https://qchapp-pystackreg-app.hf.space/",
+                "catalog_aliases": [],
+                "default_endpoint": "run",
+                "endpoints": [
+                    {
+                        "id": "run",
+                        "display_name": "Run",
+                        "api_name": "/run",
+                        "input_mapping": {
+                            "parameters": [{"name": "image", "source": "session_file", "required": True}]
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    config_path = tmp_path / "gradio_tools.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv(GRADIO_TOOLS_CONFIG_ENV, str(config_path))
+    reload_registry(config_path)
+
+    def fail_build(*args, **kwargs):
+        raise AssertionError("duplicate Space should not be fetched again")
+
+    monkeypatch.setattr(chat_service, "build_tool_config_from_space_url", fail_build)
+
+    chat_service._import_gradio_space_link("https://huggingface.co/spaces/qchapp/pystackreg-app")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert [tool["id"] for tool in saved["tools"]] == ["qchapp_pystackreg_app"]
+    monkeypatch.delenv(GRADIO_TOOLS_CONFIG_ENV, raising=False)
+    reload_registry()
+
+
+def test_import_link_endpoint_does_not_add_duplicate_space_url_variant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = {
+        "version": 1,
+        "tools": [
+            {
+                "id": "katospiegel_stardist_app",
+                "display_name": "Stardist App",
+                "enabled": True,
+                "gradio_url": "https://katospiegel-stardist-app.hf.space/",
+                "catalog_aliases": [],
+                "default_endpoint": "process",
+                "endpoints": [
+                    {
+                        "id": "process",
+                        "display_name": "Process",
+                        "api_name": "/process",
+                        "input_mapping": {
+                            "parameters": [{"name": "image", "source": "session_file", "required": True}]
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    config_path = tmp_path / "gradio_tools.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv(GRADIO_TOOLS_CONFIG_ENV, str(config_path))
+    reload_registry(config_path)
+
+    def fail_build(*args, **kwargs):
+        raise AssertionError("duplicate Space should not be fetched again")
+
+    monkeypatch.setattr(gradio_tools_router, "build_tool_config_from_space_url", fail_build)
+
+    response = gradio_tools_router.import_link(
+        gradio_tools_router.ImportLinkRequest(
+            url="https://huggingface.co/spaces/katospiegel/stardist-app"
+        )
+    )
+
+    assert response.ok is True
+    assert response.errors == ["This Hugging Face Space is already added."]
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert [tool["id"] for tool in saved["tools"]] == ["katospiegel_stardist_app"]
     monkeypatch.delenv(GRADIO_TOOLS_CONFIG_ENV, raising=False)
     reload_registry()
 

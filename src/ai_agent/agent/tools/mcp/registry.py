@@ -314,7 +314,6 @@ class GradioToolsConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_registry_collisions(self) -> "GradioToolsConfig":
         seen_tools: set[str] = set()
-        seen_aliases: Dict[str, tuple[str, str, str]] = {}
         for tool in self.tools:
             if tool.id in seen_tools:
                 raise ValueError(f"duplicate tool id {tool.id!r}")
@@ -324,10 +323,6 @@ class GradioToolsConfig(BaseModel):
             for alias in tool.catalog_aliases:
                 if not default_endpoint or default_endpoint not in endpoint_ids:
                     raise ValueError(f"tool-level alias {alias!r} on tool {tool.id!r} is ambiguous because no valid default_endpoint exists")
-                _record_alias(seen_aliases, alias, tool.id, default_endpoint, "tool.catalog_aliases")
-            for endpoint in tool.endpoints:
-                for alias in endpoint.catalog_aliases:
-                    _record_alias(seen_aliases, alias, tool.id, endpoint.id, "endpoint.catalog_aliases")
         return self
 
 
@@ -597,6 +592,7 @@ def _build_registries(config: GradioToolsConfig) -> tuple[Dict[str, ToolConfig],
     tools: Dict[str, ToolConfig] = {}
     aliases: Dict[str, str] = {}
     endpoints_by_alias: Dict[str, tuple[str, str]] = {}
+    alias_collisions: set[str] = set()
     for tool in config.tools:
         default_endpoint_id = tool.default_endpoint or (tool.endpoints[0].id if len(tool.endpoints) == 1 else None)
         tools[tool.id] = ToolConfig(
@@ -627,12 +623,10 @@ def _build_registries(config: GradioToolsConfig) -> tuple[Dict[str, ToolConfig],
         for alias in tool.catalog_aliases:
             if default_endpoint_id is None:
                 raise RegistryValidationError(f"tool {tool.id!r} alias {alias!r} is ambiguous without default_endpoint")
-            aliases[alias] = tool.id
-            endpoints_by_alias[alias] = (tool.id, default_endpoint_id)
+            _register_alias(aliases, endpoints_by_alias, alias_collisions, alias, tool.id, default_endpoint_id)
         for endpoint in tool.endpoints:
             for alias in endpoint.catalog_aliases:
-                aliases[alias] = tool.id
-                endpoints_by_alias[alias] = (tool.id, endpoint.id)
+                _register_alias(aliases, endpoints_by_alias, alias_collisions, alias, tool.id, endpoint.id)
     return tools, aliases, endpoints_by_alias
 
 
@@ -649,16 +643,25 @@ def _swap_registry(config: GradioToolsConfig, path: Path, registries: tuple[Dict
     ACTIVE_CONFIG_PATH = path
 
 
-def _record_alias(seen: Dict[str, tuple[str, str, str]], alias: str, tool_id: str, endpoint_id: str, field: str) -> None:
+def _register_alias(
+    aliases: Dict[str, str],
+    endpoints_by_alias: Dict[str, tuple[str, str]],
+    collisions: set[str],
+    alias: str,
+    tool_id: str,
+    endpoint_id: str,
+) -> None:
     normalized = _normalize_alias(alias)
-    existing = seen.get(normalized)
-    current = (tool_id, endpoint_id, field)
-    if existing and existing[:2] != current[:2]:
-        raise ValueError(
-            f"duplicate alias {normalized!r}: {existing[2]} maps to tool {existing[0]!r} endpoint {existing[1]!r}, "
-            f"but {field} maps to tool {tool_id!r} endpoint {endpoint_id!r}"
-        )
-    seen[normalized] = current
+    if normalized in collisions:
+        return
+    existing = endpoints_by_alias.get(normalized)
+    if existing and existing != (tool_id, endpoint_id):
+        aliases.pop(normalized, None)
+        endpoints_by_alias.pop(normalized, None)
+        collisions.add(normalized)
+        return
+    aliases[normalized] = tool_id
+    endpoints_by_alias[normalized] = (tool_id, endpoint_id)
 
 
 def _normalize_alias(value: str) -> str:

@@ -56,6 +56,25 @@ def normalize_space_url(value: str) -> tuple[str, str, str]:
     raise RegistryValidationError("Use a Space URL like user-tool.hf.space or huggingface.co/user/tool")
 
 
+def find_tool_by_space_url(tools: Iterable[Dict[str, Any]], space_url: str) -> Optional[Dict[str, Any]]:
+    """Return the configured tool whose Gradio URL matches a Space URL variant."""
+    target_base_url, _, _ = normalize_space_url(space_url)
+    target = target_base_url.rstrip("/")
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        gradio_url = str(tool.get("gradio_url") or "")
+        if not gradio_url:
+            continue
+        try:
+            existing_base_url, _, _ = normalize_space_url(gradio_url)
+        except RegistryValidationError:
+            existing_base_url = gradio_url.rstrip("/")
+        if existing_base_url.rstrip("/") == target:
+            return tool
+    return None
+
+
 def _fetch_json(url: str, timeout: float) -> Any:
     try:
         response = requests.get(url, timeout=timeout)
@@ -76,7 +95,7 @@ def _build_tool(
     mcp_schema: Any,
     catalog_context: Dict[str, Any],
 ) -> Dict[str, Any]:
-    endpoints = _build_endpoints(info, mcp_schema, catalog_context)
+    endpoints = _build_endpoints(tool_id, info, mcp_schema, catalog_context)
     if not endpoints:
         raise RegistryValidationError("No callable Gradio endpoints were found for this Space")
     description = _first_text(
@@ -107,6 +126,7 @@ def _build_tool(
 
 
 def _build_endpoints(
+    tool_id: str,
     info: Dict[str, Any],
     mcp_schema: Any,
     catalog_context: Dict[str, Any],
@@ -149,7 +169,7 @@ def _build_endpoints(
             "description": description,
             "api_name": api_name if api_name.startswith("/") else f"/{api_name}",
             "enabled": True,
-            "catalog_aliases": _unique_text([display_name, endpoint_id]),
+            "catalog_aliases": _endpoint_aliases(tool_id, display_name, endpoint_id),
             "supported_input_types": ["image", "file"],
             "input_mapping": {
                 "call_style": "keyword",
@@ -654,6 +674,13 @@ def _space_aliases(display_name: str, tool_id: str) -> List[str]:
     if len(words) > 1 and words[-1].casefold() in {"app", "space", "demo"}:
         short = " ".join(words[:-1])
         aliases.extend([short, _slug_id(short)])
+    return _unique_text(aliases)
+
+
+def _endpoint_aliases(tool_id: str, display_name: str, endpoint_id: str) -> List[str]:
+    aliases: List[Optional[str]] = [f"{tool_id}_{endpoint_id}"]
+    if _slug_id(display_name) != endpoint_id:
+        aliases.insert(0, display_name)
     return _unique_text(aliases)
 
 

@@ -44,6 +44,7 @@ from ai_agent.agent.tools.mcp import (
 )
 from ai_agent.agent.tools.mcp.gradio_importer import (
     build_tool_config_from_space_url,
+    find_tool_by_space_url,
     normalize_space_url,
 )
 from ai_agent.agent.tools.mcp.registry import RegistryValidationError
@@ -677,23 +678,20 @@ def _select_pending_action(
     image_path = effective_paths[0] if effective_paths else None
     for rank, choice in enumerate(choices, 1):
         alias = choice.get("name") or ""
-        tool_config = resolve_catalog_alias(alias)
-        matched_alias = alias
-        endpoint_selection_alias = alias
         runnable_links = [
             link
             for link in [choice.get("demo_link"), *(choice.get("demo_links") or [])]
             if isinstance(link, str) and link.strip()
         ]
+        catalog_context = choice.get("catalog_context")
+        tool_config, matched_link = _resolve_or_import_runnable_tool(
+            runnable_links,
+            catalog_context=catalog_context if isinstance(catalog_context, dict) else None,
+        )
+        matched_alias = matched_link or alias
+        endpoint_selection_alias = tool_config.name if tool_config else alias
         if not tool_config:
-            catalog_context = choice.get("catalog_context")
-            tool_config, matched_link = _resolve_or_import_runnable_tool(
-                runnable_links,
-                catalog_context=catalog_context if isinstance(catalog_context, dict) else None,
-            )
-            if tool_config and matched_link:
-                matched_alias = matched_link
-            endpoint_selection_alias = tool_config.name if tool_config else alias
+            tool_config = resolve_catalog_alias(alias)
         if not tool_config or not tool_config.endpoint:
             continue
         endpoint_selection = _select_endpoint_for_choice(
@@ -785,21 +783,18 @@ def _import_gradio_space_link(
     link: str,
     catalog_context: Optional[Dict[str, Any]] = None,
 ) -> None:
-    base_url, _, _ = normalize_space_url(link)
-    tool = build_tool_config_from_space_url(link, catalog_context=catalog_context)
     config = active_config_json()
     existing_tools = list(config.get("tools") or [])
+    if find_tool_by_space_url(existing_tools, link):
+        return
+
+    tool = build_tool_config_from_space_url(link, catalog_context=catalog_context)
     for item in existing_tools:
         if not isinstance(item, dict):
             continue
         if item.get("id") == tool["id"]:
             return
-        existing_url = str(item.get("gradio_url") or "")
-        try:
-            existing_base_url, _, _ = normalize_space_url(existing_url)
-        except RegistryValidationError:
-            existing_base_url = existing_url.rstrip("/")
-        if existing_base_url.rstrip("/") == base_url.rstrip("/"):
+        if find_tool_by_space_url([item], str(tool.get("gradio_url") or "")):
             return
     config["version"] = config.get("version") or 1
     config["tools"] = [*existing_tools, tool]

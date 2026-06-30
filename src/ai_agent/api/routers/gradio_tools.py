@@ -15,12 +15,13 @@ from ai_agent.agent.tools.mcp import (
     save_config_payload,
     validate_config_payload,
 )
-from ai_agent.agent.tools.mcp.gradio_importer import build_tool_config_from_space_url
+from ai_agent.agent.tools.mcp.gradio_importer import build_tool_config_from_space_url, find_tool_by_space_url
 from ai_agent.api.deps import require_auth
 
 log = logging.getLogger("api.routers.gradio_tools")
 
 router = APIRouter(prefix="/api/gradio-tools", tags=["gradio-tools"], dependencies=[Depends(require_auth)])
+SPACE_ALREADY_CONFIGURED = "This Hugging Face Space is already added."
 
 
 class ConfigEnvelope(BaseModel):
@@ -85,9 +86,24 @@ def save_config(body: ConfigEnvelope) -> SaveResponse:
 @router.post("/import-link", response_model=SaveResponse)
 def import_link(body: ImportLinkRequest) -> SaveResponse:
     try:
-        tool = build_tool_config_from_space_url(body.url)
         config = active_config_json()
         existing_tools = list(config.get("tools") or [])
+        if find_tool_by_space_url(existing_tools, body.url):
+            return SaveResponse(
+                ok=True,
+                path=str(active_config_path()),
+                reloaded=True,
+                errors=[SPACE_ALREADY_CONFIGURED],
+            )
+
+        tool = build_tool_config_from_space_url(body.url)
+        if find_tool_by_space_url(existing_tools, str(tool.get("gradio_url") or "")):
+            return SaveResponse(
+                ok=True,
+                path=str(active_config_path()),
+                reloaded=True,
+                errors=[SPACE_ALREADY_CONFIGURED],
+            )
         if any(item.get("id") == tool["id"] for item in existing_tools if isinstance(item, dict)):
             raise RegistryValidationError(f"A tool with id {tool['id']!r} already exists")
         config["version"] = config.get("version") or 1

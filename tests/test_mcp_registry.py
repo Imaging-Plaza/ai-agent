@@ -16,14 +16,13 @@ for p in (ROOT, PKG_ROOT):
         sys.path.insert(0, sp)
 
 from ai_agent.agent.tools.mcp import (
-    RegistryValidationError,
     alias_is_tool_level,
+    get_tool,
     list_tool_endpoints,
     list_tools,
     reload_registry,
     resolve_catalog_alias,
     resolve_runnable_url,
-    validate_config_payload,
 )
 from ai_agent.agent.tools.mcp.registry import GRADIO_TOOLS_CONFIG_ENV
 from ai_agent.agent.tools.mcp.gradio_importer import build_tool_config_from_space_url, normalize_space_url
@@ -151,7 +150,7 @@ def test_registry_resolves_huggingface_runnable_url_variants(temp_registry) -> N
     assert hf_spaces.name == "lungs_space"
 
 
-def test_registry_rejects_alias_collisions_after_normalization() -> None:
+def test_registry_ignores_ambiguous_alias_collisions_after_normalization(temp_registry) -> None:
     payload = {
         "version": 1,
         "tools": [
@@ -168,8 +167,11 @@ def test_registry_rejects_alias_collisions_after_normalization() -> None:
         ],
     }
 
-    with pytest.raises(RegistryValidationError, match="duplicate alias"):
-        validate_config_payload(payload)
+    temp_registry(payload)
+
+    assert get_tool("first_tool", "segment") is not None
+    assert get_tool("second_tool", "segment") is not None
+    assert resolve_catalog_alias("lungs-segmentation") is None
 
 
 def test_pending_action_skips_unavailable_rank_and_uses_later_runnable_tool(temp_registry) -> None:
@@ -476,6 +478,7 @@ def test_build_tool_config_from_space_url_fetches_info_and_mcp_schema(monkeypatc
     assert tool["gradio_url"] == "https://qchapp-3d-lungs-segmentation.hf.space"
     endpoint = tool["endpoints"][0]
     assert endpoint["api_name"] == "/predict"
+    assert endpoint["catalog_aliases"] == ["qchapp_3d_lungs_segmentation_predict"]
     assert endpoint["description"] == "Run segmentation"
     assert endpoint["input_mapping"]["parameters"][0]["source"] == "session_file"
     assert endpoint["input_mapping"]["parameters"][0]["as_gradio_file"] is False
@@ -492,6 +495,54 @@ def test_build_tool_config_from_space_url_fetches_info_and_mcp_schema(monkeypatc
         "mask",
         "segmentation",
     ]
+
+
+def test_build_tool_config_from_space_url_namespaces_generic_endpoint_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def __init__(self, payload: dict | list) -> None:
+            self.payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict | list:
+            return self.payload
+
+    info = {
+        "title": "Stardist App",
+        "named_endpoints": {
+            "/process": {
+                "parameters": [{"parameter_name": "file_url", "type": {"type": "string"}}],
+            }
+        },
+    }
+    schema = [
+        {
+            "name": "stardist_app_process_api",
+            "description": "Process an image.",
+            "inputSchema": {"type": "object", "properties": {"file_url": {"type": "string"}}},
+            "meta": {"endpoint_name": "process"},
+        }
+    ]
+
+    def fake_get(url: str, timeout: float):
+        if url.endswith("/gradio_api/info"):
+            return FakeResponse(info)
+        if url.endswith("/gradio_api/mcp/schema"):
+            return FakeResponse(schema)
+        raise AssertionError(url)
+
+    monkeypatch.setattr("ai_agent.agent.tools.mcp.gradio_importer.requests.get", fake_get)
+
+    tool = build_tool_config_from_space_url("katospiegel-stardist-app.hf.space")
+
+    assert tool["endpoints"][0]["catalog_aliases"] == [
+        "stardist_app_process_api",
+        "katospiegel_stardist_app_process",
+    ]
+    assert "process" not in tool["endpoints"][0]["catalog_aliases"]
 
 
 def test_build_tool_config_from_space_url_uses_catalog_context_for_contracts(
