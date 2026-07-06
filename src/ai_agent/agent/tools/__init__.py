@@ -6,6 +6,7 @@ from .mcp import (
     get_tool,
     register_tool,
     list_tools,
+    initialize_registry,
     ensure_mcp_tools_registered,
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     "get_tool",
     "register_tool",
     "list_tools",
+    "initialize_registry",
     "ensure_tools_registered",
 ]
 
@@ -34,5 +36,5 @@ def ensure_tools_registered():
     import_module("ai_agent.agent.tools.repo_info_tool")
     import_module("ai_agent.agent.tools.gradio_space_tool")
 
-    # Import MCP tools
+    # Load config-driven Gradio tools.
     ensure_mcp_tools_registered()

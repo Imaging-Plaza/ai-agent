@@ -275,3 +275,8 @@ Before opening a PR:
 - [docs/development/structure.md](development/structure.md)
 - [AGENTS.md](../AGENTS.md)
 - [.github/copilot-instructions.md](../.github/copilot-instructions.md)
+
+
+## Configured Gradio Tools
+
+Runnable Gradio tools are configured in `src/ai_agent/config/gradio_tools.json`, or a path set with `AI_AGENT_GRADIO_TOOLS_CONFIG`. A tool represents a Gradio application and contains one or more endpoints; catalog aliases resolve to a specific endpoint before any pending Run Demo action is created. The React Custom Tools page at `/tools` adds tools from Hugging Face Space links and automatically derives endpoint metadata from Gradio `/gradio_api/info` and `/gradio_api/mcp/schema` without exposing JSON editing controls.

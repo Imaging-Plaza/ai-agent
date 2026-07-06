@@ -1,41 +1,58 @@
 # Multi-stage build:
-#   1. node:20-alpine compiles the Vite/React frontend at src/frontend
-#   2. python:3.11-slim installs the package and runs the FastAPI backend,
-#      which also serves the built bundle from /home/user/app/src/frontend/dist.
+#   1. Build the Vite/React frontend
+#   2. Install and run the FastAPI backend
 
 # ---- Stage 1: frontend build ----
 FROM node:20-alpine AS frontend-build
+
 WORKDIR /app
+
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
+
 COPY src/frontend ./
 RUN npm run build
 
-# ---- Stage 2: python runtime ----
+
+# ---- Stage 2: Python runtime ----
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential git \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        git && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -u 1000 user
-USER user
+RUN useradd --create-home --uid 1000 user
 
 ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
-WORKDIR $HOME/app
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:/home/user/.local/bin:$PATH
 
-COPY --chown=user . .
-COPY --from=frontend-build --chown=user /app/dist ./src/frontend/dist
+# Create a dedicated Python environment.
+RUN python -m venv "$VIRTUAL_ENV" && \
+    python -m pip install --upgrade pip
 
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir .
+WORKDIR /home/user/app
+
+# Copy application source as root because installation also runs as root.
+COPY . .
+
+# Copy the compiled frontend.
+COPY --from=frontend-build /app/dist ./src/frontend/dist
+
+# Remove generated host metadata, then install into /opt/venv.
+RUN rm -rf src/*.egg-info && \
+    python -m pip install --no-cache-dir . && \
+    chown -R user:user /home/user/app
+
+# Drop privileges only after installation.
+USER user
 
 EXPOSE 7860
+
 ENV PORT=7860 \
     HOST=0.0.0.0 \
     FRONTEND_DIST_DIR=src/frontend/dist
 
-# Run the FastAPI backend (which also serves the SPA). To fall back to the
-# legacy Gradio UI, override CMD: `docker run ... ai_agent chat`.
 CMD ["ai_agent", "serve"]

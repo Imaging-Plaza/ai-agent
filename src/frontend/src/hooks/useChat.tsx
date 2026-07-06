@@ -19,6 +19,24 @@ export type Recommendation = {
   demo_url: string | null;
 };
 
+export type RuntimeParameter = {
+  name: string;
+  label: string;
+  required: boolean;
+  description?: string | null;
+  default?: unknown;
+  choices?: unknown[];
+};
+
+export type EndpointOption = {
+  endpoint_id: string;
+  display_name: string;
+  description?: string | null;
+  api_name?: string | null;
+  required_inputs?: string[];
+  runtime_parameters?: RuntimeParameter[];
+};
+
 export type PendingAction = {
   type: "demo_confirm" | "tool_approval";
   tool_name: string;
@@ -27,6 +45,15 @@ export type PendingAction = {
   image_name?: string | null;
   demo_url?: string | null;
   prompt: string;
+  endpoint_id?: string | null;
+  endpoint_display_name?: string | null;
+  recommendation_name?: string | null;
+  recommendation_rank?: number | null;
+  matched_alias?: string | null;
+  api_name?: string | null;
+  required_inputs?: string[];
+  runtime_parameters?: RuntimeParameter[];
+  endpoint_options?: EndpointOption[];
 };
 
 export type AssistantTurn = {
@@ -39,7 +66,13 @@ export type AssistantTurn = {
   clarification: { question: string; options: string[] } | null;
   toolTraces: Record<string, any>[];
   imageUrls: string[];
-  files: { path: string; label: string }[];
+  files: {
+    path: string;
+    label: string;
+    asset_id?: string | null;
+    preview_url?: string | null;
+    display_name?: string | null;
+  }[];
   usage: { total: number; input: number; output: number } | null;
   status: "streaming" | "done" | "error";
   error?: string;
@@ -226,7 +259,7 @@ export function useChat() {
     [consumeStream, sessionId, updateLast]
   );
 
-  const approve = useCallback(async () => {
+  const approve = useCallback(async (params: Record<string, unknown> = {}, endpointId?: string | null) => {
     if (!sessionId) return;
     const aTurn: AssistantTurn = {
       id: `a-${Date.now()}`,
@@ -248,7 +281,11 @@ export function useChat() {
     abortRef.current = ac;
     try {
       await consumeStream(
-        streamChat(`/api/chat/${sessionId}/approve`, {}, ac.signal)
+        streamChat(
+          `/api/chat/${sessionId}/approve`,
+          { params, endpoint_id: endpointId || undefined },
+          ac.signal
+        )
       );
     } catch (e) {
       updateLast((t) => ({ ...t, status: "error", error: String(e) }));

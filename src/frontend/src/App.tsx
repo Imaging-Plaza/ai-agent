@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import ChatPage from "./pages/ChatPage";
+import CustomToolsPage from "./pages/CustomToolsPage";
 import LoginPage from "./pages/LoginPage";
 
 export default function App() {
@@ -27,6 +28,12 @@ export default function App() {
         path="/"
         element={
           state.kind === "authenticated" ? <ChatPage /> : <Navigate to="/login" replace />
+        }
+      />
+      <Route
+        path="/tools"
+        element={
+          state.kind === "authenticated" ? <CustomToolsPage /> : <Navigate to="/login" replace />
         }
       />
       <Route path="*" element={<Navigate to="/" replace />} />

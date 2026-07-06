@@ -12,7 +12,6 @@ Per-conversation state now lives in a :class:`Session` managed by the global
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Tuple
 
 from ai_agent.retriever.software_doc import SoftwareDoc
@@ -65,6 +64,10 @@ def _mirror_session(session: Session, state_dict: dict) -> ChatState:
     state_dict["pending_demo_tool"] = session.pending_demo_tool
     state_dict["pending_demo_url"] = session.pending_demo_url
     state_dict["pending_tool_approval"] = session.pending_tool_approval
+    state_dict["pending_tool_endpoint"] = session.pending_tool_endpoint
+    state_dict["pending_recommendation_name"] = session.pending_recommendation_name
+    state_dict["pending_recommendation_rank"] = session.pending_recommendation_rank
+    state_dict["pending_catalog_alias"] = session.pending_catalog_alias
     state_dict["pending_tool_params"] = dict(session.pending_tool_params)
     state_dict["last_files"] = session.last_asset_paths()
     state_dict["last_preview_path"] = (
