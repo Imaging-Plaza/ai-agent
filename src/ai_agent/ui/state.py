@@ -52,6 +52,10 @@ class ChatState:
 
     # Tool approval system
     pending_tool_approval: Optional[str] = None  # Tool name waiting for approval
+    pending_tool_endpoint: Optional[str] = None
+    pending_recommendation_name: Optional[str] = None
+    pending_recommendation_rank: Optional[int] = None
+    pending_catalog_alias: Optional[str] = None
     pending_tool_params: Dict[str, Any] = field(default_factory=dict)  # Tool parameters
     agent_result: Optional[Dict[str, Any]] = (
         None  # Cached agent result before tool execution
@@ -70,6 +74,10 @@ class ChatState:
             "last_files": self.last_files,
             "last_image_meta": self.last_image_meta,
             "pending_tool_approval": self.pending_tool_approval,
+            "pending_tool_endpoint": self.pending_tool_endpoint,
+            "pending_recommendation_name": self.pending_recommendation_name,
+            "pending_recommendation_rank": self.pending_recommendation_rank,
+            "pending_catalog_alias": self.pending_catalog_alias,
             "pending_tool_params": self.pending_tool_params,
             "agent_result": self.agent_result,
         }
@@ -90,6 +98,10 @@ class ChatState:
             last_files=d.get("last_files", []),
             last_image_meta=d.get("last_image_meta"),
             pending_tool_approval=d.get("pending_tool_approval"),
+            pending_tool_endpoint=d.get("pending_tool_endpoint"),
+            pending_recommendation_name=d.get("pending_recommendation_name"),
+            pending_recommendation_rank=d.get("pending_recommendation_rank"),
+            pending_catalog_alias=d.get("pending_catalog_alias"),
             pending_tool_params=d.get("pending_tool_params", {}),
             agent_result=d.get("agent_result"),
         )
@@ -101,7 +113,7 @@ class ChatMessage:
 
     text: str = ""
     images: List[str] = field(default_factory=list)  # file paths
-    files: List[Tuple[str, str]] = field(default_factory=list)  # (path, label)
+    files: List[Any] = field(default_factory=list)  # (path, label) or asset payload
     json_data: Optional[Dict[str, Any]] = None
     code_blocks: List[Tuple[str, str]] = field(default_factory=list)  # (lang, code)
     tool_traces: List[Dict[str, Any]] = field(default_factory=list)
@@ -120,7 +132,7 @@ class ChatMessage:
             parts.append(stats_md)
 
         # Render file links
-        for file_path, label in self.files:
+        for file_path, label in _file_links(self.files):
             if os.path.exists(file_path):
                 parts.append(f"\n📎 [{label}]({file_path})")
 
@@ -134,3 +146,17 @@ class ChatMessage:
             parts.append(f"\n```{lang}\n{code}\n```")
 
         return "\n".join(parts)
+
+
+def _file_links(files: List[Any]) -> List[Tuple[str, str]]:
+    links: List[Tuple[str, str]] = []
+    for item in files:
+        if isinstance(item, dict):
+            path = item.get("path")
+            label = item.get("label") or item.get("display_name") or "result file"
+            if path:
+                links.append((path, label))
+            continue
+        path, label = item
+        links.append((path, label))
+    return links

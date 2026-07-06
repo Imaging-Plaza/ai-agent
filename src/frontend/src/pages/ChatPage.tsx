@@ -334,7 +334,7 @@ export default function ChatPage() {
             onSessionId={chat.setSessionId}
             scrollRef={scrollRef}
             showExamples={!examplesDismissed}
-            onApprove={() => void chat.approve()}
+            onApprove={(params, endpointId) => void chat.approve(params, endpointId)}
             onDecline={() => void chat.decline()}
             onConfirmDemo={() => void chat.confirmDemo()}
             onExamplePick={(text, attachment) => {

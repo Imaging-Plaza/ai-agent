@@ -19,7 +19,7 @@ type Props = {
   /** Whether to render the example-prompts row on the empty state. Hidden
    *  after the user picks an example or resumes an old chat. */
   showExamples?: boolean;
-  onApprove: () => void;
+  onApprove: (params?: Record<string, unknown>, endpointId?: string | null) => void;
   onDecline: () => void;
   onConfirmDemo: () => void;
   onExamplePick?: (
@@ -183,6 +183,42 @@ export default function MessageList({
                         <img src={u} alt="result" />
                       </button>
                     ))}
+                  </div>
+                )}
+
+                {t.files.length > 0 && (
+                  <div className="result-files">
+                    {t.files.map((file) => {
+                      const label = file.label || file.display_name || "result file";
+                      return (
+                        <span key={file.path} className="result-file-group">
+                          {file.asset_id ? (
+                            <button
+                              type="button"
+                              className="result-file"
+                              onClick={() =>
+                                setInspectAsset({
+                                  id: file.asset_id || "",
+                                  name: file.display_name || label,
+                                  previewUrl: file.preview_url || null,
+                                })
+                              }
+                            >
+                              view {label}
+                            </button>
+                          ) : (
+                            <a className="result-file" href={file.path} download>
+                              {label}
+                            </a>
+                          )}
+                          {file.asset_id && (
+                            <a className="result-file secondary" href={file.path} download>
+                              download
+                            </a>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
 

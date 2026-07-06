@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,20 +28,31 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from ai_agent.agent.agent import run_agent
-from ai_agent.agent.tools.gradio_space_tool import RunExampleInput, tool_run_example
 from ai_agent.agent.tools.mcp import (
+    alias_is_tool_level,
+    active_config_json,
     extract_downloads,
     extract_metadata,
     extract_output_field,
     extract_preview,
     get_tool,
+    list_tool_endpoints,
+    reload_registry,
+    resolve_catalog_alias,
+    resolve_runnable_url,
+    save_config_payload,
 )
+from ai_agent.agent.tools.mcp.gradio_importer import (
+    build_tool_config_from_space_url,
+    normalize_space_url,
+)
+from ai_agent.agent.tools.mcp.registry import RegistryValidationError
 from ai_agent.retriever.software_doc import SoftwareDoc
 from ai_agent.utils.tags import parse_exclusions, strip_tags
-from ai_agent.utils.utils import _is_affirmative
+from ai_agent.utils.utils import _best_runnable_link, _is_affirmative
 
 from .files import asset_paths, ingest_files
-from .sessions import Session
+from .sessions import Asset, Session
 
 log = logging.getLogger("services.chat")
 
@@ -64,6 +76,26 @@ class Recommendation:
 
 
 @dataclass
+class RuntimeParameter:
+    name: str
+    label: str
+    required: bool = True
+    description: Optional[str] = None
+    default: Any = None
+    choices: List[Any] = field(default_factory=list)
+
+
+@dataclass
+class EndpointOption:
+    endpoint_id: str
+    display_name: str
+    description: Optional[str] = None
+    api_name: Optional[str] = None
+    required_inputs: List[str] = field(default_factory=list)
+    runtime_parameters: List[RuntimeParameter] = field(default_factory=list)
+
+
+@dataclass
 class PendingAction:
     """A turn that ends asking the user to confirm something.
 
@@ -79,6 +111,15 @@ class PendingAction:
     image_name: Optional[str] = None
     demo_url: Optional[str] = None
     prompt: str = ""
+    endpoint_id: Optional[str] = None
+    endpoint_display_name: Optional[str] = None
+    recommendation_name: Optional[str] = None
+    recommendation_rank: Optional[int] = None
+    matched_alias: Optional[str] = None
+    api_name: Optional[str] = None
+    required_inputs: List[str] = field(default_factory=list)
+    runtime_parameters: List[RuntimeParameter] = field(default_factory=list)
+    endpoint_options: List[EndpointOption] = field(default_factory=list)
 
 
 @dataclass
@@ -86,6 +127,13 @@ class Clarification:
     question: str
     context: Optional[str] = None
     options: List[str] = field(default_factory=list)
+
+
+@dataclass
+class EndpointSelection:
+    tool: Any
+    score: float
+    reason: str = ""
 
 
 @dataclass
@@ -101,7 +149,7 @@ class ChatTurnResult:
     # Extras used by Gradio rendering (preview images, downloads from a
     # tool execution turn). Empty for normal chat turns.
     images: List[str] = field(default_factory=list)
-    files: List[tuple] = field(default_factory=list)
+    files: List[Any] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +212,7 @@ def process_turn(
     # 3) Parse banlist tags out of the message
     clean_message = strip_tags(request.message or "")
     session.banlist |= set(parse_exclusions(request.message or ""))
+    prior_conversation_history = list(session.conversation_history)
     session.conversation_history.append(f"User: {clean_message}")
 
     # 4) Demo confirmation short-circuit
@@ -171,9 +220,11 @@ def process_turn(
         return _execute_pending_demo(session, request.asset_ids)
 
     if session.pending_demo_tool:
-        # Anything that isn't affirmative cancels the pending demo
-        session.pending_demo_tool = None
-        session.pending_demo_url = None
+        # Anything that isn't affirmative cancels the pending demo.
+        _clear_pending(session)
+    elif session.pending_tool_approval:
+        # A fresh user turn replaces stale approval state.
+        _clear_pending(session)
 
     # 5) Resolve attachment paths (default to last upload if none provided)
     if request.asset_ids:
@@ -218,7 +269,7 @@ def process_turn(
             image_paths=effective_paths,
             image_bytes=image_bytes,
             excluded=list(session.banlist),
-            conversation_history=session.conversation_history,
+            conversation_history=prior_conversation_history,
             model=model_name,
             base_url=base_url_override if request.model else None,
             api_key_env=api_key_env,
@@ -231,10 +282,16 @@ def process_turn(
     except Exception as e:
         return _format_runtime_error(e, session)
 
-    return _shape_agent_result(session, agent_result, doc_index, effective_paths)
+    return _shape_agent_result(
+        session, agent_result, doc_index, effective_paths, clean_message
+    )
 
 
-def approve_pending(session: Session) -> ChatTurnResult:
+def approve_pending(
+    session: Session,
+    params: Optional[Dict[str, Any]] = None,
+    endpoint_id: Optional[str] = None,
+) -> ChatTurnResult:
     """Resume a turn that ended with a ``tool_approval`` pending action.
 
     Calls the registered tool with the previously-captured parameters, then
@@ -247,16 +304,22 @@ def approve_pending(session: Session) -> ChatTurnResult:
             text="There is no pending tool approval to confirm.",
             error="no_pending_action",
         )
-    params = dict(session.pending_tool_params)
-    return _execute_registered_tool(session, tool_name, params)
+    tool_params = dict(session.pending_tool_params)
+    if endpoint_id:
+        tool_params["endpoint_id"] = endpoint_id
+        session.pending_tool_endpoint = endpoint_id
+    if params:
+        runtime_params = dict(tool_params.get("params") or {})
+        runtime_params.update(params)
+        tool_params["params"] = runtime_params
+    return _execute_registered_tool(session, tool_name, tool_params)
 
 
 def decline_pending(session: Session) -> ChatTurnResult:
     """Decline both pending demo and pending tool approval."""
     session.pending_demo_tool = None
     session.pending_demo_url = None
-    session.pending_tool_approval = None
-    session.pending_tool_params = {}
+    _clear_pending(session)
     text = "👍 Got it — I won't run that. Tell me what to try instead."
     session.conversation_history.append(f"Assistant: {text}")
     return ChatTurnResult(status="ok", text=text)
@@ -316,6 +379,7 @@ def _shape_agent_result(
     agent_result,
     doc_index: Dict[str, SoftwareDoc],
     effective_paths: List[str],
+    request_text: str = "",
 ) -> ChatTurnResult:
     """Translate an ``AgentToolSelection`` into a ``ChatTurnResult``."""
     legacy = agent_result.to_legacy_dict()
@@ -373,15 +437,27 @@ def _shape_agent_result(
             usage=usage_payload,
         )
 
-    # Recommendations path
+    # Recommendations path. New recommendation results replace stale pending actions.
+    _clear_pending(session)
     session.last_choices = {c["name"]: c for c in choices}
     for c in choices:
         if c.get("name"):
             session.banlist.add(c["name"])
 
+    enriched_choices: List[Dict[str, Any]] = []
     recommendations: List[Recommendation] = []
     for i, c in enumerate(choices, 1):
-        doc = doc_index.get(c["name"])
+        doc = _lookup_doc(doc_index, c["name"])
+        doc_runnable_links = _runnable_links_for_doc(doc)
+        demo_link = c.get("demo_link") or (
+            _best_runnable_link(doc) if doc is not None else None
+        )
+        enriched = dict(c)
+        if demo_link and not enriched.get("demo_link"):
+            enriched["demo_link"] = demo_link
+        if doc_runnable_links:
+            enriched["demo_links"] = doc_runnable_links
+        enriched_choices.append(enriched)
         recommendations.append(
             Recommendation(
                 rank=i,
@@ -389,7 +465,7 @@ def _shape_agent_result(
                 accuracy=float(c.get("accuracy", 0.0)),
                 why=c.get("why", ""),
                 doc=doc.model_dump(mode="python") if doc is not None else None,
-                demo_url=c.get("demo_link"),
+                demo_url=demo_link,
             )
         )
 
@@ -400,36 +476,13 @@ def _shape_agent_result(
     ]
     text = "\n".join(text_parts)
 
-    # Decide whether the top tool implies a pending action (registry-driven)
-    pending_action: Optional[PendingAction] = None
-    top_name = top["name"]
-    demo_url = top.get("demo_link") or ""
-    tool_config = get_tool(top_name)
-
-    if tool_config and tool_config.requires_approval:
-        image_path = effective_paths[0] if effective_paths else None
-        session.pending_tool_approval = tool_config.name
-        session.pending_tool_params = {
-            "image_path": image_path,
-            "description": f"Recommended by agent: {top.get('why', '')}",
-        }
-        pending_action = PendingAction(
-            type="tool_approval",
-            tool_name=tool_config.name,
-            display_name=tool_config.display_name,
-            icon=tool_config.icon,
-            image_name=os.path.basename(image_path) if image_path else None,
-            demo_url=demo_url or None,
-            prompt=f"Run {tool_config.display_name} on your image?",
-        )
-    elif demo_url:
-        session.pending_demo_tool = top_name
-        session.pending_demo_url = demo_url
-        pending_action = PendingAction(
-            type="demo_confirm",
-            tool_name=top_name,
-            demo_url=demo_url,
-            prompt=f"Would you like me to run the demo for {top_name}?",
+    pending_action = _select_pending_action(
+        session, enriched_choices, effective_paths, request_text
+    )
+    if pending_action and pending_action.recommendation_rank and pending_action.recommendation_rank > 1:
+        text += (
+            f"\n\nA runnable demo is available for rank {pending_action.recommendation_rank}, "
+            f"{pending_action.recommendation_name}, because higher-ranked recommendations do not have an available configured Gradio endpoint."
         )
 
     session.conversation_history.append(f"Assistant: {text}")
@@ -443,92 +496,487 @@ def _shape_agent_result(
     )
 
 
-def _execute_pending_demo(session: Session, attached_ids: List[str]) -> ChatTurnResult:
-    """Generic-demo flow (no registry entry, just a runnable demo URL)."""
-    tool_name = session.pending_demo_tool
-    demo_url = session.pending_demo_url
-    log.info("User confirmed demo run for %s", tool_name)
+def _lookup_doc(doc_index: Dict[str, SoftwareDoc], name: str) -> Optional[SoftwareDoc]:
+    doc = doc_index.get(name)
+    if doc is not None:
+        return doc
 
-    candidate_paths: List[str]
-    if attached_ids:
-        candidate_paths, _ = asset_paths(session, attached_ids)
-    else:
-        candidate_paths = session.last_asset_paths()
+    wanted = _normalize_match_text(name)
+    for key, candidate in doc_index.items():
+        if _normalize_match_text(key) == wanted:
+            return candidate
+        if _normalize_match_text(candidate.name) == wanted:
+            return candidate
+    return None
 
+
+def _runnable_links_for_doc(doc: Optional[SoftwareDoc]) -> List[str]:
+    if doc is None:
+        return []
+
+    links: List[str] = []
+
+    def add_url(item) -> None:
+        url = None
+        if isinstance(item, str):
+            url = item.strip()
+        elif isinstance(item, dict):
+            raw = item.get("url")
+            if isinstance(raw, str):
+                url = raw.strip()
+            elif isinstance(raw, list) and raw:
+                url = str(raw[0]).strip()
+        if url and url not in links:
+            links.append(url)
+
+    for item in getattr(doc, "runnable_example", None) or []:
+        add_url(item)
+    for item in getattr(doc, "has_executable_notebook", None) or []:
+        add_url(item)
+    return links
+
+
+def _clear_pending(session: Session) -> None:
     session.pending_demo_tool = None
     session.pending_demo_url = None
+    session.pending_tool_approval = None
+    session.pending_tool_endpoint = None
+    session.pending_recommendation_name = None
+    session.pending_recommendation_rank = None
+    session.pending_catalog_alias = None
+    session.pending_tool_params = {}
 
-    if not candidate_paths:
-        text = "⚠️ No files available. Please upload an image first."
-        session.conversation_history.append(f"Assistant: {text}")
-        return ChatTurnResult(status="error", text=text, error="no_attachments")
 
-    # Prefer TIFF if any
-    pick = next(
-        (
-            p
-            for p in candidate_paths
-            if os.path.splitext(p)[1].lower() in (".tif", ".tiff")
-        ),
-        candidate_paths[0],
-    )
+def _select_pending_action(
+    session: Session,
+    choices: List[Dict[str, Any]],
+    effective_paths: List[str],
+    request_text: str = "",
+) -> Optional[PendingAction]:
+    image_path = effective_paths[0] if effective_paths else None
+    for rank, choice in enumerate(choices, 1):
+        alias = choice.get("name") or ""
+        tool_config = resolve_catalog_alias(alias)
+        matched_alias = alias
+        endpoint_selection_alias = alias
+        runnable_links = [
+            link
+            for link in [choice.get("demo_link"), *(choice.get("demo_links") or [])]
+            if isinstance(link, str) and link.strip()
+        ]
+        if not tool_config:
+            tool_config, matched_link = _resolve_or_import_runnable_tool(runnable_links)
+            if tool_config and matched_link:
+                matched_alias = matched_link
+            endpoint_selection_alias = tool_config.name if tool_config else alias
+        if not tool_config or not tool_config.endpoint:
+            continue
+        endpoint_selection = _select_endpoint_for_choice(
+            tool_config=tool_config,
+            alias=endpoint_selection_alias,
+            choice=choice,
+            request_text=request_text,
+            file_count=len(effective_paths),
+        )
+        tool_config = endpoint_selection.tool
+        if not tool_config.is_runnable():
+            continue
+        if _required_file_count(tool_config) > len(effective_paths):
+            continue
+        required_inputs = _required_inputs_for_tool(tool_config)
+        runtime_parameters = _runtime_parameters_for_tool(tool_config)
+        if required_inputs and not image_path:
+            continue
+        endpoint_id = tool_config.endpoint.id
+        endpoint_options = _endpoint_options_for_tool(
+            tool_config.name,
+            selected_endpoint_id=endpoint_id,
+            file_count=len(effective_paths),
+        )
+        session.pending_tool_approval = tool_config.name
+        session.pending_tool_endpoint = endpoint_id
+        session.pending_recommendation_name = alias
+        session.pending_recommendation_rank = rank
+        session.pending_catalog_alias = matched_alias
+        session.pending_tool_params = {
+            "endpoint_id": endpoint_id,
+            "image_path": image_path,
+            "image_paths": list(effective_paths),
+            "description": f"Recommended by agent: {choice.get('why', '')}",
+        }
+        approval = tool_config.endpoint.approval
+        prompt = approval.message or f"Run {tool_config.endpoint.display_name} on your image?"
+        return PendingAction(
+            type="tool_approval",
+            tool_name=tool_config.name,
+            display_name=tool_config.display_name,
+            icon=tool_config.icon,
+            image_name=os.path.basename(image_path) if image_path else None,
+            demo_url=tool_config.gradio_url,
+            prompt=prompt,
+            endpoint_id=endpoint_id,
+            endpoint_display_name=tool_config.endpoint.display_name,
+            recommendation_name=alias,
+            recommendation_rank=rank,
+            matched_alias=matched_alias,
+            api_name=tool_config.api_name,
+            required_inputs=required_inputs,
+            runtime_parameters=runtime_parameters,
+            endpoint_options=endpoint_options,
+        )
+    return None
 
-    text = f"🚀 Running demo for **{tool_name}**...\n\n"
-    images: List[str] = []
-    files: List[tuple] = []
-    try:
-        demo_result = tool_run_example(
-            RunExampleInput(
-                tool_name=tool_name,
-                image_path=pick,
-                endpoint_url=demo_url or None,
+
+def _resolve_or_import_runnable_tool(
+    runnable_links: List[str],
+) -> tuple[Optional[Any], Optional[str]]:
+    for link in runnable_links:
+        tool_config = resolve_runnable_url(link)
+        if tool_config:
+            return tool_config, link
+
+    for link in runnable_links:
+        try:
+            # Filters out GitHub, notebooks, and other non-Space links.
+            normalize_space_url(link)
+        except RegistryValidationError:
+            continue
+        try:
+            _import_gradio_space_link(link)
+        except RegistryValidationError as exc:
+            log.info("Could not auto-import catalog runnable Space %s: %s", link, exc)
+            continue
+        except Exception:
+            log.exception("Unexpected failure auto-importing catalog runnable Space %s", link)
+            continue
+        tool_config = resolve_runnable_url(link)
+        if tool_config:
+            return tool_config, link
+    return None, None
+
+
+def _import_gradio_space_link(link: str) -> None:
+    base_url, _, _ = normalize_space_url(link)
+    tool = build_tool_config_from_space_url(link)
+    config = active_config_json()
+    existing_tools = list(config.get("tools") or [])
+    for item in existing_tools:
+        if not isinstance(item, dict):
+            continue
+        if item.get("id") == tool["id"]:
+            return
+        existing_url = str(item.get("gradio_url") or "")
+        try:
+            existing_base_url, _, _ = normalize_space_url(existing_url)
+        except RegistryValidationError:
+            existing_base_url = existing_url.rstrip("/")
+        if existing_base_url.rstrip("/") == base_url.rstrip("/"):
+            return
+    config["version"] = config.get("version") or 1
+    config["tools"] = [*existing_tools, tool]
+    path = save_config_payload(config)
+    reload_registry(path)
+
+
+def _required_inputs_for_tool(tool_config) -> List[str]:
+    if not tool_config.endpoint:
+        return []
+    return [
+        p.name
+        for p in tool_config.endpoint.input_mapping.parameters
+        if p.required and p.source in ("session_file", "image_path")
+    ]
+
+
+def _runtime_parameters_for_tool(tool_config) -> List[RuntimeParameter]:
+    if not tool_config.endpoint:
+        return []
+    return [
+        RuntimeParameter(
+            name=p.param or p.name,
+            label=p.name.replace("_", " ").strip().title(),
+            required=p.required,
+            description=_parameter_description(p),
+            default=p.value,
+            choices=_parameter_choices(p),
+        )
+        for p in tool_config.endpoint.input_mapping.parameters
+        if p.source == "param"
+    ]
+
+
+def _endpoint_options_for_tool(
+    tool_name: str,
+    *,
+    selected_endpoint_id: Optional[str],
+    file_count: int,
+) -> List[EndpointOption]:
+    options: List[EndpointOption] = []
+    for candidate in list_tool_endpoints(tool_name):
+        if not candidate.endpoint or not candidate.is_runnable():
+            continue
+        if _required_file_count(candidate) > file_count:
+            continue
+        options.append(
+            EndpointOption(
+                endpoint_id=candidate.endpoint.id,
+                display_name=candidate.endpoint.display_name,
+                description=candidate.endpoint.description,
+                api_name=candidate.api_name,
+                required_inputs=_required_inputs_for_tool(candidate),
+                runtime_parameters=_runtime_parameters_for_tool(candidate),
             )
         )
-        if demo_result.ran and (demo_result.result_preview or demo_result.result_image):
-            preview_path = demo_result.result_preview or demo_result.result_image
-            text += "✅ Demo completed!\n\n"
-            images.append(preview_path)
-            if demo_result.result_origin:
-                files.append((demo_result.result_origin, "Download result"))
-        else:
-            note = demo_result.notes or "No output image returned"
-            text += f"ℹ️ Demo ran but {note}"
+    if selected_endpoint_id and not any(o.endpoint_id == selected_endpoint_id for o in options):
+        selected = get_tool(tool_name, selected_endpoint_id)
+        if selected and selected.endpoint and selected.is_runnable():
+            options.insert(
+                0,
+                EndpointOption(
+                    endpoint_id=selected.endpoint.id,
+                    display_name=selected.endpoint.display_name,
+                    description=selected.endpoint.description,
+                    api_name=selected.api_name,
+                    required_inputs=_required_inputs_for_tool(selected),
+                    runtime_parameters=_runtime_parameters_for_tool(selected),
+                ),
+            )
+    return options
 
-        session.tool_calls.append(
-            {
-                "tool": "run_example",
-                "tool_name": tool_name,
-                "ran": demo_result.ran,
-                "endpoint_url": demo_result.endpoint_url,
-                "timestamp": datetime.now().isoformat(),
-            }
+
+def _select_endpoint_for_choice(
+    *,
+    tool_config,
+    alias: str,
+    choice: Dict[str, Any],
+    request_text: str,
+    file_count: int,
+) -> EndpointSelection:
+    if not alias_is_tool_level(alias, tool_config):
+        return EndpointSelection(tool=tool_config, score=999.0, reason="endpoint alias")
+
+    candidates = [
+        t
+        for t in list_tool_endpoints(tool_config.name)
+        if t.endpoint and t.is_runnable() and _required_file_count(t) <= file_count
+    ]
+    if len(candidates) <= 1:
+        return EndpointSelection(
+            tool=candidates[0] if candidates else tool_config,
+            score=0.0,
+            reason="single endpoint",
         )
-    except Exception as e:
-        log.exception("Demo execution failed")
-        text += f"❌ Error: {e}"
 
-    session.conversation_history.append(f"Assistant: {text}")
-    return ChatTurnResult(
-        status="tool_executed", text=text, images=images, files=files
+    text = " ".join(
+        str(x or "")
+        for x in (
+            request_text,
+            choice.get("why"),
+            choice.get("context"),
+            choice.get("name"),
+        )
     )
+    scored = sorted(
+        (
+            EndpointSelection(
+                tool=candidate,
+                score=_score_endpoint(candidate, text, file_count),
+                reason="request match",
+            )
+            for candidate in candidates
+        ),
+        key=lambda item: item.score,
+        reverse=True,
+    )
+    best = scored[0]
+    runner_up = scored[1].score if len(scored) > 1 else 0.0
+    default_id = tool_config.endpoint_id
+
+    if best.score >= 2.0 and best.score - runner_up >= 0.75:
+        return best
+    if default_id:
+        default = next((c for c in candidates if c.endpoint_id == default_id), None)
+        if default:
+            return EndpointSelection(tool=default, score=0.0, reason="default endpoint")
+    return best
+
+
+def _score_endpoint(tool_config, request_text: str, file_count: int) -> float:
+    endpoint = tool_config.endpoint
+    if not endpoint:
+        return 0.0
+    text = _normalize_match_text(request_text)
+    corpus = _endpoint_match_corpus(tool_config)
+    score = 0.0
+
+    request_tokens = _tokenize_for_match(text)
+    corpus_tokens = _tokenize_for_match(corpus)
+    score += len(request_tokens & corpus_tokens) * 0.4
+
+    for alias in endpoint.catalog_aliases:
+        alias_text = _normalize_match_text(alias)
+        if alias_text and alias_text in text:
+            score += 3.0
+
+    endpoint_key = _normalize_match_text(
+        " ".join([endpoint.id, endpoint.display_name, endpoint.description or ""])
+    )
+    if any(p in text for p in ("frame to frame", "frame-to-frame", "moving frame")):
+        if "frame" in endpoint_key:
+            score += 4.0
+        if "stack" in endpoint_key and "frame" not in endpoint.id:
+            score -= 1.0
+
+    if any(
+        p in text
+        for p in (
+            "reference stack",
+            "moving stack",
+            "separate reference",
+            "external reference",
+            "stack to stack",
+            "stack-to-stack",
+        )
+    ):
+        if "reference" in endpoint_key or "stack to stack" in endpoint_key:
+            score += 4.0
+        if "intra" in endpoint_key:
+            score -= 2.0
+
+    if any(
+        p in text
+        for p in (
+            "same stack",
+            "single stack",
+            "within stack",
+            "within the stack",
+            "intra stack",
+            "intra-stack",
+            "stabilize stack",
+            "drift correct",
+            "drift correction",
+        )
+    ):
+        if "intra" in endpoint_key or "within" in endpoint_key:
+            score += 4.0
+        if "reference" in endpoint_key and file_count < 2:
+            score -= 1.0
+
+    if file_count >= 2:
+        if _required_file_count(tool_config) >= 2:
+            score += 1.5
+    elif _required_file_count(tool_config) > file_count:
+        score -= 5.0
+
+    return score
+
+
+def _endpoint_match_corpus(tool_config) -> str:
+    endpoint = tool_config.endpoint
+    gradio = tool_config.gradio
+    if not endpoint:
+        return ""
+    parts: List[str] = [
+        tool_config.name,
+        tool_config.display_name,
+        endpoint.id,
+        endpoint.display_name,
+        endpoint.description or "",
+        endpoint.api_name or "",
+        " ".join(endpoint.catalog_aliases),
+    ]
+    if gradio:
+        parts.extend([gradio.description or "", " ".join(gradio.catalog_aliases)])
+    for param in endpoint.input_mapping.parameters:
+        parts.extend([param.name, param.source, str(param.param or ""), str(param.value or "")])
+    return _normalize_match_text(" ".join(parts))
+
+
+def _required_file_count(tool_config) -> int:
+    endpoint = tool_config.endpoint
+    if not endpoint:
+        return 0
+    required_indices = [
+        p.file_index
+        for p in endpoint.input_mapping.parameters
+        if p.required and p.source in ("session_file", "image_path")
+    ]
+    return max(required_indices) + 1 if required_indices else 0
+
+
+def _parameter_description(param) -> Optional[str]:
+    metadata = getattr(param, "metadata", None)
+    if isinstance(metadata, dict):
+        value = metadata.get("description")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _parameter_choices(param) -> List[Any]:
+    metadata = getattr(param, "metadata", None)
+    if not isinstance(metadata, dict):
+        return []
+    raw = metadata.get("choices") or metadata.get("enum") or metadata.get("options") or []
+    if not isinstance(raw, list):
+        return []
+    choices: List[Any] = []
+    seen: set[str] = set()
+    for value in raw:
+        key = str(value)
+        if key not in seen:
+            seen.add(key)
+            choices.append(value)
+    return choices
+
+
+def _normalize_match_text(value: str) -> str:
+    return " ".join((value or "").replace("_", " ").replace("-", " ").casefold().split())
+
+
+def _tokenize_for_match(value: str) -> set[str]:
+    stop = {
+        "a",
+        "an",
+        "and",
+        "for",
+        "from",
+        "in",
+        "my",
+        "of",
+        "on",
+        "the",
+        "to",
+        "with",
+    }
+    return {t for t in re.findall(r"[a-z0-9]+", value) if len(t) > 2 and t not in stop}
+
+
+def _execute_pending_demo(session: Session, attached_ids: List[str]) -> ChatTurnResult:
+    """Legacy generic-demo state is no longer executable outside configured Gradio endpoints."""
+    _clear_pending(session)
+    text = "No configured runnable Gradio endpoint is pending."
+    session.conversation_history.append(f"Assistant: {text}")
+    return ChatTurnResult(status="ok", text=text)
 
 
 def _execute_registered_tool(
     session: Session, tool_name: str, params: Dict[str, Any]
 ) -> ChatTurnResult:
     """Execute a registered tool that gated on user approval."""
-    tool_config = get_tool(tool_name)
+    endpoint_for_execution = params.get("endpoint_id") or session.pending_tool_endpoint
+    tool_config = get_tool(tool_name, endpoint_for_execution) if endpoint_for_execution else get_tool(tool_name)
     if not tool_config:
         text = f"❌ Error: Unknown tool '{tool_name}'"
-        session.pending_tool_approval = None
-        session.pending_tool_params = {}
+        _clear_pending(session)
         session.conversation_history.append(f"Assistant: {text}")
         return ChatTurnResult(status="error", text=text, error="unknown_tool")
 
     started = time.time()
     text = f"{tool_config.icon} Running {tool_config.display_name}...\n\n"
     images: List[str] = []
-    files: List[tuple] = []
+    files: List[Dict[str, Any]] = []
+    artifact_assets: Dict[str, Asset] = {}
     try:
         # Backfill missing image path from last upload
         if "image_path" in params and not params["image_path"]:
@@ -536,7 +984,15 @@ def _execute_registered_tool(
             if paths:
                 params["image_path"] = paths[0]
 
-        input_obj = tool_config.input_model(**params)
+        endpoint_id = endpoint_for_execution or tool_config.endpoint_id
+        input_obj = tool_config.input_model(
+            tool_id=tool_config.name,
+            endpoint_id=endpoint_id,
+            image_path=params.get("image_path"),
+            image_paths=params.get("image_paths", []),
+            description=params.get("description"),
+            params=params.get("params", {}),
+        )
         result = tool_config.executor(input_obj)
 
         success = extract_output_field(result, tool_config.success_field)
@@ -549,6 +1005,10 @@ def _execute_registered_tool(
         session.tool_calls.append(
             {
                 "tool": tool_name,
+                "endpoint": params.get("endpoint_id") or session.pending_tool_endpoint,
+                "recommendation": session.pending_recommendation_name,
+                "recommendation_rank": session.pending_recommendation_rank,
+                "matched_alias": session.pending_catalog_alias,
                 "success": success,
                 "compute_time_seconds": compute_time_seconds,
                 "error": error,
@@ -561,10 +1021,26 @@ def _execute_registered_tool(
             text += f"✅ {tool_config.display_name} completed!\n\n"
             preview_path = extract_preview(result, tool_name)
             if preview_path and os.path.exists(preview_path):
-                images.append(preview_path)
+                asset = _register_tool_artifact(session, preview_path)
+                if asset and asset.preview_path:
+                    artifact_assets[preview_path] = asset
+                    images.append(_asset_preview_url(asset))
             for dp in extract_downloads(result, tool_name):
                 if os.path.exists(dp):
-                    files.append((dp, f"Download {tool_config.display_name} result"))
+                    asset = artifact_assets.get(dp) or _register_tool_artifact(session, dp)
+                    if asset:
+                        artifact_assets[dp] = asset
+                        files.append(
+                            {
+                                "path": _asset_raw_url(asset),
+                                "label": f"{tool_config.display_name} result",
+                                "asset_id": asset.asset_id,
+                                "preview_url": _asset_preview_url(asset)
+                                if asset.preview_path
+                                else None,
+                                "display_name": asset.display_name,
+                            }
+                        )
             metadata = extract_metadata(result, tool_name)
             if metadata:
                 text += f"_{metadata}_\n\n"
@@ -578,8 +1054,7 @@ def _execute_registered_tool(
         log.exception("Tool %s execution failed", tool_name)
         text += f"❌ Error: {e}\n\n"
 
-    session.pending_tool_approval = None
-    session.pending_tool_params = {}
+    _clear_pending(session)
     elapsed = time.time() - started
     log.info("Tool %s finished in %.2fs", tool_name, elapsed)
     session.conversation_history.append(f"Assistant: {text}")
@@ -588,11 +1063,42 @@ def _execute_registered_tool(
     )
 
 
+def _register_tool_artifact(session: Session, path: str) -> Optional[Asset]:
+    """Register a tool output for API serving without changing active inputs."""
+    previous_last_asset_ids = list(session.last_asset_ids)
+    result = None
+    try:
+        result = ingest_files(session, [path])
+    except Exception:
+        log.exception("Tool artifact registration failed for %s", path)
+        return None
+    finally:
+        session.last_asset_ids = previous_last_asset_ids
+        session.touch()
+    if result.validation_errors:
+        log.warning(
+            "Tool artifact validation failed for %s: %s",
+            path,
+            result.validation_errors,
+        )
+    return result.assets[0] if result.assets else None
+
+
+def _asset_preview_url(asset: Asset) -> str:
+    return f"/api/files/preview/{asset.asset_id}"
+
+
+def _asset_raw_url(asset: Asset) -> str:
+    return f"/api/files/asset/{asset.asset_id}/raw"
+
+
 __all__ = [
     "ChatRequest",
     "ChatTurnResult",
     "Clarification",
+    "EndpointOption",
     "PendingAction",
+    "RuntimeParameter",
     "Recommendation",
     "approve_pending",
     "decline_pending",

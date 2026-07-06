@@ -57,6 +57,8 @@ def _best_runnable_link(doc: SoftwareDoc) -> Optional[str]:
         return 100.0  # neutral base
 
     def extract_url(item) -> Optional[str]:
+        if isinstance(item, str):
+            return item.strip()
         url = item.get("url")
         if isinstance(url, list) and url:
             return url[0].strip()
@@ -66,7 +68,7 @@ def _best_runnable_link(doc: SoftwareDoc) -> Optional[str]:
 
     def host_bonus(u: str) -> float:
         lu = u.lower()
-        if "huggingface.co/spaces" in lu or lu.startswith("https://hf.space"):
+        if "huggingface.co/spaces" in lu or ".hf.space" in lu or lu.startswith("https://hf.space"):
             return -60.0
         if "gradio.live" in lu:
             return -40.0

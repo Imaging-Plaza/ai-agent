@@ -371,7 +371,9 @@ def run_agent(
         )
     hidden_meta += f"\n(Search top_k: {effective_top_k})"
 
-    extra_context = "\n\n**CRITICAL: Analyze the attached preview image showing the user's data.**\nUse visual observations (anatomy visible, image quality, dimensionality, contrast) combined with the metadata below to recommend tools. Reference what you see in your explanations."
+    extra_context = ""
+    if image_bytes:
+        extra_context = "\n\n**CRITICAL: Analyze the attached preview image showing the user's data.**\nUse visual observations (anatomy visible, image quality, dimensionality, contrast) combined with the metadata below to recommend tools. Reference what you see in your explanations."
 
     # ---- 4) Build the prompt (optionally including history) ----------------
     if conversation_history and len(conversation_history) > 0:

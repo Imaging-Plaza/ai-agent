@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ai_agent.agent.tools import ensure_tools_registered
 from ai_agent.api.deps import get_pipeline
-from ai_agent.api.routers import auth, catalog, chat, files, health, models
+from ai_agent.api.routers import auth, catalog, chat, files, gradio_tools, health, models
 
 log = logging.getLogger("api.server")
 
@@ -49,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(models.router)
     app.include_router(catalog.router)
     app.include_router(files.router)
+    app.include_router(gradio_tools.router)
     app.include_router(chat.router)
 
     @app.on_event("startup")

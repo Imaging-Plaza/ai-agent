@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import {
   useConversations,
   type StoredConversation,
@@ -27,6 +28,7 @@ export default function Sidebar({ onPick, onNewChat, onOpenGallery }: Props) {
     rect: DOMRect;
   } | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   async function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -71,6 +73,12 @@ export default function Sidebar({ onPick, onNewChat, onOpenGallery }: Props) {
             ▦
           </span>
           <span>gallery</span>
+        </button>
+        <button className="btn-sidebar-link" onClick={() => navigate("/tools")}>
+          <span className="btn-sidebar-link-icon" aria-hidden>
+            T
+          </span>
+          <span>tools</span>
         </button>
       </div>
 
