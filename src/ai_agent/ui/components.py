@@ -15,7 +15,7 @@ from .visualizations import (
     create_disabled_tools_display,
 )
 from .utils import get_available_models, get_default_model_display_name
-from .state import format_stats_markdown
+from .state import _file_links, format_stats_markdown
 
 log = logging.getLogger("chat_components")
 
@@ -373,7 +373,7 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
                 # Add file links
                 if reply.files:
                     text_content += "\n\n" + "\n".join(
-                        [f"📎 [{label}]({path})" for path, label in reply.files]
+                        [f"📎 [{label}]({path})" for path, label in _file_links(reply.files)]
                     )
 
                 # Add JSON
@@ -414,7 +414,9 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
 
                 # Extract downloadable files
                 downloaded_files = (
-                    [path for path, _label in reply.files] if reply.files else None
+                    [path for path, _label in _file_links(reply.files)]
+                    if reply.files
+                    else None
                 )
 
                 # Determine button visibility and label using registry
@@ -506,7 +508,9 @@ def create_chat_interface(doc_index: Dict[str, SoftwareDoc]):
 
             # Extract downloadable files
             downloaded_files = (
-                [path for path, _label in reply.files] if reply.files else None
+                [path for path, _label in _file_links(reply.files)]
+                if reply.files
+                else None
             )
 
             # Update state and hide button

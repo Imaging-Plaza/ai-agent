@@ -28,6 +28,31 @@ uv pip install -e .
 uv pip install -e ".[dev]"
 ```
 
+## Agent Safety Constraints
+
+### Secrets and Credentials
+- Never read `.env`, `.env.*`, secret files, private keys, credentials, or token files.
+- Treat environment and secret files as off-limits, even if they exist in the repository.
+- If configuration values are needed, ask the user to provide specific non-sensitive values or use documented examples.
+- Ask for approval before running commands outside the repository.
+
+### Git Operations
+- Do not run `git commit`, `git push`, `git tag`, or modify git remotes unless the user explicitly requests it.
+- Present proposed git commands instead of executing them.
+- Leave changes unstaged unless the task specifically asks for staging.
+
+### Env
+- Use `env/Scripts/activate` as default interpreter
+- Do not delete `env`
+
+Example commands to suggest:
+
+```bash
+git add <files>
+git commit -m "Describe the change"
+git push
+```
+
 ## Command Truth
 
 Use these commands as the current baseline:

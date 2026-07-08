@@ -194,6 +194,16 @@ Agent: This demo has additional parameters. Please visit the link to configure:
 - Post-processing: enabled
 ```
 
+
+
+## Configured Gradio Execution
+
+Automatic execution is limited to configured Gradio endpoints. A recommendation is runnable only when its catalog alias resolves to an enabled tool and an enabled endpoint with a valid Gradio `api_name`, valid input mappings, and the required current input.
+
+The agent keeps the highest-ranked recommendation as the primary recommendation. It then checks recommendations in rank order for the first runnable configured endpoint. If rank one has no runnable endpoint but rank two does, the UI offers rank two as an alternative demo and explains why. It never falls back to an unrelated endpoint in the same Gradio app unless that endpoint belongs to another ranked recommendation.
+
+If no ranked recommendation resolves to a runnable endpoint, recommendations are still shown normally, but no pending action is created and no Run Demo prompt is emitted.
+
 ## Demo Execution Best Practices
 
 !!! tip "Check Compatibility First"

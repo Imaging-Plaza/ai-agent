@@ -2,6 +2,55 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Configuration-driven Gradio tool registry loaded from `src/ai_agent/config/gradio_tools.json`, overridable with `AI_AGENT_GRADIO_TOOLS_CONFIG`.
+- Endpoint-aware Gradio execution with JSON-defined input/output mappings, approval metadata, safe downloads, previews, and alias validation.
+- Authenticated `/api/gradio-tools` endpoints and a React `/tools` Custom Tools page for listing configured Gradio tools.
+- Link-based Custom Tools import that accepts `user-tool.hf.space`, `huggingface.co/user/tool`, or `huggingface.co/spaces/user/tool` and derives tool metadata from Gradio `/gradio_api/info` and `/gradio_api/mcp/schema`.
+- Runtime parameter prompts in the Run Tool approval panel for endpoint inputs that must be provided by the user.
+- Run Tool approval can now match recommendations to configured Gradio tools through the catalog `runnableExample` URL, including equivalent `hf.space` and `huggingface.co` Space links.
+- Dropdown controls for runtime tool parameters that declare `metadata.choices`, including PyStackReg transformation modes.
+- Request-aware endpoint selection for multi-endpoint Gradio tools, plus a configured PyStackReg tool with intra-stack, stack-to-stack reference, and frame-to-frame alignment endpoints.
+- Endpoint selection in the Run Tool approval panel so users can switch between runnable endpoints from the same Gradio Space before execution.
+
+### Fixed
+- Recommendation demo offers now scan ranked recommendations for the first runnable configured endpoint and avoid creating stale pending actions when no endpoint is runnable.
+- Configured Gradio tools now appear in MCP registry listings even when they have a default endpoint.
+- Gradio endpoint success fields now parse common string boolean values such as `"false"` and `"0"` correctly.
+- Chat turns now pass only prior conversation history to the agent, preventing the current request from appearing twice in the prompt.
+- Text-only agent requests no longer include image-preview analysis instructions.
+- Endpoint-specific MCP aliases now wait for all required uploaded files before creating a tool approval.
+- Catalog runnable-example bridging now tolerates recommendation/catalog name casing differences and checks every runnable URL on the catalog entry before giving up.
+- Catalog Hugging Face Space runnable examples are now auto-imported into the Gradio tool registry when a recommendation needs a runnable bridge but the Space has not been manually added yet.
+- Optional Gradio endpoint parameters are no longer sent as `None` for keyword calls, preserving valid `0` inputs while letting the upstream app apply its own defaults.
+- MCP-style string file inputs now upload local files to the Gradio Space and pass the app file URL, fixing PyStackReg endpoints that expect a path or HTTP URL instead of FileData.
+- Gradio endpoints that return a successful but undownloadable string path are now reported as completed with metadata instead of a failed execution.
+- Tool result files now keep registered asset metadata so downloadable outputs can open in the same viewer used for uploaded files.
+- Successful Gradio endpoints that return inaccessible server-local output paths now explain that the Space must expose the file through a File/FileData output or `allowed_paths`.
+- PyStackReg execution now calls the Space's file-returning UI endpoints for configured runnable actions so successful runs register real TIFF outputs and previews instead of private `/tmp/psr_cache` paths.
+
+### Changed
+- The React `/tools` page no longer exposes JSON editing/import/export controls to users; custom tools are added through the HF Space link workflow.
+- Replaced all in-memory caches (image metadata, preview, repo info) with a
+  shared SQLite-backed `CacheDB` (`utils/cache_db.py`).  Caches now survive
+  short process restarts and share a single on-disk file in Python's temp
+  directory (`tempfile.gettempdir()`), named `ai_agent_cache{_uid}.db`
+  (for example, `/tmp/ai_agent_cache_1000.db`), overridable via
+  `CACHE_DB_PATH`.
+
+### Added
+- `utils/shutdown.py`: background cleanup thread that runs immediately on
+  startup and then every `CLEANUP_INTERVAL_SECONDS` (default 7200 s):
+  - Sweeps expired rows from the cache DB.
+  - Deletes log files under `LOG_DIR` older than `LOG_RETENTION_DAYS`
+    (default 7 days); only `app_*.log*` files are touched.
+- `atexit` hook performs a final VACUUM + connection close on process exit.
+- New env vars: `CACHE_DB_PATH`, `CLEANUP_INTERVAL_SECONDS`, `LOG_RETENTION_DAYS`.
+
+---
+
 ## [1.0.0]
 
 ### 🚀 Major Features
