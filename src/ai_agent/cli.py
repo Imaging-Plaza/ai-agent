@@ -77,6 +77,36 @@ def _background_refresh():
     t.start()
 
 
+def _startup_sync_async():
+    """Run the initial catalog sync + index reload in a daemon thread so it never
+    blocks server/UI startup. The app comes up immediately (serving whatever
+    index already exists, if any); recommendations populate once the potentially
+    slow remote embedding finishes."""
+
+    def _run():
+        try:
+            res = sync_once()
+            log.info(
+                "[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path")
+            )
+            if res.get("changed"):
+                get_pipeline, refresh_ui_docs_from_index, _, _ = _ui_funcs()
+                if get_pipeline().reload_index():
+                    log.info("[startup-sync] reloaded FAISS index")
+                    try:
+                        refresh_ui_docs_from_index()
+                    except Exception:
+                        pass
+                else:
+                    log.warning("[startup-sync] reload failed; keeping current index")
+            else:
+                log.info("[startup-sync] catalog unchanged; keeping current index")
+        except Exception:
+            log.exception("[startup-sync] failed")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 # --------------------------- custom tasks ---------------------------
 def run_chat():
     """Launch the chat-based UI."""
@@ -85,28 +115,15 @@ def run_chat():
         ensure_logging_initialized()
         _register_shutdown_hooks()
 
-        res = sync_once()
-        log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
-
-        get_pipeline, refresh_ui_docs_from_index, launch, _ = _ui_funcs()
-
-        # Initialize pipeline
-        pipe = get_pipeline()
-
-        if res.get("changed"):
-            ok = pipe.reload_index()
-            if ok:
-                log.info("[startup-refresh] reloaded FAISS index")
-                refresh_ui_docs_from_index()
-            else:
-                log.warning("[startup-refresh] reload failed; serving previous index")
-        else:
-            log.info(
-                "[startup-refresh] catalog unchanged; keeping existing FAISS index"
-            )
+        # Bring up the pipeline against any existing on-disk index without
+        # blocking on a remote catalog sync (that runs in the background below),
+        # so the UI is available immediately even on a cold start.
+        get_pipeline, _, _, _ = _ui_funcs()
+        get_pipeline()
     except Exception:
-        log.exception("[startup-sync] failed")
+        log.exception("[startup] pipeline init failed")
 
+    _startup_sync_async()
     _background_refresh()
 
     try:
@@ -131,14 +148,11 @@ def run_serve():
     """Launch the FastAPI backend with uvicorn.
 
     The FastAPI app reuses the same pipeline singleton as the Gradio path,
-    so a one-time catalog sync at startup keeps both surfaces consistent.
+    so a one-time catalog sync keeps both surfaces consistent. That sync runs in
+    a background thread so uvicorn binds the port immediately (a cold sync embeds
+    the whole catalog remotely and can take minutes).
     """
-    try:
-        res = sync_once()
-        log.info("[startup-sync] %s → %s", res.get("count", "?"), res.get("jsonl_path"))
-    except Exception:
-        log.exception("[startup-sync] failed")
-
+    _startup_sync_async()
     _background_refresh()
 
     import uvicorn
